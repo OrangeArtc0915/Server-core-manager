@@ -4,6 +4,8 @@
 
 Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。本工具把「补全图形环境 → 添加程序 → 启动并排障」做成一键操作，并且自带图形界面。
 
+项目主页（介绍、截图、实测数据）：**https://orangeartc0915.github.io/Server-core-manager/**
+
 ---
 
 ## 下载哪个文件
@@ -13,6 +15,8 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。�
 | **`ServerCoreManager.zip`** | 压缩包安装用。**就下这个**（固定名字，`install.ps1` 也是按这个名字取） |
 | `ServerCoreManager-v1.0.0.zip` | 内容相同，只是文件名带版本号，方便留档 |
 | `Source code (zip/tar.gz)` | GitHub 自动生成的源码包，普通用户不需要 |
+
+两个 zip 内容完全一致，35 个文件，解压后直接可用。
 
 ---
 
@@ -91,6 +95,17 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 4. **不是远程桌面方案的替代品** —— 本工具是在 Server Core 本机补齐图形能力，程序在本机渲染。想让无头机器上的 GUI 通过网络传输画面，属于另一个方向。
 5. **Electron 程序用不上 GPU 加速**，只能走软件渲染，所以建议带禁用 GPU 的参数。这是 Server Core 的客观限制。
 6. FOD 从 Windows Update 下载**体积较大且对网络敏感**，可能失败；工具内置常见错误码的中文处置建议。
+
+---
+
+## 如果下载不通
+
+`raw.githubusercontent.com` 在部分网络下（尤其是国内）会连不上，或者被本地加速器缓存住、一直返回旧版本。遇到这种情况：
+
+1. **别用一行命令，直接下载本页的 `ServerCoreManager.zip`**。解压后以管理员身份运行 `一键运行.bat`，功能与一行安装完全一样。
+2. 或者把 `install.ps1` 存成本地文件再运行，通过环境变量传参（`$env:SCM_DEST` 等）。
+
+已经装过旧版本的话，重新下载 zip 覆盖解压也是升级方式，不会动你已有的程序列表、日志和断点状态。
 
 ---
 
