@@ -1,6 +1,15 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
   Server Core Manager —— 命令行一行安装
+
+  ⚠ 本文件【绝对不能】带 UTF-8 BOM。
+  实测：irm 会把 BOM 当成正文的第一个字符，于是 `#Requires` 不再被识别为语句，
+  解析会在下面的 [CmdletBinding()] 处直接报 "Unexpected attribute 'CmdletBinding'"，
+  也就是说「命令行一行安装」这条主推路径会当场失效。别顺手给它加 BOM。
+
+  代价：在 Windows PowerShell 5.1 里用 `.\install.ps1` 从磁盘运行时，
+  5.1 会按 ANSI 读取无 BOM 文件，中文提示会显示为乱码（功能不受影响）。
+  用 PowerShell 7 跑，或直接走 irm | iex，都没有这个问题。
 
   推荐用法（在【管理员】PowerShell 里执行一行）：
       irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
@@ -86,18 +95,32 @@ $zip = Join-Path $tmp 'package.zip'
 function Save-RemoteFile {
     param([string]$Url, [string]$Path)
 
+    try { if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue } } catch { }
+
+    # 一条路不通就换另一条，两条都试过才算失败
     $curl = Join-Path (Join-Path $env:windir 'System32') 'curl.exe'
     if (Test-Path -LiteralPath $curl) {
-        # Server Core 上 curl.exe 比 PS 自带的 HTTP 客户端稳（后者对 TLS 重协商处理不佳）
-        & $curl -L --fail --retry 3 --retry-delay 3 --retry-all-errors -s -S -o $Path $Url 2>$null
+        # 两个实测坑：
+        # 1) --ssl-no-revoke 必须加。在企业 MITM 代理（加速器之类）后面，
+        #    schannel 的证书吊销检查会以 CRYPT_E_NO_REVOCATION_CHECK(0x80092012) 直接失败。
+        # 2) 必须临时把 ErrorActionPreference 调回 Continue。本脚本开头设成了 Stop，
+        #    而原生命令往 stderr 写东西会被当成终止性错误抛出去，
+        #    结果就是 Invoke-WebRequest 那条回退分支根本轮不到执行。
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $curl -L --fail --retry 3 --retry-delay 3 --retry-all-errors --ssl-no-revoke -s -S -o $Path $Url 2>$null
+        } finally {
+            $ErrorActionPreference = $prevEap
+        }
         if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $Path) -and (Get-Item -LiteralPath $Path).Length -gt 0) {
             return $true
         }
-        Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
     }
+
     try {
         # Server Core 没有 IE 引擎，必须加 -UseBasicParsing
-        Invoke-WebRequest -Uri $Url -OutFile $Path -UseBasicParsing -TimeoutSec 300
+        Invoke-WebRequest -Uri $Url -OutFile $Path -UseBasicParsing -TimeoutSec 300 -ErrorAction Stop
         return ((Test-Path -LiteralPath $Path) -and (Get-Item -LiteralPath $Path).Length -gt 0)
     } catch {
         return $false
