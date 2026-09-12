@@ -1,0 +1,48 @@
+﻿# GuiReady phase B guide: prerequisites and known pitfalls for the IDD (remote render) phase
+
+function Show-GuiReadyPhaseBGuide {
+    Write-Head '阶段 B：IDD 虚拟显示（远程渲染）准备指引'
+
+    Write-Log '阶段 B 要解决的问题：机器没有显示器 / 没有活动会话时，让 GUI 画面能被远程看到。' 'INFO'
+    Write-Log '它不解决“程序能不能启动”——那是阶段 A 的事。所以顺序必须是 A 先成立。' 'WARN'
+    Write-Log ''
+    Write-Log '重要结论（已在真机实测）：装官方 App Compatibility FOD 后，dwm.exe / dcomp.dll / dwrite.dll 都已就位，' 'OK'
+    Write-Log 'WinForms 与 WPF 能正常建窗并在 RDP 或控制台会话里渲染（含整屏截图取证）。' 'OK'
+    Write-Log '所以阶段 B 只对“完全没有 RDP、也没有人登录”的 headless 场景才有额外价值。' 'OK'
+    Write-Log ''
+
+    Write-Log '一、用一键流程先把阶段 A 跑完' 'HEAD'
+    Write-Log '  菜单 1 -> 1（新建并跑完整个流程），需要重启时会自动续跑。' 'INFO'
+    Write-Log '  跑完后看 reports\pipeline-summary-*.json 和 reports\guitest-*.json。' 'INFO'
+    Write-Log ''
+
+    Write-Log '二、阶段 B 的必要环境条件' 'HEAD'
+    Write-Log '  - 必须有一个已登录的活动会话，否则 WTSQueryUserToken 拿不到用户令牌' 'WARN'
+    Write-Log '    headless 机器需要先解决会话来源：RDP 登录 / 自动登录 / LogonUser 自造令牌' 'WARN'
+    Write-Log '    本工具已提供“开机自动登录”功能，可解决这一前提（实测：重启后 console 会话自动登录成功）' 'OK'
+    Write-Log '  - 需要 WDK + Visual Studio 才能编译 UMDF 驱动' 'INFO'
+    Write-Log '  - 需要驱动签名；实验阶段用 bcdedit /set testsigning on + 自签证书' 'WARN'
+    Write-Log '    生产服务器上是重大安全配置变更，Secure Boot 环境可能直接拦' 'WARN'
+    Write-Log '  - 建议复用现成 IDD 基线，不要从零写：' 'INFO'
+    Write-Log '      微软官方样例 : github.com/microsoft/Windows-driver-samples/tree/main/video/IndirectDisplay' 'INFO'
+    Write-Log '      成熟开源     : github.com/VirtualDrivers/Virtual-Display-Driver' 'INFO'
+    Write-Log '      含远程查看器 : github.com/fanxiushu/xdisp_virt （indirect_display 目录 + 网页客户端）' 'INFO'
+    Write-Log ''
+
+    Write-Log '三、参考文档里有 4 处 API 用法错误，写驱动时不要照抄' 'HEAD'
+    Write-Log '  1. IddCxAdapterInitAsync 需要两个参数（pInArgs 和 pOutArgs），pOutArgs 不能传 nullptr；' 'WARN'
+    Write-Log '     入参结构体名是 IDARG_IN_ADAPTER_INIT，不是 IDDCX_ADAPTER_INFO。' 'WARN'
+    Write-Log '  2. IddCxMonitorQueryHardwareCursor2 是“驱动调用 OS”的函数（IddCx* 前缀），' 'WARN'
+    Write-Log '     不是 OS 回调（回调前缀是 EVT_IDD_CX_*），不可能注册成 EvtIddCxMonitorQueryHardwareCursor2。' 'WARN'
+    Write-Log '  3. IddCxSwapChainReleaseAndAcquireBuffer 返回 HRESULT（成功为 S_OK），不是 NTSTATUS，' 'WARN'
+    Write-Log '     也不会返回 STATUS_PENDING，判断该值没有意义。' 'WARN'
+    Write-Log '  4. 取帧方式必须在 assign swapchain 时定下来：先调 IddCxSwapChainInSystemMemory；' 'WARN'
+    Write-Log '     为 TRUE 时 ReleaseAndAcquireBuffer 与 ReleaseAndAcquireSystemBuffer 二选一，' 'WARN'
+    Write-Log '     且整个 swapchain 生命周期内必须固定用同一个；为 FALSE 时必须用 ReleaseAndAcquireBuffer。' 'WARN'
+    Write-Log ''
+    Write-Log '  另：PrintWindow 只能抓本窗口站（WinSta0）内的窗口，Session 0 服务抓不到 Session 1 的窗口，' 'WARN'
+    Write-Log '      参考文档把 WindowCapture 放在 Session 0 代理里，这条路径是错的。' 'WARN'
+    Write-Log '      本工具已经用对了这条技术：GUI 能力自检在同会话内用 PrintWindow 抓图取证。' 'OK'
+    Write-Log ''
+    Write-Log '先把阶段 A 跑通并留下报告，再决定阶段 B 要不要做、做到哪一步。' 'OK'
+}

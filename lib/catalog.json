@@ -1,0 +1,122 @@
+{
+  "version": 1,
+  "description": "GuiReady 程序兼容档案。match 里的规则需全部命中；按顺序匹配，第一条命中生效。verifiedOn 是实测的系统 build。",
+  "entries": [
+    {
+      "id": "mslx-daemon",
+      "name": "MSLX-Daemon（Minecraft 服务器管理守护进程）",
+      "match": [
+        { "field": "ExeName", "pattern": "^MSLX-Daemon$" }
+      ],
+      "type": ".NET 单文件 / ASP.NET Core (Kestrel)",
+      "verdict": "可用",
+      "requiredRuntime": [
+        { "name": "Microsoft.NETCore.App", "version": "10.0.0" },
+        { "name": "Microsoft.AspNetCore.App", "version": "10.0.0" }
+      ],
+      "launchArgs": "",
+      "verifiedOn": "20348.2700",
+      "notes": "需要 .NET 10 运行时（可用菜单第 5 项 zip 免安装方式部署）。Web 面板默认只监听 localhost:1027，从别的机器访问需要端口转发或反向代理。首次运行自动生成管理员账号并写入 DaemonData\\默认账户信息.txt。守护进程应通过计划任务（SYSTEM）启动，否则会随远程会话结束被杀。",
+      "evidence": "实测：装 .NET 10.0.12 后 Kestrel 正常启动并监听 1027；面板在浏览器里渲染正常、登录成功、仪表盘显示 CPU/内存仪表与版本匹配检查。"
+    },
+    {
+      "id": "qq-nt",
+      "name": "腾讯 QQ NT（Electron 版）",
+      "match": [
+        { "field": "ExeName", "pattern": "^QQ$" },
+        { "field": "DirContains", "pattern": "QQNT" }
+      ],
+      "type": "Electron/Chromium",
+      "verdict": "可用（建议参数）",
+      "requiredRuntime": [],
+      "launchArgs": "--disable-gpu --disable-software-rasterizer",
+      "verifiedOn": "20348.2700",
+      "notes": "安装包（如 QQ_9.9.35_*_x64_01.exe）带 requireAdministrator 清单，远程无人值守执行会报“操作已被用户取消”，需要用 CreateProcess 绕过 UAC 或人工 RDP 点确认。装完后 QQ.exe 本身不需要提权。窗口为登录界面，要真正使用需登录 QQ 账号。",
+      "evidence": "实测 A/B：默认参数首窗口 18.2s / 内存 385.9MB / CPU 30.5s；加 --disable-gpu --disable-software-rasterizer 后 6.0s / 325.7MB / 4.6s（快 3 倍，CPU 降 85%）。安装后 9 个进程（Electron 主+GPU+渲染+工具）。"
+    },
+    {
+      "id": "electron-generic",
+      "name": "Electron / Chromium 类程序（通用）",
+      "match": [
+        { "field": "KindTag", "pattern": "Electron" }
+      ],
+      "type": "Electron/Chromium",
+      "verdict": "可用（建议参数）",
+      "requiredRuntime": [],
+      "launchArgs": "--disable-gpu --disable-software-rasterizer",
+      "verifiedOn": "20348.2700",
+      "notes": "Server Core 没有 GPU 驱动与完整 DWM 合成，Chromium 的 GPU 进程会反复失败重试，明显拖慢启动并抬高 CPU。加上述参数强制走无 GPU 路径。另外注意 Chromium 不支持 IE11，若本机只有 IE 则面板可能打不开。",
+      "evidence": "结论来自 QQ 9.9.35 的三组 A/B 实测对比。"
+    },
+    {
+      "id": "wpf-generic",
+      "name": "WPF 程序（通用）",
+      "match": [
+        { "field": "KindTag", "pattern": "WPF" }
+      ],
+      "type": "WPF",
+      "verdict": "可用",
+      "requiredRuntime": [],
+      "launchArgs": "",
+      "verifiedOn": "20348.2700",
+      "notes": "WPF 依赖 DirectWrite 与 DirectComposition。装了 App Compatibility FOD 后这两个组件都在（实测），因此 WPF 可正常渲染。仍需实跑确认个别控件与主题效果。",
+      "evidence": "实测：装 FOD 后 WPF 窗口创建成功（可见=True，渲染尺寸 420x220），整屏截图非黑 100%。"
+    },
+    {
+      "id": "winforms-generic",
+      "name": "WinForms 程序（通用）",
+      "match": [
+        { "field": "KindTag", "pattern": "WinForms" }
+      ],
+      "type": "WinForms",
+      "verdict": "可用",
+      "requiredRuntime": [],
+      "launchArgs": "",
+      "verifiedOn": "20348.2700",
+      "notes": "WinForms 依赖 GDI+ 与 common controls，Server Core 基线自带，装 FOD 后更完整。",
+      "evidence": "实测：WinForms 窗口创建成功（句柄有效、可见=True，420x220）。"
+    },
+    {
+      "id": "desktop-runtime-app",
+      "name": "依赖 Windows Desktop Runtime 的 .NET 程序",
+      "match": [
+        { "field": "RequiredRuntime", "pattern": "Microsoft.WindowsDesktop.App" }
+      ],
+      "type": ".NET (Windows Desktop)",
+      "verdict": "不支持",
+      "requiredRuntime": [],
+      "launchArgs": "",
+      "verifiedOn": "",
+      "notes": "Microsoft.WindowsDesktop.App 运行时（含 WinForms/WPF 的 .NET Core 版本）不支持安装到 Server Core。如果程序是 .NET Framework 4.x 的 WinForms/WPF 则可以跑；如果是 .NET 6+ 的 Windows Desktop 应用则不行。",
+      "evidence": "依据微软官方对 Windows Desktop Runtime 支持范围（不含 Server Core）。"
+    },
+    {
+      "id": "uwp-app",
+      "name": "UWP / XAML 类应用",
+      "match": [
+        { "field": "KindTag", "pattern": "UWP" }
+      ],
+      "type": "UWP/XAML",
+      "verdict": "不支持",
+      "requiredRuntime": [],
+      "launchArgs": "",
+      "verifiedOn": "20348.2700",
+      "notes": "UWP 依赖 twinui.dll 与 UWP 运行时，这两者不在 App Compatibility FOD 内，官方也未在 Server Core 上提供。可改用桌面体验版虚拟机方案。",
+      "evidence": "实测：装 FOD 后 twinui.dll 仍缺失；Windows 推送通知服务在 Server Core 上不安装（官方文档）。"
+    },
+    {
+      "id": "fod-tool-mmc",
+      "name": "微软自带图形管理工具（MMC / 事件查看器 / 磁盘管理 / 性能与资源监视器 / 任务计划程序 / Hyper-V 管理器 / PowerShell ISE）",
+      "match": [
+        { "field": "ExeName", "pattern": "^(mmc|eventvwr|perfmon|resmon|diskmgmt|devmgmt|services|taskschd|virtmgmt|compmgmt|powershell_ise|notepad|taskmgr|regedit|explorer)$" }
+      ],
+      "type": "Win32/GDI 系统工具",
+      "verdict": "可用（需先装 App Compatibility FOD）",
+      "requiredRuntime": [],
+      "launchArgs": "",
+      "verifiedOn": "20348.2700",
+      "notes": "Server Core 默认没有这些文件，装官方 App Compatibility FOD 后出现，且必须重启才生效。.msc 管理单元依赖 mmc.exe，所以必须先有 FOD。",
+      "evidence": "实测对比：装 FOD 前 mmc/explorer/eventvwr/perfmon/resmon 全部不存在；装 FOD 并重启后 7/7 全部存在，mmc 与记事本均能用中文标题正常显示窗口。"
+    }
+  ]
+}
