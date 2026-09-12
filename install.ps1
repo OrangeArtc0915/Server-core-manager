@@ -31,6 +31,11 @@ $Owner     = 'OrangeArtc0915'
 $Repo      = 'Server-core-manager'
 $AssetName = 'ServerCoreManager.zip'
 
+# 用 irm | iex 运行时 $PSCommandPath 为空。这种情况下一律不能用 exit：
+# 实测 exit 会直接终止宿主，把用户刚打开的 PowerShell 窗口关掉，报错信息根本来不及看。
+# 所以 iex 场景用 return 结束脚本，文件场景保留非零退出码供脚本化调用判断。
+$RunAsFile = [bool]$PSCommandPath
+
 function Write-Step { param([string]$Text) Write-Host ('  ' + $Text) -ForegroundColor Cyan }
 function Write-Ok   { param([string]$Text) Write-Host ('  ' + $Text) -ForegroundColor Green }
 function Write-Warn { param([string]$Text) Write-Host ('  ' + $Text) -ForegroundColor Yellow }
@@ -55,7 +60,7 @@ try {
 if (-not $isAdmin) {
     Write-Err '需要管理员权限。请用【以管理员身份运行】打开 PowerShell 后重试。'
     Write-Warn '提示：服务管理器（sconfig）里选 15 可以打开管理员 PowerShell。'
-    exit 1
+    if ($RunAsFile) { exit 1 } else { return }
 }
 
 # PS 5.1 默认可能不带 TLS 1.2，会导致访问 GitHub 直接失败
@@ -115,7 +120,7 @@ if (-not $ok) {
     Write-Err '下载失败。请检查网络（GitHub 在部分网络下不可达）。'
     Write-Warn '备选方案：用「压缩包安装」—— 手工下载 zip 解压后运行 一键运行.bat。'
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    exit 1
+    if ($RunAsFile) { exit 1 } else { return }
 }
 
 Write-Ok ('已下载 {0:N0} KB' -f ((Get-Item -LiteralPath $zip).Length / 1KB))
@@ -130,7 +135,7 @@ try {
 } catch {
     Write-Err ('解压失败: ' + $_.Exception.Message)
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    exit 1
+    if ($RunAsFile) { exit 1 } else { return }
 }
 
 # Releases 压缩包是平铺的；分支源码压缩包外面套一层 Server-core-manager-main\。
@@ -140,7 +145,7 @@ $marker = Get-ChildItem -LiteralPath $stage -Recurse -Filter 'Start-GuiReadyApp.
 if (-not $marker) {
     Write-Err '压缩包里没有找到 Start-GuiReadyApp.ps1，文件可能不完整。'
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    exit 1
+    if ($RunAsFile) { exit 1 } else { return }
 }
 $srcRoot = $marker.Directory.FullName
 Write-Ok ('包根目录: ' + $srcRoot)
@@ -160,7 +165,7 @@ try {
     Write-Err ('复制文件失败: ' + $_.Exception.Message)
     Write-Warn '如果提示文件被占用，请先关闭正在运行的本工具窗口再重试。'
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-    exit 1
+    if ($RunAsFile) { exit 1 } else { return }
 }
 
 # 从网上下来的 zip 会把文件标记为「来自 Internet」，PowerShell 默认拒绝运行这类脚本
