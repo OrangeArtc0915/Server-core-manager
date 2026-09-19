@@ -1,5 +1,5 @@
 ﻿# GuiReady GUI: 环境补全 + 软件管理，界面重做。
-# 主页面只有两个：环境 / 软件；完整能力收在「更多」里，不干扰主流程。
+# 主页面：环境 / 软件 / 工具 / 更多 / 关于；完整能力收在「更多」里，不干扰主流程。
 # 每个动作在独立子进程执行，界面不卡；日志按级别着色。
 
 param(
@@ -15,11 +15,26 @@ $guiDir   = $PSScriptRoot
 $toolRoot = Split-Path -Parent $guiDir
 $libDir   = Join-Path $toolRoot 'lib'
 
+# 启动耗时诊断：设了 SCM_BOOT_TRACE=1 就把各阶段耗时追加到 state\boot-trace.txt
+$script:BootT0 = Get-Date
+function Add-BootTrace {
+    param([string]$Stage)
+    if ($env:SCM_BOOT_TRACE -ne '1') { return }
+    try {
+        $d = Join-Path $toolRoot 'state'
+        if (-not (Test-Path -LiteralPath $d)) { New-Item -ItemType Directory -Path $d -Force | Out-Null }
+        $ms = [int]((Get-Date) - $script:BootT0).TotalMilliseconds
+        Add-Content -LiteralPath (Join-Path $d 'boot-trace.txt') -Value ('{0,7} ms  {1}' -f $ms, $Stage) -Encoding UTF8
+    } catch { }
+}
+Add-BootTrace '脚本开始（PowerShell + 解析后）'
+
 foreach ($f in @('GuiReady.Common.ps1', 'GuiReady.Detect.ps1', 'GuiReady.PeInspect.ps1',
                  'GuiReady.Fod.ps1', 'GuiReady.GuiShell.ps1', 'GuiReady.RdpFix.ps1',
                  'GuiReady.DotNet.ps1', 'GuiReady.GuiTest.ps1', 'GuiReady.Matrix.ps1',
                  'GuiReady.Diag.ps1', 'GuiReady.Catalog.ps1', 'GuiReady.Pipeline.ps1',
-                 'GuiReady.AutoLogon.ps1', 'GuiReady.Command.ps1', 'GuiReady.PhaseB.ps1', 'GuiReady.Wac.ps1')) {
+                 'GuiReady.AutoLogon.ps1', 'GuiReady.Command.ps1', 'GuiReady.PhaseB.ps1', 'GuiReady.Wac.ps1',
+                 'GuiReady.Console.ps1')) {
     $p = Join-Path $libDir $f
     if (Test-Path -LiteralPath $p) { . $p }
 }
@@ -35,13 +50,16 @@ try {
 }
 
 $script:Actions       = @(Get-GuiReadyActions)
+Add-BootTrace 'lib 模块与动作清单加载完成'
 $script:CurrentAction = $null
 $script:ParamControls = @{}
 $script:Proc          = $null
 $script:OutFile       = ''
 $script:ErrFile       = ''
 $script:RunLogFile    = ''
-$script:ReadLines     = 0
+$script:OutReader     = $null      # 增量读动作输出用的 StreamReader（保持在文件末尾）
+$script:OutReaderPath = ''
+$script:LogLines      = 0          # 日志面板当前行数（超过上限时删掉最旧的）
 $script:RunStart      = $null
 $script:RunnerPath    = Join-Path $guiDir 'Run-GuiReadyAction.ps1'
 $script:ProgramStore  = Join-Path $toolRoot 'launcher\programs.json'
@@ -277,7 +295,7 @@ $pnlHeadLine.Height    = 1
 $pnlHeadLine.BackColor = $Pal.Border
 $pnlHead.Controls.Add($pnlHeadLine)
 
-$btnExitBack           = New-FlatButton -Text '退出（返回命令行）' -Width 168 -Kind Danger
+$btnExitBack           = New-FlatButton -Text '退出（打开终端）' -Width 168 -Kind Danger
 $btnExitBack.Anchor    = 'Top,Right'
 $btnExitBack.Location  = New-Object System.Drawing.Point(($form.ClientSize.Width - 190), 18)
 $pnlHead.Controls.Add($btnExitBack)
@@ -297,7 +315,8 @@ $pnlNav.Controls.Add($pnlNavLine)
 
 $pnlNavTop           = New-Object System.Windows.Forms.Panel
 $pnlNavTop.Dock      = 'Top'
-$pnlNavTop.Height    = 218
+# 5 个导航项：环境/软件/工具/更多/关于，最后一项 Y=210 + 高 44 = 254，面板必须留够高度，否则「关于」会被裁掉
+$pnlNavTop.Height    = 264
 $pnlNavTop.BackColor = [System.Drawing.Color]::Transparent
 $pnlNav.Controls.Add($pnlNavTop)
 
@@ -332,7 +351,8 @@ $navEnv  = New-NavItem -Text '环境'     -PageKey 'env'  -Y 10
 $navApp  = New-NavItem -Text '软件'     -PageKey 'app'  -Y 60
 $navTool = New-NavItem -Text '工具'     -PageKey 'tool' -Y 110
 $navMore = New-NavItem -Text '更多'     -PageKey 'more' -Y 160
-$script:NavButtons = @($navEnv, $navApp, $navTool, $navMore)
+$navAbout = New-NavItem -Text '关于'    -PageKey 'about' -Y 210
+$script:NavButtons = @($navEnv, $navApp, $navTool, $navMore, $navAbout)
 
 $lblVer = New-Label -Text ('v1.0  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.5 -Color Hint
 $lblVer.Dock = 'Bottom'
@@ -385,7 +405,7 @@ function New-LogBtn {
     return $b
 }
 
-[void](New-LogBtn -Text '清空' -OnClick { $txtLog.Clear(); $script:ReadLines = 0 })
+[void](New-LogBtn -Text '清空' -OnClick { $txtLog.Clear(); $script:LogLines = 0 })
 [void](New-LogBtn -Text '打开日志文件' -OnClick {
         if ($script:RunLogFile -and (Test-Path -LiteralPath $script:RunLogFile)) { Start-Process -FilePath $script:RunLogFile | Out-Null }
         else { [System.Windows.Forms.MessageBox]::Show('本次还没有日志文件。', '提示', 'OK', 'Information') | Out-Null }
@@ -465,12 +485,7 @@ $btnSelfTest.Margin = New-Object System.Windows.Forms.Padding(0, 0, 10, 8)
 $btnSelfTest.Add_Click({ Start-GuiActionById -Id 'guitest' -DryRun $false })
 $pnlEnvActions.Controls.Add($btnSelfTest)
 
-$btnMatrix = New-FlatButton -Text '结论路线' -Width 110 -Height 42
-$btnMatrix.Margin = New-Object System.Windows.Forms.Padding(0, 0, 10, 8)
-$btnMatrix.Add_Click({ Start-GuiActionById -Id 'matrix' -DryRun $false })
-$pnlEnvActions.Controls.Add($btnMatrix)
-
-$btnAutoLogon = New-FlatButton -Text '自动登录' -Width 100 -Height 42
+$btnAutoLogon = New-FlatButton -Text '自动登录' -Width 110 -Height 42
 $btnAutoLogon.Margin = New-Object System.Windows.Forms.Padding(0, 0, 10, 8)
 $btnAutoLogon.Add_Click({ Start-GuiActionById -Id 'autologon-status' -DryRun $false })
 $pnlEnvActions.Controls.Add($btnAutoLogon)
@@ -559,37 +574,44 @@ $pageApp.Controls.Add($hintApp)
 # Server Core 默认没有这些图形工具，装了官方 App Compatibility FOD 才会出现。
 # 所以这里不藏起来，而是列全并灰显缺失的 —— 用户能直接看到“缺什么、去环境页补”。
 
+# 工具页分两组：
+#   1) 默认显示的：Windows Admin Center 里没有的（记事本 / 命令提示符 / 美化终端 /
+#      MMC 控制台 / 资源监视器 / 系统信息 / PowerShell ISE）
+#   2) 「Windows Admin Center 里也有」：与 WAC 重复的管理工具（默认收起，避免页面臃肿；
+#      检测到本机装了 WAC 且服务在运行时，整组隐藏 —— 那些直接在 WAC 里操作即可）
+# WAC 工具清单依据官方文档：Certificates / Devices / Events / Files / Firewall / Installed apps /
+# Local users & groups / Networks / Performance Monitor / PowerShell / Processes / Registry /
+# Scheduled tasks / Services / Storage / Updates / Virtual machines 等。
 $script:ToolGroups = @(
     [pscustomobject]@{ Group = '常用'; Items = @(
         @{ Name = '记事本';         Target = 'notepad.exe' },
-        @{ Name = '文件资源管理器'; Target = 'explorer.exe' },
         @{ Name = '命令提示符';     Target = 'cmd.exe' },
-        @{ Name = 'PowerShell';     Target = 'powershell.exe' }
+        @{ Name = '美化终端';       Target = 'scm-term.cmd';
+           Hint = '还没安装美化终端。可以在「更多 → 终端美化 → 一键美化终端」里装（Nerd Font + Oh My Posh + Fastfetch，素材内置不联网）。装好后任意目录输入 scm-term 就能打开 UTF-8 + Nerd Font 的控制台。' }
     ) }
-    [pscustomobject]@{ Group = '系统管理'; Items = @(
-        @{ Name = '任务管理器';     Target = 'taskmgr.exe' },
+    [pscustomobject]@{ Group = '诊断与脚本'; Items = @(
         @{ Name = 'MMC 控制台';     Target = 'mmc.exe' },
-        @{ Name = '服务';           Target = 'services.msc' },
-        @{ Name = '设备管理器';     Target = 'devmgmt.msc' },
-        @{ Name = '磁盘管理';       Target = 'diskmgmt.msc' },
-        @{ Name = '任务计划程序';   Target = 'taskschd.msc' }
-    ) }
-    [pscustomobject]@{ Group = '安全与账户'; Items = @(
-        @{ Name = '本地用户和组';   Target = 'lusrmgr.msc' },
-        @{ Name = '证书管理';       Target = 'certmgr.msc' },
-        @{ Name = '防火墙高级安全'; Target = 'wf.msc' },
-        @{ Name = '注册表编辑器';   Target = 'regedit.exe' }
-    ) }
-    [pscustomobject]@{ Group = '诊断与信息'; Items = @(
-        @{ Name = '事件查看器';     Target = 'eventvwr.msc' },
-        @{ Name = '性能监视器';     Target = 'perfmon.exe' },
         @{ Name = '资源监视器';     Target = 'resmon.exe' },
-        @{ Name = '系统信息';       Target = 'msinfo32.exe' }
-    ) }
-    [pscustomobject]@{ Group = '虚拟化与脚本'; Items = @(
-        @{ Name = 'Hyper-V 管理器'; Target = 'virtmgmt.msc' },
+        @{ Name = '系统信息';       Target = 'msinfo32.exe' },
         @{ Name = 'PowerShell ISE'; Target = 'powershell_ise.exe' }
     ) }
+)
+
+$script:ToolGroupsWac = @(
+    @{ Name = '文件资源管理器'; Target = 'explorer.exe' },
+    @{ Name = 'PowerShell';     Target = 'powershell.exe' },
+    @{ Name = '任务管理器';     Target = 'taskmgr.exe' },
+    @{ Name = '服务';           Target = 'services.msc' },
+    @{ Name = '设备管理器';     Target = 'devmgmt.msc' },
+    @{ Name = '磁盘管理';       Target = 'diskmgmt.msc' },
+    @{ Name = '任务计划程序';   Target = 'taskschd.msc' },
+    @{ Name = '本地用户和组';   Target = 'lusrmgr.msc' },
+    @{ Name = '证书管理';       Target = 'certmgr.msc' },
+    @{ Name = '防火墙高级安全'; Target = 'wf.msc' },
+    @{ Name = '注册表编辑器';   Target = 'regedit.exe' },
+    @{ Name = '事件查看器';     Target = 'eventvwr.msc' },
+    @{ Name = '性能监视器';     Target = 'perfmon.exe' },
+    @{ Name = 'Hyper-V 管理器'; Target = 'virtmgmt.msc' }
 )
 
 function Resolve-SystemToolPath {
@@ -597,6 +619,13 @@ function Resolve-SystemToolPath {
     # 先找 System32；explorer.exe 这类其实在 Windows 根目录，所以再走一次 PATH 解析
     $p = Join-Path (Join-Path $env:windir 'System32') $Target
     if (Test-Path -LiteralPath $p) { return $p }
+    # 打包应用（MSIX）的入口是每用户的执行别名，例如 wt.exe 在 WindowsApps 下，不在 PATH 里也能这样找到
+    try {
+        if (-not [string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+            $alias = Join-Path $env:LOCALAPPDATA ('Microsoft\WindowsApps\' + $Target)
+            if (Test-Path -LiteralPath $alias) { return $alias }
+        }
+    } catch { }
     try {
         $c = Get-Command $Target -ErrorAction SilentlyContinue
         if ($c) { return [string]$c.Source }
@@ -605,20 +634,36 @@ function Resolve-SystemToolPath {
 }
 
 function Start-SystemTool {
-    param([string]$Target, [string]$Name)
+    param([string]$Target, [string]$Name, [string]$Hint = '')
 
-    $resolved = Resolve-SystemToolPath -Target $Target
+    # 点击先落一行日志：万一界面"点了没反应"，日志能立刻区分是"处理函数没被调用"还是"启动失败"。
+    # 之前 Resolve-SystemToolPath 抛异常会让整个点击处理静默死掉，所以下面整段都包在 try 里。
+    Append-GuiLog -Line ('[STEP] 点击工具: ' + $Name + '  (' + $Target + ')')
+
+    $resolved = ''
+    try {
+        $resolved = [string](Resolve-SystemToolPath -Target $Target)
+    } catch {
+        Append-GuiLog -Line ('[ERROR] 解析 ' + $Target + ' 的路径出错: ' + $_.Exception.Message)
+    }
+
     if (-not $resolved) {
+        Append-GuiLog -Line ('[WARN] 本机没有 ' + $Target + '（' + $Name + '）')
+        $tail = '这类图形工具需要先安装官方 App Compatibility FOD，' + [Environment]::NewLine +
+                '可以在左侧「环境」页点“一键补全环境”。'
+        if ($Hint) { $tail = $Hint }
         $msg = ('找不到 ' + $Target + '。' + [Environment]::NewLine + [Environment]::NewLine +
-                '这类图形工具需要先安装官方 App Compatibility FOD，' + [Environment]::NewLine +
-                '可以在左侧「环境」页点“一键补全环境”。' + [Environment]::NewLine + [Environment]::NewLine +
+                $tail + [Environment]::NewLine + [Environment]::NewLine +
                 '现在用命令提示符代替打开吗？')
-        if ([System.Windows.Forms.MessageBox]::Show($msg, ('工具不可用 - ' + $Name), 'YesNo', 'Warning') -eq 'Yes') {
-            try { Start-Process -FilePath (Join-Path (Join-Path $env:windir 'System32') 'cmd.exe') -WorkingDirectory $env:USERPROFILE | Out-Null } catch { }
-        }
+        try {
+            if ([System.Windows.Forms.MessageBox]::Show($msg, ('工具不可用 - ' + $Name), 'YesNo', 'Warning') -eq 'Yes') {
+                Start-Process -FilePath (Join-Path (Join-Path $env:windir 'System32') 'cmd.exe') -WorkingDirectory $env:USERPROFILE | Out-Null
+            }
+        } catch { }
         return
     }
 
+    Append-GuiLog -Line ('[INFO] 已解析到: ' + $resolved)
     try {
         if ($resolved -match '\.msc$') {
             # .msc 是管理单元，必须由 mmc.exe 承载
@@ -634,21 +679,127 @@ function Start-SystemTool {
         Append-GuiLog -Line ('[OK] 已启动系统工具: ' + $Name + '   (' + $resolved + ')')
     } catch {
         Append-GuiLog -Line ('[ERROR] 启动 ' + $Name + ' 失败: ' + $_.Exception.Message)
-        [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, ('启动失败 - ' + $Name), 'OK', 'Error') | Out-Null
+        try { [System.Windows.Forms.MessageBox]::Show($_.Exception.Message, ('启动失败 - ' + $Name), 'OK', 'Error') | Out-Null } catch { }
     }
 }
 
+$script:ToolCache     = @{}
+$script:ToolCacheTime = [datetime]::MinValue
+
+function Set-ToolButtonClick {
+    # 给工具按钮挂点击处理。参数通过 $Button.Tag 传，**绝不能用 GetNewClosure()**：
+    # GetNewClosure 会新建一个模块作用域，在里面看不到本脚本定义的函数，调用 Start-SystemTool 时报
+    # "The term 'Start-SystemTool' is not recognized..."。从 scm 启动的真实链路是
+    # Start-GuiReadyApp.ps1 用 & 调用本脚本，本脚本的函数属于脚本作用域，
+    # 闭包模块里解析不到 —— 实测（真实链路 + 模拟点击）就是这个报错/静默失败。
+    # 普通 scriptblock 会保留创建时的作用域，因此能正常解析并调用本脚本的函数。
+    param([System.Windows.Forms.Button]$Button, [string]$Target, [string]$Name, [string]$Hint)
+    $Button.Tag = @{ Target = $Target; Name = $Name; Hint = $Hint }
+    $Button.Add_Click({
+        $info = $this.Tag
+        try {
+            Start-SystemTool -Target $info.Target -Name $info.Name -Hint $info.Hint
+        } catch {
+            $m = $_.Exception.Message
+            try { Append-GuiLog -Line ('[ERROR] 工具点击处理异常（' + $info.Name + '）: ' + $m) } catch { }
+            try { [System.Windows.Forms.MessageBox]::Show($m, ('工具出错 - ' + $info.Name), 'OK', 'Error') | Out-Null } catch { }
+        }
+    })
+}
+
 function Update-ToolButtons {
+    param([switch]$Force)
+    # 解析工具的路径要查 System32 + WindowsApps + PATH，缺的还会走一遍 PATH 搜索。
+    # 同一 TTL 内复用结果，切页不再重复解析。
+    $useCache = (-not $Force -and $script:ToolCacheTime -ne [datetime]::MinValue -and
+                 ((Get-Date) - $script:ToolCacheTime).TotalSeconds -lt $script:EnvCacheTtlSec)
+    $miss = New-Object System.Collections.ArrayList
     foreach ($tb in $script:ToolButtons) {
-        $r = Resolve-SystemToolPath -Target $tb.Target
-        if ($r) {
-            $tb.Button.Enabled = $true
+        # 单个工具解析失败不能让整页按钮都停摆（之前点击无反应的排查点之一）
+        $r = ''
+        try {
+            if ($useCache -and $script:ToolCache.ContainsKey($tb.Target)) { $r = [string]$script:ToolCache[$tb.Target] }
+            else {
+                $r = [string](Resolve-SystemToolPath -Target $tb.Target)
+                $script:ToolCache[$tb.Target] = $r
+            }
+        } catch {
+            $r = ''
+            $tb.Button.Enabled = $true      # 解析出错时保持可点，点了会给出明确提示
             $tb.Button.Text    = $tb.Name
+            Append-GuiLog -Line ('[WARN] 解析 ' + $tb.Target + ' 出错: ' + $_.Exception.Message)
+            continue
+        }
+        if ($r) {
+            $tb.Button.Enabled   = $true
+            $tb.Button.ForeColor = $Pal.Text
+            $tb.Button.Text      = $tb.Name
+            $tb.Missing          = $false
         } else {
-            $tb.Button.Enabled = $false
-            $tb.Button.Text    = $tb.Name + '（缺失）'
+            # 缺失的**保持可点**：点下去会弹出“缺什么、去哪补、要不要用命令提示符代替”。
+            # 之前这里设成灰显不可点，用户看到的就是“按钮点了没反应”。
+            $tb.Button.Enabled   = $true
+            $tb.Button.ForeColor = $Pal.Hint
+            $tb.Button.Text      = $tb.Name + '（缺失）'
+            $tb.Missing          = $true
+            [void]$miss.Add($tb.Name)
         }
     }
+    if (-not $useCache) { $script:ToolCacheTime = Get-Date }
+    if ($miss.Count -gt 0) {
+        Append-GuiLog -Line ('[INFO] 工具页: 共 {0} 个，可用 {1} 个，缺失 {2} 个（{3}）' -f `
+            $script:ToolButtons.Count, ($script:ToolButtons.Count - $miss.Count), $miss.Count, (($miss | Select-Object -First 6) -join '、'))
+    } else {
+        Append-GuiLog -Line ('[INFO] 工具页: 共 {0} 个，全部可用' -f $script:ToolButtons.Count)
+    }
+}
+
+function Get-WacInstalledRunning {
+    # 只判断“装了 WAC 且服务在运行”。
+    # 缓存没就绪时直接返回 false（不去查）—— 真正的 WAC 查询由后台探测负责，
+    # 界面线程一次同步查询要 0.25~1 秒，不值得卡在这里。探测回来后会重新判断一次。
+    if ($script:EnvCacheData -and $script:EnvCacheData.Wac -and
+        ((Get-Date) - $script:EnvCacheTime).TotalSeconds -lt $script:EnvCacheTtlSec) {
+        $w = $script:EnvCacheData.Wac
+        return ([bool]$w.Installed -and ($w.ServiceState -eq 'Running'))
+    }
+    return $false
+}
+
+function Get-WacToggleText {
+    return ('Windows Admin Center 里也有（{0}）{1}' -f @($script:ToolGroupsWac).Count, $(if ($script:WacToolsExpanded) { '▼' } else { '▶' }))
+}
+
+function Toggle-WacToolGroup {
+    if ($script:WacToolsSuppressed) { return }
+    $script:WacToolsExpanded = (-not $script:WacToolsExpanded)
+    $script:PnlWacTools.Visible = $script:WacToolsExpanded
+    $script:BtnWacToggle.Text   = Get-WacToggleText
+    Update-PageLayout
+}
+
+function Update-WacToolGroup {
+    # 没装 WAC：整组默认收起（点标题展开）
+    # 装了 WAC 且服务在运行：整组连标题一起隐藏（那些工具直接在 WAC 里用即可）
+    $installed = Get-WacInstalledRunning
+    $script:WacToolsSuppressed = $installed
+    if ($installed) {
+        $script:WacToolsExpanded    = $false
+        $script:BtnWacToggle.Visible = $false
+        $script:PnlWacTools.Visible  = $false
+    } else {
+        $script:BtnWacToggle.Visible = $true
+        $script:PnlWacTools.Visible  = $script:WacToolsExpanded
+        $script:BtnWacToggle.Text    = Get-WacToggleText
+    }
+    try {
+        $hintTool.Text = $(if ($installed) {
+            '提示：本机已装 Windows Admin Center 并在运行 —— 服务、事件、磁盘、注册表这些管理工具在 WAC 里都有，工具页不再重复列出。标「（缺失）」＝本机没有（多数来自官方 FOD，可在«环境»页补全），点它会告诉你怎么补。'
+        } else {
+            '提示：标「（缺失）」＝本机没有，点它会说明怎么补；「Windows Admin Center 里也有」那组默认收起，想用本机工具点一下展开。多数工具来自官方 FOD（可在«环境»页补全）。'
+        })
+    } catch { }
+    Update-PageLayout
 }
 
 $pageTool           = New-Object System.Windows.Forms.Panel
@@ -662,7 +813,7 @@ $lblToolHead          = New-Label -Text '系统工具' -Size 12 -Style Bold
 $lblToolHead.Location = New-Object System.Drawing.Point(2, 2)
 $pageTool.Controls.Add($lblToolHead)
 
-$lblToolDesc          = New-Label -Text 'Server Core 默认没有这些图形工具，装了官方 App Compatibility FOD 才会出现；灰显的表示当前机器上还没有。' -Size 9.5 -Color SubText
+$lblToolDesc          = New-Label -Text 'Server Core 默认没有这些图形工具，装了官方 App Compatibility FOD 才会出现；标了「（缺失）」的表示当前机器上还没有 —— 点它可以直接开始补。' -Size 9.5 -Color SubText
 $lblToolDesc.Location = New-Object System.Drawing.Point(3, 28)
 $pageTool.Controls.Add($lblToolDesc)
 
@@ -693,15 +844,50 @@ foreach ($g in $script:ToolGroups) {
         $b.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 4)
         $target   = $it.Target
         $nm       = $it.Name
-        $b.Add_Click({ Start-SystemTool -Target $target -Name $nm }.GetNewClosure())
+        $hnt      = [string]$it.Hint
+        Set-ToolButtonClick -Button $b -Target $target -Name $nm -Hint $hnt
         $row.Controls.Add($b)
-        [void]$script:ToolButtons.Add([pscustomobject]@{ Button = $b; Target = $target; Name = $nm })
+        [void]$script:ToolButtons.Add([pscustomobject]@{ Button = $b; Target = $target; Name = $nm; Missing = $false })
     }
     $pnlTools.Controls.Add($row)
     [void]$script:ToolRows.Add([pscustomobject]@{ Row = $row; Count = @($g.Items).Count })
 }
 
-$hintTool = New-HintBar -Text '提示：灰显＝本机没有。多数工具来自官方 FOD（可在«环境»页补全）；个别管理单元（服务、证书）Server Core 不提供，请用命令行替代。' -Kind Blue -Width 900
+# 「Windows Admin Center 里也有」那一组：标题按钮 + 可折叠的按钮行
+# 注意：标题按钮必须放在可折叠面板【外面】，否则一收起就再也点不开了
+$script:WacToolsExpanded   = $false
+$script:WacToolsSuppressed = $false
+
+$script:BtnWacToggle = New-FlatButton -Text (Get-WacToggleText) -Width 250 -Height 30
+$script:BtnWacToggle.Margin = New-Object System.Windows.Forms.Padding(0, 4, 8, 4)
+$script:BtnWacToggle.Add_Click({ Toggle-WacToolGroup })
+$pnlTools.Controls.Add($script:BtnWacToggle)
+
+$script:PnlWacTools = New-Object System.Windows.Forms.FlowLayoutPanel
+$script:PnlWacTools.FlowDirection = 'LeftToRight'
+$script:PnlWacTools.WrapContents  = $true
+$script:PnlWacTools.AutoSize      = $true
+$script:PnlWacTools.AutoSizeMode  = 'GrowAndShrink'
+# 宽度卡在 880（跟其它行同宽），高度按换行自动长
+$script:PnlWacTools.MaximumSize   = New-Object System.Drawing.Size(880, 0)
+$script:PnlWacTools.BackColor     = $Pal.Bg
+$script:PnlWacTools.Margin        = New-Object System.Windows.Forms.Padding(0, 0, 0, 2)
+$script:PnlWacTools.Visible       = $false          # 默认收起
+
+foreach ($it in $script:ToolGroupsWac) {
+    $b = New-FlatButton -Text $it.Name -Width 132 -Height 34
+    $b.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 4)
+    $target   = $it.Target
+    $nm       = $it.Name
+    $hnt      = [string]$it.Hint
+    Set-ToolButtonClick -Button $b -Target $target -Name $nm -Hint $hnt
+    $script:PnlWacTools.Controls.Add($b)
+    [void]$script:ToolButtons.Add([pscustomobject]@{ Button = $b; Target = $target; Name = $nm; Missing = $false })
+}
+$pnlTools.Controls.Add($script:PnlWacTools)
+[void]$script:ToolRows.Add([pscustomobject]@{ Row = $script:PnlWacTools; Count = @($script:ToolGroupsWac).Count })
+
+$hintTool = New-HintBar -Text '提示：标「（缺失）」＝本机没有，点它会说明怎么补。多数工具来自官方 FOD（可在«环境»页补全）；「美化终端」需要先在«更多 → 终端美化»里装；个别管理单元（服务、证书）Server Core 不提供，请用命令行替代。' -Kind Blue -Width 900
 $hintTool.Dock = 'Bottom'
 $hintTool.Height = 30
 $pageTool.Controls.Add($hintTool)
@@ -781,6 +967,9 @@ foreach ($k in $script:Pages.Keys) {
 }
 
 function Update-PageLayout {
+    # 启动时会把布局调用挂起，最后统一算一次 —— 一次布局要遍历所有页面/卡片/工具行，
+    # 之前 Shown 里被连着调 3 次，纯属白等。
+    if ($script:LayoutSuspended) { $script:LayoutPending = $true; return }
     try {
         # 隐藏的页面不会参与 Dock 排布，尺寸会停在创建时的旧值；
         # 这里强制把每个页面同步到内容区大小，否则切页时会用错误的宽度算布局。
@@ -905,6 +1094,15 @@ $script:Timer.Interval = 400
 
 function Append-GuiLog {
     param([string]$Line)
+    # curl、MSI、原生 exe 这类输出常带不带换行的进度（单独一个 `r 回车）。直接塞进 RichTextBox
+    # 会让光标回到行首反复覆盖，看起来就是“日志乱码 + 一直滚”；超长行还会让面板卡住。
+    # 这里统一：回车去掉、超长截断。
+    try {
+        if ($Line) {
+            if ($Line.IndexOf("`r") -ge 0) { $Line = $Line.Replace("`r", '') }
+            if ($Line.Length -gt 2000) { $Line = $Line.Substring(0, 2000) + ' …（本行过长已截断）' }
+        }
+    } catch { }
     $color = $Pal.LogText
     if     ($Line -match '\[OK\]')    { $color = [System.Drawing.Color]::FromArgb(134, 239, 172) }
     elseif ($Line -match '\[WARN\]')  { $color = [System.Drawing.Color]::FromArgb(253, 224, 71) }
@@ -918,12 +1116,27 @@ function Append-GuiLog {
         $txtLog.SelectionColor  = $color
         $txtLog.AppendText($Line + "`r`n")
         $txtLog.SelectionColor  = $txtLog.ForeColor
+        # 面板最多留 3500 行：RichTextBox 行数上万以后重绘/滚动会明显拖慢界面。
+        # 用计数器判断，别每次都去数 Lines（那本身也要遍历全文）。
+        $script:LogLines++
+        if ($script:LogLines -gt 3500) {
+            $ro = $txtLog.ReadOnly
+            try {
+                $txtLog.ReadOnly = $false
+                $txtLog.SelectionStart  = 0
+                $txtLog.SelectionLength = $txtLog.GetFirstCharIndexFromLine(500)
+                $txtLog.SelectedText    = ''
+            } finally {
+                $txtLog.ReadOnly = $ro
+                $script:LogLines -= 500
+            }
+        }
         $txtLog.ScrollToCaret()
     } catch { }
 }
 
 function Show-GuiPage {
-    param([string]$Key)
+    param([string]$Key, [switch]$SkipCards)
     if (-not $script:Pages.ContainsKey($Key)) { return }
     $script:CurrentPage = $Key
     foreach ($k in $script:Pages.Keys) { $script:Pages[$k].Visible = ($k -eq $Key) }
@@ -939,8 +1152,8 @@ function Show-GuiPage {
             $b.Font = New-Font -Size 11
         }
     }
-    if ($Key -eq 'env') { Update-EnvCards }
-    if ($Key -eq 'tool') { Update-ToolButtons }
+    if ($Key -eq 'env' -and -not $SkipCards) { Refresh-EnvCards }
+    if ($Key -eq 'tool') { Update-ToolButtons; Update-WacToolGroup }
     Update-PageLayout
 }
 
@@ -975,21 +1188,62 @@ function New-StatusCard {
     return [pscustomobject]@{ Panel = $card; Title = $lt; Value = $lv; Sub = $ls; Dot = $dot }
 }
 
-function Update-EnvCards {
-    if ($script:Cards.Count -eq 0) {
-        $script:Cards = @(
-            (New-StatusCard -Title '系统'),
-            (New-StatusCard -Title '图形组件'),
-            (New-StatusCard -Title '渲染管线'),
-            (New-StatusCard -Title 'NET 运行时'),
-            (New-StatusCard -Title '登录会话'),
-            (New-StatusCard -Title '提权 UAC'),
-            (New-StatusCard -Title 'Web 管理 (WAC)')
-        )
+# ---- 环境页数据缓存 ----
+# 之前每次切到「环境」页、以及每个动作跑完，都会在 UI 线程上同步重跑一遍重查询。
+# 在 Server Core 上实测单次开销：DISM 能力查询 ~0.8s、WAC 防火墙/证书 ~2.0s、
+# dotnet --list-runtimes ~0.7s、DLL 扫描 0.3s（还被调了两次），合计 2~4 秒界面冻住。
+# 现在统一缓存，TTL 内直接用缓存；切页只刷新显示，不再重新查询。
+$script:EnvCacheTtlSec = 45
+$script:EnvCacheTime   = [datetime]::MinValue
+$script:EnvCacheData   = $null
+
+function Clear-EnvCache {
+    $script:EnvCacheTime  = [datetime]::MinValue
+    $script:EnvCacheData  = $null
+    $script:ToolCacheTime = [datetime]::MinValue
+}
+
+function Get-EnvCardData {
+    param([switch]$Force)
+
+    if (-not $Force -and $script:EnvCacheData -and ((Get-Date) - $script:EnvCacheTime).TotalSeconds -lt $script:EnvCacheTtlSec) {
+        return $script:EnvCacheData
     }
+
+    $d = [ordered]@{
+        Static = $null; Profile = $null; Cap = $null; DllScan = $null
+        DotNet = $null; Sessions = $null; AutoLogon = $null; Uac = $null; Wac = $null
+    }
+    try { $d.Static    = Get-GuiReadyStatic } catch { }
+    try { $d.Profile   = Get-GuiReadyOsProfile -Static $d.Static } catch { }
+    try { $d.Cap       = Get-GuiReadyCapability } catch { }
+    try { $d.DllScan   = Get-GuiReadyDllScan } catch { }          # 只扫一次，两张卡片共用
+    try { $d.DotNet    = Get-GuiReadyDotNetStatus -Fast } catch { }
+    try { $d.Sessions  = Get-GuiReadySessionInfo } catch { }
+    try { $d.AutoLogon = Get-GuiReadyAutoLogon } catch { }
+    try { $d.Uac       = Get-GuiReadyUac } catch { }
+    try { $d.Wac       = Get-GuiReadyWacStatus -SkipProbe -Lite } catch { }
+
+    $script:EnvCacheData = [pscustomobject]$d
+    $script:EnvCacheTime = Get-Date
+    return $script:EnvCacheData
+}
+
+function Update-EnvCards {
+    param([switch]$Force, $Data)
+    Initialize-EnvCards
+    # $Data 是后台探测（或磁盘缓存）的结果；没传就同步查一次（自检 / 布局诊断用这条路）
+    if ($null -eq $Data) {
+        $Data = Get-EnvCardData -Force:$Force
+    } else {
+        # 让其它读缓存的地方（例如工具页判断 WAC 是否在跑）也拿到同一份数据
+        $script:EnvCacheData = $Data
+        $script:EnvCacheTime = Get-Date
+    }
+    $d = $Data
     try {
-        $s = Get-GuiReadyStatic
-        $prof = Get-GuiReadyOsProfile -Static $s
+        $s = $d.Static
+        $prof = $d.Profile
         $card = $script:Cards[0]
         $card.Dot.ForeColor = $Pal.Ok
         $card.Value.Text = ('{0} Build {1}' -f $prof.Short, $prof.Build)
@@ -998,21 +1252,23 @@ function Update-EnvCards {
 
     try {
         $fod = 'Unknown'
-        $cap = Get-GuiReadyCapability
-        foreach ($i in $cap.Items) { if ($i.Name -like 'ServerCore.AppCompatibility*') { $fod = $i.State } }
+        $cap = $d.Cap
+        foreach ($i in @($cap.Items)) { if ($i.Name -like 'ServerCore.AppCompatibility*') { $fod = $i.State } }
+        # 后台探测的 fast 阶段是「按组件推断」的结论，必须标出来，不能冒充 DISM 的精确结果
+        $fodTag = $(if ($cap.Inferred) { '（推断）' } else { '' })
         $miss = 0; $total = 0
-        $dlls = Get-GuiReadyDllScan
+        $dlls = $d.DllScan
         $grp = @($dlls | Where-Object { $_.Group -eq '桌面体验专属' })
         $total = $grp.Count
         $miss = @($grp | Where-Object { -not $_.Exists }).Count
         $card = $script:Cards[1]
         if ($fod -eq 'Installed') {
             $card.Dot.ForeColor = $(if ($miss -le 4) { $Pal.Ok } else { $Pal.Warn })
-            $card.Value.Text = 'FOD 已安装'
+            $card.Value.Text = 'FOD 已安装' + $fodTag
             $card.Sub.Text   = ('还缺 {0}/{1} 个桌面组件' -f $miss, $total)
         } else {
             $card.Dot.ForeColor = $Pal.Err
-            $card.Value.Text = ('FOD: ' + $fod)
+            $card.Value.Text = ('FOD: ' + $fod + $fodTag)
             $card.Sub.Text   = '需要补全环境'
         }
     } catch {
@@ -1020,9 +1276,9 @@ function Update-EnvCards {
     }
 
     try {
-        $dlls = Get-GuiReadyDllScan
+        $dlls = $d.DllScan
         $has = @{}
-        foreach ($d in $dlls) { $has[$d.Name] = [bool]$d.Exists }
+        foreach ($x in @($dlls)) { if ($x) { $has[[string]$x.Name] = [bool]$x.Exists } }
         $ok = ($has['dwm.exe'] -and $has['dcomp.dll'] -and $has['dwrite.dll'])
         $card = $script:Cards[2]
         $card.Dot.ForeColor = $(if ($ok) { $Pal.Ok } else { $Pal.Err })
@@ -1031,7 +1287,7 @@ function Update-EnvCards {
     } catch { }
 
     try {
-        $dn = Get-GuiReadyDotNetStatus
+        $dn = $d.DotNet
         $card = $script:Cards[3]
         $card.Dot.ForeColor = $(if ($dn.Frameworks.Count -gt 0) { $Pal.Ok } else { $Pal.Warn })
         $card.Value.Text = ('{0} 个框架' -f $dn.Frameworks.Count)
@@ -1040,18 +1296,18 @@ function Update-EnvCards {
     } catch { }
 
     try {
-        $s2 = Get-GuiReadySessionInfo
+        $s2 = $d.Sessions
         $card = $script:Cards[4]
         $card.Dot.ForeColor = $(if ($s2.LoggedOnCount -gt 0) { $Pal.Ok } else { $Pal.Err })
         $card.Value.Text = ('已登录 {0} 个' -f $s2.LoggedOnCount)
         try {
-            $a = Get-GuiReadyAutoLogon
+            $a = $d.AutoLogon
             $card.Sub.Text = $(if ($a.Enabled) { '自动登录: 已启用' } else { '自动登录: 未启用' })
         } catch { $card.Sub.Text = '' }
     } catch { }
 
     try {
-        $u = Get-GuiReadyUac
+        $u = $d.Uac
         $card = $script:Cards[5]
         $card.Dot.ForeColor = $(if ($u.PromptsWillBlock) { $Pal.Warn } else { $Pal.Ok })
         $card.Value.Text = $(if ($u.PromptsWillBlock) { '会弹确认窗' } else { '不会拦截' })
@@ -1060,7 +1316,7 @@ function Update-EnvCards {
 
     try {
         # 用 -SkipProbe：卡片刷新很频繁，不要每次都等 HTTP 探测
-        $wac = Get-GuiReadyWacStatus -SkipProbe
+        $wac = $d.Wac
         $card = $script:Cards[6]
         if ($wac.Installed) {
             $running = ($wac.ServiceState -eq 'Running')
@@ -1079,6 +1335,123 @@ function Update-EnvCards {
         $card.Sub.Text = ''
     }
 }
+
+# ---------------- 环境探测：放后台进程，界面线程不做任何阻塞查询 ----------------
+# 实测（Server Core 2025）：一次同步探测要 5~6.5 秒 —— 其中 DISM 查 FOD 状态 3.7 秒、
+# 组件扫描 0.3 秒、.NET/会话/自动登录/UAC 约 0.65 秒。放在界面线程上就是「窗口出现了但点不动」。
+# 现在改成：子进程探测 → 分两次写 JSON（fast / full）→ 界面定时读文件刷新卡片。
+$script:StateDir       = Join-Path $toolRoot 'state'
+$script:ProbeOutFile   = Join-Path $script:StateDir 'probe.json'
+$script:ProbeCacheFile = Join-Path $script:StateDir 'env-cache.json'
+$script:ProbeProc      = $null
+$script:ProbeStamp     = ''
+$script:ProbeRunning   = $false
+
+function Initialize-EnvProbePaths {
+    if (-not (Test-Path -LiteralPath $script:StateDir)) {
+        New-Item -ItemType Directory -Path $script:StateDir -Force | Out-Null
+    }
+}
+
+function Initialize-EnvCards {
+    if ($script:Cards.Count -gt 0) { return }
+    $script:Cards = @(
+        (New-StatusCard -Title '系统'),
+        (New-StatusCard -Title '图形组件'),
+        (New-StatusCard -Title '渲染管线'),
+        (New-StatusCard -Title 'NET 运行时'),
+        (New-StatusCard -Title '登录会话'),
+        (New-StatusCard -Title '提权 UAC'),
+        (New-StatusCard -Title 'Web 管理 (WAC)')
+    )
+}
+
+function Set-EnvCardsPending {
+    Initialize-EnvCards
+    foreach ($c in $script:Cards) {
+        $c.Dot.ForeColor = $Pal.Hint
+        $c.Value.Text    = '探测中…'
+        $c.Sub.Text      = ''
+    }
+}
+
+function Read-EnvProbeResult {
+    param([switch]$FromCache)
+    $f = $(if ($FromCache) { $script:ProbeCacheFile } else { $script:ProbeOutFile })
+    if (-not (Test-Path -LiteralPath $f)) { return $null }
+    try {
+        $json = Get-Content -LiteralPath $f -Raw -Encoding UTF8 -ErrorAction Stop
+        if ([string]::IsNullOrWhiteSpace($json)) { return $null }
+        return ($json | ConvertFrom-Json)
+    } catch { return $null }
+}
+
+function Start-EnvProbe {
+    # 只负责起进程 + 起定时器；卡片显示由调用方决定（有旧数据就先显示旧数据）
+    Initialize-EnvProbePaths
+    if ($script:ProbeRunning) { return }
+    $script:ProbeRunning = $true
+    $script:ProbeStamp   = ''
+    try { if (Test-Path -LiteralPath $script:ProbeOutFile) { Remove-Item -LiteralPath $script:ProbeOutFile -Force } } catch { }
+    try {
+        $probe = Join-Path $guiDir 'Run-GuiReadyProbe.ps1'
+        $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"' + $probe + '"'),
+                     '-OutFile', ('"' + $script:ProbeOutFile + '"'),
+                     '-CacheFile', ('"' + $script:ProbeCacheFile + '"'))
+        $script:ProbeProc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argList -PassThru -WindowStyle Hidden
+        $script:ProbeTimer.Start()
+        Append-GuiLog -Line '[INFO] 环境探测已在后台开始，卡片会自动刷新（期间界面照常可操作）。'
+    } catch {
+        $script:ProbeRunning = $false
+        Append-GuiLog -Line ('[WARN] 后台探测启动失败，退回同步探测: ' + $_.Exception.Message)
+        Update-EnvCards -Force
+    }
+}
+
+function Update-EnvCardsFromProbe {
+    # 探测进程可能意外退出（没写出任何文件）—— 超过 90 秒就放弃，别让界面永远停在“探测中”
+    if ($script:ProbeRunning -and $script:ProbeProc) {
+        try {
+            $script:ProbeProc.Refresh()
+            if (((Get-Date) - $script:ProbeProc.StartTime).TotalSeconds -gt 90) {
+                $script:ProbeRunning = $false
+                try { $script:ProbeTimer.Stop() } catch { }
+                Append-GuiLog -Line '[WARN] 后台探测 90 秒没出结果，已放弃（可点「环境探测」重试）。'
+                return
+            }
+        } catch { }
+    }
+    if (-not (Test-Path -LiteralPath $script:ProbeOutFile)) { return }
+    $obj = Read-EnvProbeResult
+    if (-not $obj) { return }
+    $stamp = ([string]$obj.Stage + '|' + [string]$obj.Stamp)
+    if ($stamp -eq $script:ProbeStamp) { return }
+    $script:ProbeStamp = $stamp
+    Update-EnvCards -Data $obj
+    if ([string]$obj.Stage -eq 'fast') {
+        Append-GuiLog -Line '[INFO] 环境卡片已刷新（快照；FOD 状态是组件推断值，精确结果稍后到）。'
+    } else {
+        $script:ProbeRunning = $false
+        try { $script:ProbeTimer.Stop() } catch { }
+        Append-GuiLog -Line '[INFO] 环境探测完成（含 FOD 精确状态与 WAC 状态）。'
+        # 探测回来的 WAC 状态会决定工具页那组要不要隐藏
+        try { Update-WacToolGroup } catch { }
+    }
+}
+
+function Refresh-EnvCards {
+    # 自检 / 布局诊断要的是同步、真实的数据，不能起后台进程
+    if ($SelfTest -or $LayoutDump) { Update-EnvCards -Force; return }
+    # 切到「环境」页：先用后台/缓存里的数据渲染，绝不在这里做同步探测
+    $obj = Read-EnvProbeResult
+    if (-not $obj) { $obj = Read-EnvProbeResult -FromCache }
+    if ($obj) { Update-EnvCards -Data $obj; return }
+    if (-not $script:ProbeRunning) { Set-EnvCardsPending; Start-EnvProbe } else { Set-EnvCardsPending }
+}
+
+$script:ProbeTimer = New-Object System.Windows.Forms.Timer
+$script:ProbeTimer.Interval = 500
+$script:ProbeTimer.Add_Tick({ Update-EnvCardsFromProbe })
 
 function Clear-ParamControls {
     foreach ($ctl in @($pnlParams.Controls)) { $ctl.Dispose() }
@@ -1175,21 +1548,52 @@ function Get-ParamValues {
     return $P
 }
 
+function Close-GuiOutReader {
+    if ($script:OutReader) { try { $script:OutReader.Dispose() } catch { } }
+    $script:OutReader     = $null
+    $script:OutReaderPath = ''
+}
+
 function Read-GuiNewOutput {
+    # 只读“上次之后新增的行”，不再每次读整个文件。
+    # 以前是每 400ms 用 Get-Content 读整个 stdout：实测 3 万行（2.5 MB）一次要 190~330ms，
+    # 而 WAC 安装这类长任务会把输出写到几 MB —— 界面线程一半以上时间在读文件，越跑越卡直到假死。
     if (-not $script:OutFile) { return }
     if (-not (Test-Path -LiteralPath $script:OutFile)) { return }
-    $lines = @()
-    try { $lines = @(Get-Content -LiteralPath $script:OutFile -Encoding UTF8 -ErrorAction Stop) } catch { return }
-    while ($script:ReadLines -lt $lines.Count) {
-        Append-GuiLog -Line ([string]$lines[$script:ReadLines])
-        $script:ReadLines++
+    if ($null -eq $script:OutReader -or $script:OutReaderPath -ne $script:OutFile) {
+        Close-GuiOutReader
+        try {
+            # FileShare.ReadWrite：允许 runner 继续写这个文件
+            $fs = New-Object System.IO.FileStream($script:OutFile, [System.IO.FileMode]::Open,
+                                                  [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite)
+            $script:OutReader     = New-Object System.IO.StreamReader($fs, [System.Text.Encoding]::UTF8)
+            $script:OutReaderPath = $script:OutFile
+        } catch {
+            Close-GuiOutReader
+            return
+        }
     }
+    $added = 0
+    try {
+        while (-not $script:OutReader.EndOfStream) {
+            $line = $script:OutReader.ReadLine()
+            if ($null -eq $line) { break }
+            Append-GuiLog -Line $line
+            $added++
+            if ($added -ge 300) { break }   # 一次最多追加 300 行，剩下的下个 tick 继续（不让界面被刷爆）
+        }
+    } catch { }
 }
 
 function Finish-GuiAction {
     param([int]$ExitCode = -999)
     $script:Timer.Stop()
-    Read-GuiNewOutput
+    # 动作结束后把剩下没读的输出读干净（单次上限 300 行，所以循环几轮）
+    for ($i = 0; $i -lt 40; $i++) {
+        Read-GuiNewOutput
+        if (-not $script:OutReader -or $script:OutReader.EndOfStream) { break }
+    }
+    Close-GuiOutReader
     $elapsed = 0
     if ($script:RunStart) { $elapsed = [math]::Round(((Get-Date) - $script:RunStart).TotalSeconds, 1) }
     if ($ExitCode -eq -999) {
@@ -1206,7 +1610,9 @@ function Finish-GuiAction {
     $btnFill.Enabled = $true
     $btnRun.Enabled = $true
     $script:Proc = $null
-    Update-EnvCards
+    Clear-EnvCache          # 动作可能改了环境状态
+    # 只有正在看「环境」页时才重新探测；探测在后台跑，界面不卡
+    if ($script:CurrentPage -eq 'env') { Start-EnvProbe }
     Refresh-ProgramList
 }
 
@@ -1250,7 +1656,7 @@ function Start-GuiAction {
         Append-GuiLog -Line ('[ERROR] 参数序列化失败: ' + $_.Exception.Message); return
     }
 
-    $script:ReadLines = 0
+    Close-GuiOutReader          # 新动作会写新的 stdout.txt，重新开流从头读
     Append-GuiLog -Line ''
     Append-GuiLog -Line ('[STEP] ==== {0} {1} ====' -f $script:CurrentAction.Name, $(if ($DryRun) { '（仅预览）' } else { '' }))
     $btnFill.Enabled = $false
@@ -1495,17 +1901,156 @@ $btnAppDel.Add_Click({
     Append-GuiLog -Line ('[OK] 已移除: ' + $it.Name)
 })
 
-# ============================ 退出（返回命令行） ============================
+# ============================ 关于页 ============================
+
+$pageAbout             = New-Object System.Windows.Forms.Panel
+$pageAbout.Dock        = 'Fill'
+$pageAbout.BackColor   = $Pal.Bg
+$script:Pages['about'] = $pageAbout
+$pnlContent.Controls.Add($pageAbout)
+
+$lblAboutHead          = New-Label -Text '关于' -Size 12 -Style Bold
+$lblAboutHead.Location = New-Object System.Drawing.Point(2, 2)
+$pageAbout.Controls.Add($lblAboutHead)
+
+$lblAboutDesc          = New-Label -Text 'Server Core GUI 就绪工具 —— 让带界面的程序在 Windows Server Core 上真正跑起来。' -Size 9.5 -Color SubText
+$lblAboutDesc.Location = New-Object System.Drawing.Point(3, 28)
+$pageAbout.Controls.Add($lblAboutDesc)
+
+$cardAbout              = New-Object System.Windows.Forms.Panel
+$cardAbout.Location     = New-Object System.Drawing.Point(0, 56)
+$cardAbout.Size         = New-Object System.Drawing.Size(900, 250)
+$cardAbout.Anchor       = 'Top,Left,Right'
+$cardAbout.BackColor    = $Pal.Card
+$cardAbout.BorderStyle  = 'FixedSingle'
+$pageAbout.Controls.Add($cardAbout)
+Set-Rounded -Control $cardAbout -Radius 10
+
+$lblAuAuthor           = New-Label -Text '作者：mmm' -Size 10 -Style Bold
+$lblAuAuthor.Location  = New-Object System.Drawing.Point(20, 16)
+$cardAbout.Controls.Add($lblAuAuthor)
+
+$lblAuQQ               = New-Label -Text 'QQ 群：1034243331' -Size 10
+$lblAuQQ.Location      = New-Object System.Drawing.Point(20, 46)
+$cardAbout.Controls.Add($lblAuQQ)
+
+$lblAuVer              = New-Label -Text ('版本：v1.0    构建 ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 10
+$lblAuVer.Location     = New-Object System.Drawing.Point(20, 76)
+$cardAbout.Controls.Add($lblAuVer)
+
+$lblAuGitTag           = New-Label -Text 'GitHub：' -Size 10 -Color Hint
+$lblAuGitTag.Location  = New-Object System.Drawing.Point(20, 106)
+$cardAbout.Controls.Add($lblAuGitTag)
+
+$lnkAuGit              = New-Object System.Windows.Forms.LinkLabel
+$lnkAuGit.Text         = 'https://github.com/OrangeArtc0915/Server-core-manager'
+$lnkAuGit.Font         = New-Font -Size 10
+$lnkAuGit.AutoSize     = $true
+$lnkAuGit.LinkColor    = $Pal.Accent2
+$lnkAuGit.ActiveLinkColor = $Pal.Accent1
+$lnkAuGit.LinkBehavior = 'HoverUnderline'
+$lnkAuGit.Location     = New-Object System.Drawing.Point(90, 106)
+$lnkAuGit.Add_LinkClicked({ Start-Process 'https://github.com/OrangeArtc0915/Server-core-manager' })
+$cardAbout.Controls.Add($lnkAuGit)
+
+$lblAuSiteTag          = New-Label -Text '项目主页：' -Size 10 -Color Hint
+$lblAuSiteTag.Location = New-Object System.Drawing.Point(20, 136)
+$cardAbout.Controls.Add($lblAuSiteTag)
+
+$lnkAuSite             = New-Object System.Windows.Forms.LinkLabel
+$lnkAuSite.Text        = 'https://orangeartc0915.github.io/Server-core-manager/'
+$lnkAuSite.Font        = New-Font -Size 10
+$lnkAuSite.AutoSize    = $true
+$lnkAuSite.LinkColor   = $Pal.Accent2
+$lnkAuSite.ActiveLinkColor = $Pal.Accent1
+$lnkAuSite.LinkBehavior = 'HoverUnderline'
+$lnkAuSite.Location    = New-Object System.Drawing.Point(90, 136)
+$lnkAuSite.Add_LinkClicked({ Start-Process 'https://orangeartc0915.github.io/Server-core-manager/' })
+$cardAbout.Controls.Add($lnkAuSite)
+
+$lblAuTips             = New-Label -Text '用着有问题、或者想要哪个功能：到 QQ 群里说一声。工具里所有“实测”结论都来自真机验证。' -Size 9.5 -Color SubText
+$lblAuTips.Location    = New-Object System.Drawing.Point(20, 168)
+$cardAbout.Controls.Add($lblAuTips)
+
+$btnAuGit              = New-FlatButton -Text '打开 GitHub' -Width 130 -Height 34
+$btnAuGit.Location     = New-Object System.Drawing.Point(20, 196)
+$btnAuGit.Add_Click({ Start-Process 'https://github.com/OrangeArtc0915/Server-core-manager' })
+$cardAbout.Controls.Add($btnAuGit)
+
+$btnAuSite             = New-FlatButton -Text '打开项目主页' -Width 130 -Height 34
+$btnAuSite.Location    = New-Object System.Drawing.Point(160, 196)
+$btnAuSite.Add_Click({ Start-Process 'https://orangeartc0915.github.io/Server-core-manager/' })
+$cardAbout.Controls.Add($btnAuSite)
+
+$btnAuLog              = New-FlatButton -Text '打开日志目录' -Width 130 -Height 34
+$btnAuLog.Location     = New-Object System.Drawing.Point(300, 196)
+$btnAuLog.Add_Click({ Start-Process -FilePath (Join-Path $toolRoot 'logs') | Out-Null })
+$cardAbout.Controls.Add($btnAuLog)
+
+$btnAuRep              = New-FlatButton -Text '打开报告目录' -Width 130 -Height 34
+$btnAuRep.Location     = New-Object System.Drawing.Point(440, 196)
+$btnAuRep.Add_Click({ Start-Process -FilePath (Join-Path $toolRoot 'reports') | Out-Null })
+$cardAbout.Controls.Add($btnAuRep)
+
+# ============================ 退出时自动打开终端 ============================
+# 行为（用户确认的结论）：点「退出（打开终端）」按钮、按 Esc、或直接点窗口 X —— 三种关闭方式**统一**：
+#   装了美化终端 → 起 scm-term（UTF-8 + Nerd Font + oh-my-posh 的美化 PowerShell）
+#   没装         → 起普通 PowerShell（-NoExit，工作目录为工具目录）
+# 不弹的情况：
+#   - -SelfTest / -LayoutDump（自检与布局诊断，弹窗会干扰）
+#   - Session 0（没有桌面，弹不出来，只在日志里留一行）
+
+$script:ExitShellOpened = $false
+
+function Get-GuiExitShell {
+    # 优先美化终端；找不到就退回普通 PowerShell
+    $o = [ordered]@{ Kind = 'PowerShell'; File = 'powershell.exe'; Args = @('-NoLogo', '-NoExit'); WorkDir = $toolRoot }
+    foreach ($c in @((Join-Path $toolRoot 'bin\scm-term.cmd'),
+                     (Join-Path (Join-Path $env:windir 'System32') 'scm-term.cmd'))) {
+        if (Test-Path -LiteralPath $c) {
+            $o.Kind    = '美化终端 scm-term'
+            $o.File    = $c
+            $o.Args    = @()
+            $o.WorkDir = $toolRoot
+            break
+        }
+    }
+    return [pscustomobject]$o
+}
+
+function Open-GuiExitShell {
+    param([switch]$Quiet)
+    if ($script:ExitShellOpened) { return }      # 三个入口只弹一次
+    $script:ExitShellOpened = $true
+    if ($SelfTest -or $LayoutDump) { return }
+    $sess = 0
+    try { $sess = (Get-Process -Id $PID).SessionId } catch { }
+    if ($sess -le 0) {
+        if (-not $Quiet) { Append-GuiLog '[INFO] 当前是 Session 0，没有桌面，跳过自动打开终端。' }
+        return
+    }
+    $sh = Get-GuiExitShell
+    try {
+        $wd = [string]$sh.WorkDir
+        if (-not $wd -or -not (Test-Path -LiteralPath $wd)) { $wd = $toolRoot }
+        if (@($sh.Args).Count -gt 0) {
+            Start-Process -FilePath $sh.File -ArgumentList $sh.Args -WorkingDirectory $wd | Out-Null
+        } else {
+            Start-Process -FilePath $sh.File -WorkingDirectory $wd | Out-Null
+        }
+        if (-not $Quiet) { Append-GuiLog ('[OK] 已自动打开 ' + $sh.Kind + '。') }
+    } catch {
+        if (-not $Quiet) { Append-GuiLog ('[WARN] 自动打开终端失败: ' + $_.Exception.Message) }
+    }
+}
 
 function Exit-ToCommandLine {
     if ($script:Proc) {
         try { Stop-Process -Id $script:Proc.Id -Force -ErrorAction SilentlyContinue } catch { }
     }
     try { $script:Timer.Stop(); $script:Timer.Dispose() } catch { }
-    try {
-        # 返回命令行：在工具目录新开一个命令行窗口
-        Start-Process -FilePath 'cmd.exe' -WorkingDirectory $toolRoot | Out-Null
-    } catch { }
+    try { $script:ProbeTimer.Stop(); $script:ProbeTimer.Dispose() } catch { }
+    Open-GuiExitShell -Quiet
     $form.Close()
 }
 
@@ -1514,7 +2059,14 @@ $form.Add_KeyDown({
     if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Escape) { Exit-ToCommandLine }
 })
 
+# 点窗口 X / Alt+F4：也自动弹终端。这里**不**动后台 runner —— 关窗不该打断正在跑的任务
+# （任务日志会继续写到 logs\，重开界面能接着看）。
+$form.Add_FormClosing({
+    Open-GuiExitShell -Quiet
+})
+
 # ============================ 启动 ============================
+Add-BootTrace '全部控件创建完成'
 
 function Update-Chrome {
     # 头部横贯全宽：WinForms 里“最后加入的边栏控件”排布最优先。
@@ -1526,17 +2078,36 @@ function Update-Chrome {
     Update-PageLayout
 }
 
+# 启动时不再同步查卡片数据（那会在界面线程上跑 5~6.5 秒）。
+# 顺序：先用上次的探测缓存秒显 → 再起后台探测 → 结果回来了自动刷新。
 $form.Add_Shown({
+    Add-BootTrace '窗口可见（Shown 触发）'
+    $script:LayoutSuspended = $true        # 先挂起布局，等工作都做完再统一算一次
     Update-Chrome
     $first = $StartPage
     if (-not $script:Pages.ContainsKey($first)) { $first = 'env' }
-    Show-GuiPage -Key $first
-    Update-ToolButtons
+    Show-GuiPage -Key $first -SkipCards
+    # 工具页的路径解析（21 个工具）挪到真正要看工具页时再做，别拖慢启动
+    if ($script:CurrentPage -eq 'tool') { Update-ToolButtons }
+    Update-WacToolGroup
     Load-Programs
     Refresh-ProgramList
     Append-GuiLog -Line ('Server Core GUI 就绪工具已启动  ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
     Append-GuiLog -Line ('工具目录: ' + $toolRoot)
     Append-GuiLog -Line '左侧「环境」用于补全；「软件」管理你要跑的程序；「工具」打开系统自带图形工具；完整能力在「更多」。'
+    Append-GuiLog -Line '关闭本窗口会自动打开终端（装了美化终端就是 scm-term）。'
+    # 卡片：有上次结果就先显示，然后后台刷新
+    $cache = Read-EnvProbeResult -FromCache
+    if ($cache) {
+        Update-EnvCards -Data $cache
+        Append-GuiLog -Line '[INFO] 卡片先用上次探测结果，正在后台刷新…'
+    } else {
+        Set-EnvCardsPending
+    }
+    Start-EnvProbe
+    $script:LayoutSuspended = $false
+    Update-PageLayout
+    Add-BootTrace 'Shown 处理完成（可交互）'
 })
 
 $form.Add_Resize({ Update-Chrome })
@@ -1578,7 +2149,7 @@ if ($LayoutDump) {
         Dump-Tree -Parent $form
 
         # 逐页检查：切到每一页，把该页的错误量出来
-        foreach ($k in @('env', 'app', 'tool', 'more')) {
+        foreach ($k in @('env', 'app', 'tool', 'more', 'about')) {
             Show-GuiPage -Key $k
             $form.PerformLayout()
             $pg = $script:Pages[$k]
@@ -1590,10 +2161,14 @@ if ($LayoutDump) {
 
         # 系统工具可用性一览（Server Core 上这些依赖 FOD）
         Update-ToolButtons
-        $avail = @($script:ToolButtons | Where-Object { $_.Button.Enabled })
+        Update-WacToolGroup
+        $avail = @($script:ToolButtons | Where-Object { -not $_.Missing })
         [void]$rep.Add(('系统工具: 共 {0} 个，当前可用 {1} 个，缺失 {2} 个' -f $script:ToolButtons.Count, $avail.Count, ($script:ToolButtons.Count - $avail.Count)))
+        [void]$rep.Add(('WAC 重复组: {0}（WAC 已装且运行={1}，展开={2}）' -f `
+            $(if ($script:WacToolsSuppressed) { '已隐藏（WAC 里有）' } elseif ($script:PnlWacTools.Visible) { '已展开' } else { '默认收起' }),
+            $script:WacToolsSuppressed, $script:WacToolsExpanded))
         foreach ($tb in $script:ToolButtons) {
-            if (-not $tb.Button.Enabled) { [void]$rep.Add(('    缺失: {0}  ({1})' -f $tb.Name, $tb.Target)) }
+            if ($tb.Missing) { [void]$rep.Add(('    缺失: {0}  ({1})' -f $tb.Name, $tb.Target)) }
         }
         $needH = 0
         foreach ($c in $pnlTools.Controls) { $needH += ($c.Height + $c.Margin.Top + $c.Margin.Bottom) }
@@ -1631,11 +2206,25 @@ if ($SelfTest) {
         Select-GuiAction -Action $script:Actions[0]
         $ctlCount = $pnlParams.Controls.Count
         Update-ToolButtons
-        $toolAvail = @($script:ToolButtons | Where-Object { $_.Button.Enabled }).Count
+        Update-WacToolGroup
+        $toolAvail = @($script:ToolButtons | Where-Object { -not $_.Missing }).Count
         Write-Host ('GUI SELFTEST OK: 页面 {0} 个 / 状态卡片 {1} 个 / 系统工具 {2} 个(可用 {3}) / 更多里功能 {4} 个 / 参数控件 {5} 个 / 窗体 {6}' -f `
             $script:Pages.Count, $cardCount, $script:ToolButtons.Count, $toolAvail, $nodeCount, $ctlCount, $form.Size.ToString()) -ForegroundColor Green
-        Write-Host ('  卡片值: ' + ($envVals -join ' | ')) -ForegroundColor Green
+        Write-Host ('  WAC 重复组: {0}   卡片值: {1}' -f `
+            $(if ($script:WacToolsSuppressed) { '已隐藏（WAC 里有）' } else { '默认收起' }), ($envVals -join ' | ')) -ForegroundColor Green
+        # 再用后台探测产出的 JSON 渲染一遍：确认反序列化后的字段/类型都能被渲染代码正常消费
+        $probe = Read-EnvProbeResult -FromCache
+        if ($probe) {
+            Update-EnvCards -Data $probe
+            $envVals2 = @($script:Cards | ForEach-Object { $_.Value.Text })
+            $probeOk = (@($envVals2 | Where-Object { $_ -and $_ -ne '探测中…' }).Count -eq $script:Cards.Count)
+            Write-Host ('  探测数据渲染: {0}' -f ($envVals2 -join ' | ')) -ForegroundColor Green
+            if (-not $probeOk) { Write-Host '  !! 探测数据渲染有空白卡片' -ForegroundColor Red }
+        } else {
+            Write-Host '  （没有 state\env-cache.json，跳过探测数据渲染验证）' -ForegroundColor Yellow
+        }
         $script:Timer.Dispose()
+        try { $script:ProbeTimer.Dispose() } catch { }
         $form.Dispose()
     } catch {
         Write-Host ('GUI SELFTEST FAIL: ' + $_.Exception.Message) -ForegroundColor Red

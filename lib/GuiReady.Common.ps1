@@ -65,6 +65,96 @@ function Assert-Administrator {
 
 function Get-GuiReadyLogFile { return $Global:GuiReadyLogFile }
 
+# ============================ 下载源（国内镜像优先）============================
+# 2026-09 实测结论，别凭印象改：
+#   - 清华 TUNA 的 github-release 镜像里【确实有】PowerShell 的 Release 资产
+#     （https://mirrors.tuna.tsinghua.edu.cn/github-release/PowerShell/PowerShell/LatestRelease/）
+#   - 清华 / 阿里云【没有】.NET 运行时、oh-my-posh、fastfetch 的镜像：
+#     路径要么 404，要么返回镜像站门户页（HTML），不是真文件
+#   - 微软官方 CDN 在国内直连可用：测试机上实测 aka.ms ≈ 720 KB/s、builds.dotnet.microsoft.com ≈ 470 KB/s
+#   - 所以：能内置就内置（终端美化素材随发布包分发，安装不联网）；
+#     PowerShell 7 走清华；其余保持官方地址。
+# 想接自己的内网源，设这两个环境变量即可：
+#   SCM_MIRROR_GITHUB = 替换 https://github.com 前缀（内网 GitHub 代理）
+#   SCM_MIRROR_TUNA   = 替换清华镜像基址（默认 https://mirrors.tuna.tsinghua.edu.cn）
+$Global:GuiReadyMirrorTuna = if ($env:SCM_MIRROR_TUNA) { ([string]$env:SCM_MIRROR_TUNA).TrimEnd('/') } else { 'https://mirrors.tuna.tsinghua.edu.cn' }
+$Global:GuiReadyMirrorGithub = if ($env:SCM_MIRROR_GITHUB) { ([string]$env:SCM_MIRROR_GITHUB).TrimEnd('/') } else { '' }
+$Global:GuiReadyMirrorDotNet = if ($env:SCM_MIRROR_DOTNET) { ([string]$env:SCM_MIRROR_DOTNET).TrimEnd('/') } else { '' }
+
+function Get-GuiReadyDownloadUrl {
+    param(
+        [Parameter(Mandatory = $true)][string]$Url,
+        [switch]$PreferOfficial
+    )
+    if ($PreferOfficial) { return $Url }
+    # PowerShell 的 GitHub Release → 清华镜像（实测可用）
+    if ($Url -match '^https://github\.com/PowerShell/PowerShell/releases/download/([^/]+)/(.+)$') {
+        return ('{0}/github-release/PowerShell/PowerShell/{1}/{2}' -f $Global:GuiReadyMirrorTuna, $Matches[1], $Matches[2])
+    }
+    # 其它 GitHub 地址 → 用户自建镜像（若配了 SCM_MIRROR_GITHUB）
+    if ($Global:GuiReadyMirrorGithub -and $Url -match '^https://github\.com/') {
+        return ($Url -replace '^https://github\.com', $Global:GuiReadyMirrorGithub)
+    }
+    # .NET 运行时：国内镜像站没有（实测 404/门户页），官方 CDN 国内实测 ~470 KB/s；
+    # 如果要走内网源，用 SCM_MIRROR_DOTNET 替换 https://builds.dotnet.microsoft.com/dotnet 前缀
+    if ($Global:GuiReadyMirrorDotNet -and $Url -match '^https://builds\.dotnet\.microsoft\.com/dotnet') {
+        return ($Url -replace '^https://builds\.dotnet\.microsoft\.com/dotnet', $Global:GuiReadyMirrorDotNet)
+    }
+    return $Url
+}
+
+function Get-GuiReadyCurlPath {
+    $c = Join-Path (Join-Path $env:windir 'System32') 'curl.exe'
+    if (Test-Path -LiteralPath $c) { return $c }
+    return 'curl.exe'
+}
+
+function Get-GuiReadyPowerShell7Latest {
+    # 从清华镜像的 LatestRelease 目录取 x64 zip 名（顺带拿到版本号），不依赖 GitHub API（避开限流）
+    $o = [ordered]@{ Ok = $false; Version = ''; Name = ''; Url = ''; FromMirror = $false; Note = '' }
+    $idxUrl = '{0}/github-release/PowerShell/PowerShell/LatestRelease/' -f $Global:GuiReadyMirrorTuna
+    try {
+        $txt = (& (Get-GuiReadyCurlPath) -sL --ssl-no-revoke --max-time 30 $idxUrl 2>$null | Out-String)
+        $m = [regex]::Match($txt, 'PowerShell-([\d\.]+)-win-x64\.zip')
+        if ($m.Success) {
+            $o.Version = $m.Groups[1].Value
+            $o.Name = $m.Value
+            $o.Url = $idxUrl + $o.Name
+            $o.Ok = $true
+            $o.FromMirror = $true
+            $o.Note = '来自清华镜像 ' + $o.Name
+            return [pscustomobject]$o
+        }
+        $o.Note = '清华镜像索引里没解析到 PowerShell-<版本>-win-x64.zip'
+    } catch {
+        $o.Note = '查询清华镜像失败: ' + $_.Exception.Message
+    }
+    # 回退：GitHub 官方（若配了 SCM_MIRROR_GITHUB 则走内网源）
+    try {
+        $api = Get-GuiReadyDownloadUrl -Url 'https://github.com/PowerShell/PowerShell'
+        if ($api -notmatch '^https://github\.com') {
+            $o.Note = $o.Note + '；已配置 SCM_MIRROR_GITHUB，但内网源无法自动探测版本，请手动指定 -Url'
+            return [pscustomobject]$o
+        }
+        $rel = Invoke-RestMethod -Uri 'https://api.github.com/repos/PowerShell/PowerShell/releases/latest' -Headers @{ 'User-Agent' = 'ServerCoreManager' } -TimeoutSec 40
+        $asset = @($rel.assets | Where-Object { $_.name -match '^PowerShell-[\d\.]+-win-x64\.zip$' } | Select-Object -First 1)
+        if ($asset.Count -gt 0) {
+            $o.Version = [string]$rel.tag_name
+            $o.Name = [string]$asset[0].name
+            $o.Url = [string]$asset[0].browser_download_url
+            $o.Ok = $true
+            $o.FromMirror = $false
+            $o.Note = '清华镜像不可用，改用 GitHub 官方 ' + $o.Name
+        } else {
+            $o.Note = $o.Note + '；GitHub 官方也没有找到 x64 zip'
+        }
+    } catch {
+        $o.Note = $o.Note + '；GitHub 官方查询失败: ' + $_.Exception.Message
+    }
+    return [pscustomobject]$o
+}
+
+
 function Save-JsonReport {
     param(
         [Parameter(Mandatory = $true)]$Object,
@@ -217,7 +307,8 @@ function Get-GuiReadyPreamble {
                      'GuiReady.Fod.ps1', 'GuiReady.GuiShell.ps1', 'GuiReady.RdpFix.ps1',
                      'GuiReady.DotNet.ps1', 'GuiReady.GuiTest.ps1', 'GuiReady.Matrix.ps1',
                      'GuiReady.Diag.ps1', 'GuiReady.Catalog.ps1', 'GuiReady.Pipeline.ps1',
-                     'GuiReady.AutoLogon.ps1', 'GuiReady.Command.ps1', 'GuiReady.PhaseB.ps1', 'GuiReady.Wac.ps1')) {
+                     'GuiReady.AutoLogon.ps1', 'GuiReady.Command.ps1', 'GuiReady.PhaseB.ps1', 'GuiReady.Wac.ps1',
+                     'GuiReady.Console.ps1')) {
         [void]$sb.AppendLine(". '$root\lib\$m'")
     }
     return $sb.ToString()
