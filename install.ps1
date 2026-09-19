@@ -18,12 +18,17 @@
       $env:SCM_DEST       = 'D:\SCM'    指定安装目录（默认 C:\Program Files\ServerCoreManager）
       $env:SCM_NO_COMMAND = '1'         不安装 scm 一行命令
       $env:SCM_BRANCH     = 'main'      指定分支（仅下载分支压缩包时用到）
+      $env:SCM_MIRROR_GITHUB = 'http://内网镜像'   把 https://github.com 换成你的镜像/内网源
+      $env:SCM_MIRROR_TUNA   = 'https://mirrors.tuna.tsinghua.edu.cn'  清华镜像基址（工具内部装 PowerShell 7 用）
 
   也可以先存成文件、再当普通脚本跑，这样能直接传参：
       .\install.ps1 -Dest 'D:\SCM' -NoCommand
 
   重复执行视为升级：只覆盖程序文件，不会删除你已有的程序列表（launcher\programs.json）、
   日志与断点状态（logs\ / reports\ / state\）。
+
+  作者：mmm     QQ群：1034243331
+  GitHub：https://github.com/OrangeArtc0915/Server-core-manager
 #>
 [CmdletBinding()]
 param(
@@ -130,6 +135,15 @@ function Save-RemoteFile {
 $releaseUrl = ('https://github.com/{0}/{1}/releases/latest/download/{2}' -f $Owner, $Repo, $AssetName)
 $branchUrl  = ('https://github.com/{0}/{1}/archive/refs/heads/{2}.zip' -f $Owner, $Repo, $Branch)
 
+# 国内源：GitHub 在国内常常很慢/不可达。设了 SCM_MIRROR_GITHUB 就把 github.com 前缀换成你的镜像
+# （没设就用官方地址，不做任何自动改写）。
+$MirrorGitHub = if ($env:SCM_MIRROR_GITHUB) { ([string]$env:SCM_MIRROR_GITHUB).TrimEnd('/') } else { '' }
+if ($MirrorGitHub) {
+    $releaseUrl = ($releaseUrl -replace '^https://github\.com', $MirrorGitHub)
+    $branchUrl  = ($branchUrl  -replace '^https://github\.com', $MirrorGitHub)
+    Write-Step ('已启用镜像: ' + $MirrorGitHub)
+}
+
 Write-Step '下载发布压缩包 ...'
 $ok = Save-RemoteFile -Url $releaseUrl -Path $zip
 
@@ -234,4 +248,10 @@ if (-not $NoCommand) {
 Write-Host '      2) 在「环境」页点「一键补全」' -ForegroundColor White
 Write-Host '         这会装官方 App Compatibility FOD（需要重启）' -ForegroundColor DarkGray
 Write-Host '      3) 重启后回到「软件」页添加你的程序' -ForegroundColor White
+Write-Host ''
+Write-Host '    想美化命令行（Nerd Font + Oh My Posh + Fastfetch）：' -ForegroundColor White
+Write-Host '      「更多 → 终端美化 → 一键美化终端」，装好后输入 scm-term 打开' -ForegroundColor DarkGray
+Write-Host ''
+Write-Host '    作者 mmm    QQ群 1034243331' -ForegroundColor Gray
+Write-Host '    https://github.com/OrangeArtc0915/Server-core-manager' -ForegroundColor Gray
 Write-Host ''

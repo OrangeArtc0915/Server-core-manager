@@ -10,6 +10,10 @@
   内容与仓库里公开的文件一致：排除 logs\ reports\ backup\ state\ payload\ 与所有 .exe/.msi
   （这些在 .gitignore 里，不该出现在发布包里）。
 
+  例外：setup\console\ 下的终端美化素材（Nerd Font / oh-my-posh / fastfetch）会【被打进】发布包，
+  这样「更多 → 终端美化 → 一键美化终端」不需要联网。它们不进 git（见 .gitignore），
+  但必须在打包机上存在，否则发布包会缺内置素材。
+
   用法：
     .\pack.ps1 -Version v1.0.0
 #>
@@ -31,7 +35,7 @@ $files = @(
     'Install-GuiReadyCommand.ps1', 'Resume-GuiReadyPipeline.ps1',
     '一键运行.bat', '打开命令行菜单.bat', '安装一行命令.bat'
 )
-$dirs = @('gui', 'lib', 'launcher')
+$dirs = @('gui', 'lib', 'launcher', 'setup')
 
 # 双保险：即使哪天把不该公开的东西挪进了上面这些目录，也不会被打进发布包
 $denyDirs = @('logs', 'reports', 'backup', 'state', 'payload', 'dist', '.git')
@@ -56,7 +60,9 @@ foreach ($d in $dirs) {
         $rel  = $_.FullName.Substring($root.Length).TrimStart('\')
         $skip = $false
         foreach ($seg in ($rel -split '\\')) { if ($denyDirs -contains $seg) { $skip = $true } }
-        if ($denyExt -contains $_.Extension.ToLower()) { $skip = $true }
+        # setup\ 下的内置素材允许 exe（终端美化的 oh-my-posh / fastfetch 就是 exe），其它目录仍然拦住 exe/msi/zip
+        $inSetup = (($rel -split '\\')[0] -eq 'setup')
+        if (-not $inSetup -and $denyExt -contains $_.Extension.ToLower()) { $skip = $true }
         if ($skip) { return }
         $to = Join-Path $stage $rel
         $toDir = Split-Path -Parent $to
@@ -117,6 +123,32 @@ foreach ($z in @($plain, $versioned)) {
 $count = (Get-ChildItem -LiteralPath $stage -Recurse -File).Count
 Write-Host ''
 Write-Host ('  包内文件 {0} 个' -f $count) -ForegroundColor Gray
+
+# 终端美化素材自检（Nerd Font + oh-my-posh + fastfetch + 启动器）
+$conDir  = Join-Path $root 'setup\console'
+$conPkgs = @()
+if (Test-Path -LiteralPath $conDir) { $conPkgs = @(Get-ChildItem -LiteralPath $conDir -File -ErrorAction SilentlyContinue) }
+$conFont  = @($conPkgs | Where-Object { $_.Extension -ieq '.ttf' })
+$conPosh  = @($conPkgs | Where-Object { $_.Name -match '(?i)^(oh-my-posh|posh-windows).*\.exe$' })
+$conTheme = @($conPkgs | Where-Object { $_.Name -match '(?i)\.omp\.json$' })
+$conLau   = @($conPkgs | Where-Object { $_.Name -eq 'scm-term.cmd' })
+$conThemesDir = Join-Path $conDir 'themes'
+$conThemes = @()
+if (Test-Path -LiteralPath $conThemesDir) {
+    $conThemes = @(Get-ChildItem -LiteralPath $conThemesDir -File -Filter '*.omp.json' -ErrorAction SilentlyContinue)
+}
+if ($conFont.Count -gt 0 -and $conPosh.Count -gt 0 -and $conTheme.Count -gt 0 -and $conLau.Count -gt 0) {
+    $mb2 = [math]::Round((($conPkgs | Measure-Object -Property Length -Sum).Sum) / 1MB, 1)
+    Write-Host ('  内置美化素材: 已包含（{0} 个文件，{1} MB）' -f $conPkgs.Count, $mb2) -ForegroundColor Green
+    if ($conThemes.Count -gt 0) {
+        Write-Host ('  内置 oh-my-posh 主题: {0} 个（{1}）' -f $conThemes.Count, (($conThemes | ForEach-Object { $_.BaseName }) -join ', ')) -ForegroundColor Green
+    } else {
+        Write-Warning 'setup\console\themes 下没有主题文件，「一键美化终端」的主题下拉会退化成默认主题。'
+    }
+} else {
+    Write-Warning ('setup\console 下缺少终端美化素材（需要 *.ttf + oh-my-posh.exe + *.omp.json + scm-term.cmd），' +
+                   '本次发布包的「一键美化终端」会因找不到素材而失败。')
+}
 
 if ($KeepStage) { Write-Host ('  暂存目录保留在: ' + $stage) -ForegroundColor DarkGray }
 else { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
