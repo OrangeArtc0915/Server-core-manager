@@ -105,9 +105,24 @@ function Enable-GuiReadyRdp {
     }
 
     try {
-        $rules = Get-NetFirewallRule -DisplayGroup 'Remote Desktop' -ErrorAction Stop
-        $rules | Enable-NetFirewallRule -ErrorAction Stop
-        Write-Log '已启用防火墙“远程桌面”规则组' 'OK'
+        # DisplayGroup 是【本地化】字符串：中文系统上是“远程桌面”，只按英文名找必然失败（实测踩过）。
+        # 顺序：英文组名 → 中文组名 → 按显示名/端口兜底 → 一条都没有就自己建一条。
+        $rules = @()
+        foreach ($g in @('Remote Desktop', '远程桌面')) {
+            try { $rules += @(Get-NetFirewallRule -DisplayGroup $g -ErrorAction Stop) } catch { }
+        }
+        if ($rules.Count -eq 0) {
+            $rules = @(Get-NetFirewallRule -Direction Inbound -ErrorAction SilentlyContinue |
+                       Where-Object { $_.DisplayName -match '(?i)remote desktop|远程桌面|3389' })
+        }
+        if ($rules.Count -gt 0) {
+            $rules | Enable-NetFirewallRule -ErrorAction Stop
+            Write-Log ('已启用防火墙“远程桌面”规则组（{0} 条）' -f $rules.Count) 'OK'
+        } else {
+            New-NetFirewallRule -DisplayName 'Remote Desktop (3389, ServerCoreManager)' -Direction Inbound `
+                -Protocol TCP -LocalPort 3389 -Action Allow -Profile Any -ErrorAction Stop | Out-Null
+            Write-Log '未找到系统自带规则，已新建一条放行 TCP 3389 的入站规则' 'OK'
+        }
     } catch {
         Write-Log ('启用防火墙规则失败（可能本就放行，或用 netsh 手动处理）: ' + $_.Exception.Message) 'WARN'
     }
@@ -185,7 +200,7 @@ function Restore-GuiReadyWddmForRdp {
 
 function Set-GuiReadyShell {
     param(
-        [ValidateSet('Explorer', 'Launcher', 'Cmd', 'Default')][string]$Mode = 'Default',
+        [ValidateSet('Explorer', 'Launcher', 'Cmd', 'SConfig', 'Restore', 'Default')][string]$Mode = 'Default',
         [switch]$WhatIf
     )
 
@@ -196,11 +211,45 @@ function Set-GuiReadyShell {
     $current = Get-RegValue $Global:GuiReadyWinlogon 'Shell'
     Write-Log ('当前 Shell: {0}' -f $(if ($current) { $current } else { '(未设置)' })) 'INFO'
 
+    # 从工具的备份里恢复（backup\shell-*\Winlogon.reg）
+    if ($Mode -eq 'Restore') {
+        $bk = @(Get-ChildItem -LiteralPath $script:BackupDir -Directory -Filter 'shell-*' -ErrorAction SilentlyContinue |
+                Sort-Object LastWriteTime -Descending)
+        if ($bk.Count -eq 0) {
+            Write-Log ('没有找到 shell 备份（' + (Join-Path $script:BackupDir 'shell-*') + '），无法恢复。') 'ERROR'
+            return
+        }
+        $reg = Join-Path $bk[0].FullName 'Winlogon.reg'
+        if (-not (Test-Path -LiteralPath $reg)) {
+            Write-Log ('备份目录里没有 Winlogon.reg: ' + $bk[0].Name) 'ERROR'
+            return
+        }
+        if ($WhatIf) { Write-Log ('将导入备份: ' + $reg) 'DRY'; return }
+        $r = Invoke-Capture 'reg.exe' @('import', $reg)
+        if ($r.ExitCode -eq 0) {
+            $backNow = Get-RegValue $Global:GuiReadyWinlogon 'Shell'
+            Write-Log ('已从备份恢复: Shell = ' + $(if ($backNow) { $backNow } else { '(未设置)' })) 'OK'
+        } else {
+            Write-Log ('恢复失败（reg import 退出码 ' + $r.ExitCode + '）') 'ERROR'
+        }
+        return
+    }
+
     $target = ''
     switch ($Mode) {
         'Explorer' { $target = 'explorer.exe' }
         'Cmd'      { $target = 'cmd.exe' }
         'Default'  { $target = 'cmd.exe' }
+        'SConfig'  {
+            # Server Core 原生：登录后直接进 sconfig 菜单（servercoreshelllaunch.bat 就是干这个的）。
+            # 注意 Shell 的值由 Winlogon 直接 CreateProcess，.bat 不能直接执行，必须经 cmd.exe 承载。
+            $bat = Join-Path (Join-Path $env:windir 'system32') 'servercoreshelllaunch.bat'
+            if (-not (Test-Path -LiteralPath $bat)) {
+                Write-Log '本机没有 servercoreshelllaunch.bat（这不是 Server Core？），已中止。' 'ERROR'
+                return
+            }
+            $target = 'cmd.exe /c ' + $bat
+        }
         'Launcher' {
             $lp = Join-Path $script:GuiReadyRoot 'launcher\Start-Launcher.ps1'
             $target = ('powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Maximized -File "{0}"' -f $lp)

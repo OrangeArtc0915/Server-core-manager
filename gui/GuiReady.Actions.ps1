@@ -49,12 +49,6 @@ function Get-GuiReadyActions {
             Params = @(); DryRun = $false
             Script = { param($P) Show-GuiReadyPipelineState | Out-Null }
         }
-        [pscustomobject]@{
-            Id = 'pipeline-stop'; Group = '一键流程'; Name = '终止流程（清状态 + 注销续跑任务）'
-            Desc = '清掉状态文件并注销 GuiReadyPipelineResume 计划任务，不会再自动续跑。'
-            Params = @(); DryRun = $true
-            Script = { param($P) Stop-GuiReadyPipeline }
-        }
 
         # ---------------- 探测与诊断 ----------------
         [pscustomobject]@{
@@ -62,16 +56,6 @@ function Get-GuiReadyActions {
             Desc = '读取系统版本/SKU、FOD 状态、GUI 相关模块、RDP、关键服务、.NET、UAC、登录会话、自动登录，并给出结论与可用路线。'
             Params = @(); DryRun = $false
             Script = { param($P) Invoke-GuiReadyDetect | Out-Null }
-        }
-        [pscustomobject]@{
-            Id = 'matrix'; Group = '探测与诊断'; Name = '版本适配矩阵与能力差距'
-            Desc = '按当前 build 给出该版本的专属结论（FOD 离线源规则、FOD 提供/不提供什么），并把“缺哪个组件 → 哪类功能不可用”逐条列清。'
-            Params = @(); DryRun = $false
-            Script = {
-                param($P)
-                $d = Invoke-GuiReadyDetect -Quiet
-                Show-GuiReadyMatrix -Static $d.Static -DllScan $d.DllScan -Services $d.Services -Sessions $d.Sessions -Uac $d.Uac | Out-Null
-            }
         }
         [pscustomobject]@{
             Id = 'pecheck'; Group = '探测与诊断'; Name = 'exe 兼容性预检'
@@ -186,25 +170,81 @@ function Get-GuiReadyActions {
             DryRun = $true
             Script = { param($P) Invoke-GuiReadyDotNetFix -ExePath $P['Path'] -WhatIf:([bool]$P['DryRun']) | Out-Null }
         }
+        # ---------------- 终端美化 ----------------
         [pscustomobject]@{
-            Id = 'guishell'; Group = '补给'; Name = '用安装介质补全 Server-Gui-Shell（非官方，高风险）'
-            Desc = '需要一个与本机 build 一致的 install.wim/esd。注意：真正的 Server Core SKU 功能列表里没有 Server-Gui-Shell，本操作通常会直接判定不可行。'
-            Params = @( @{ Name = 'Wim'; Label = 'install.wim / install.esd 路径'; Type = 'Text'; Width = 520; Browse = 'Any' } )
-            DryRun = $true
+            Id = 'console-status'; Group = '终端美化'; Name = '终端美化：状态检查'
+            Desc = '检查 Nerd Font（MesloLGS NF）是否安装、是否进了控制台字体白名单、中文回退是否配置、oh-my-posh / fastfetch / 启动器 / profile 初始化是否就位、控制台是否开了 ANSI(VT) 与配色。'
+            Params = @(
+                @{ Name = 'DeepProbe'; Label = '同时实测：用 scm-term 新开控制台并回读真实字体'; Type = 'Check'; Default = $true }
+            )
+            DryRun = $false
             Script = {
                 param($P)
-                if ([bool]$P['DryRun']) { Install-GuiReadyGuiShell -WimPath $P['Wim'] -WhatIf | Out-Null }
-                else { Install-GuiReadyGuiShell -WimPath $P['Wim'] -Confirm | Out-Null }
+                $dp = $false
+                if ($P['DeepProbe']) { $dp = [bool]$P['DeepProbe'] }
+                Show-GuiReadyConsoleStatus -DeepProbe:$dp | Out-Null
             }
         }
         [pscustomobject]@{
-            Id = 'guishell-rollback'; Group = '补给'; Name = '回滚 Server-Gui-Shell'
-            Desc = '卸载之前注入的包并恢复 Winlogon Shell。'
-            Params = @(); DryRun = $true
+            Id = 'console-install'; Group = '终端美化'; Name = '一键美化终端（Nerd Font + Oh My Posh + Fastfetch）'
+            Desc = '装 MesloLGS NF（全机：字体文件 + 控制台白名单 + 中文回退到雅黑）、oh-my-posh（写 PowerShell profile）、fastfetch（首屏信息）、One Dark 配色并打开 ANSI/VT，最后生成 scm-term 启动器并实测。素材随发布包内置，不联网。注意：中文代码页 936 下 conhost 不接受拉丁 Nerd Font，所以美化终端要用 scm-term 打开（它会先切 UTF-8）。'
+            Params = @(
+                @{ Name = 'AssetDir';   Label = '素材目录（留空用 setup\console\）'; Type = 'Text'; Width = 480; Browse = 'Folder' }
+                @{ Name = 'Theme';      Label = 'oh-my-posh 主题'; Type = 'Combo'; Options = @('默认（One Dark 自带）', '1_shell', 'atomic', 'catppuccin_frappe', 'dracula', 'emodipt-extend', 'zash') }
+                @{ Name = 'SkipPosh';      Label = '不安装 oh-my-posh（不写 profile）'; Type = 'Check'; Default = $false }
+                @{ Name = 'SkipFastfetch'; Label = '不安装 fastfetch'; Type = 'Check'; Default = $false }
+                @{ Name = 'SkipAppearance'; Label = '不改控制台配色/字体等外观设置'; Type = 'Check'; Default = $false }
+                @{ Name = 'SkipProbe';     Label = '跳过装完的实测'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
             Script = {
                 param($P)
-                if ([bool]$P['DryRun']) { Uninstall-GuiReadyGuiShell -WhatIf | Out-Null }
-                else { Uninstall-GuiReadyGuiShell -Confirm | Out-Null }
+                # 主题下拉是 1 基索引：1=默认主题，2..7 对应 setup\console\themes 里的内置主题
+                $themeNames = @('', '1_shell', 'atomic', 'catppuccin_frappe', 'dracula', 'emodipt-extend', 'zash')
+                $ti = [int]$P['Theme']
+                $theme = ''
+                if ($ti -ge 2 -and $ti -le $themeNames.Count) { $theme = $themeNames[$ti - 1] }
+                Install-GuiReadyConsoleTheme -AssetDir ([string]$P['AssetDir']) -Theme $theme `
+                    -SkipPosh:([bool]$P['SkipPosh']) -SkipFastfetch:([bool]$P['SkipFastfetch']) `
+                    -SkipAppearance:([bool]$P['SkipAppearance']) -SkipProbe:([bool]$P['SkipProbe']) `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'console-open'; Group = '终端美化'; Name = '终端美化：打开美化终端'
+            Desc = '打开一个 UTF-8 + Nerd Font + oh-my-posh 的控制台（等价于在命令行输入 scm-term）。'
+            Params = @(); DryRun = $false
+            Script = { param($P) Start-GuiReadyConsoleTheme | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'console-restore'; Group = '终端美化'; Name = '终端美化：一键还原'
+            Desc = '把控制台外观恢复为安装前的备份值、移除 profile 里的初始化块、删掉字体与控制台白名单/中文回退项、清理 bin 与 PATH 里的 scm-term。'
+            Params = @(
+                @{ Name = 'KeepFonts'; Label = '保留字体（不卸载）'; Type = 'Check'; Default = $false }
+                @{ Name = 'KeepFiles'; Label = '保留 bin 里的程序与脚本'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Restore-GuiReadyConsoleTheme -KeepFonts:([bool]$P['KeepFonts']) -KeepFiles:([bool]$P['KeepFiles']) `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'console-ps7'; Group = '终端美化'; Name = '安装 PowerShell 7（zip 免安装，国内源优先）'
+            Desc = '从清华 TUNA 镜像取 PowerShell 7 的 win-x64 zip（拿不到时自动回退 GitHub 官方），解压到 C:\Program Files\PowerShell\7 并加入系统 PATH，同时给 PowerShell 5.1 / 7 都写 oh-my-posh 初始化。也可以指定本地 zip 或自建源地址。'
+            Params = @(
+                @{ Name = 'Url';     Label = '指定下载链接（留空=清华镜像取最新；内网源也行）'; Type = 'Text'; Width = 520 }
+                @{ Name = 'ZipPath'; Label = '指定本地 zip（留空=联网下载）'; Type = 'Text'; Width = 420; Browse = 'File' }
+                @{ Name = 'SkipProfile'; Label = '不写 oh-my-posh 初始化'; Type = 'Check'; Default = $false }
+                @{ Name = 'SkipPath';    Label = '不改系统 PATH'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Install-GuiReadyPowerShell7 -Url ([string]$P['Url']) -ZipPath ([string]$P['ZipPath']) `
+                    -SkipProfile:([bool]$P['SkipProfile']) -SkipPath:([bool]$P['SkipPath']) `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
             }
         }
 
@@ -263,24 +303,20 @@ function Get-GuiReadyActions {
             }
         }
         [pscustomobject]@{
-            Id = 'command-status'; Group = '会话与登录'; Name = '一行命令：查看状态'
-            Desc = '看 scm 这类命令是否已装、装在哪个 PATH 目录里。'
-            Params = @(); DryRun = $false
-            Script = { param($P) Show-GuiReadyCommandStatus | Out-Null }
-        }
-        [pscustomobject]@{
-            Id = 'command-install'; Group = '会话与登录'; Name = '一行命令：安装'
-            Desc = '把一个命令文件放进 PATH 目录，之后在任意目录输入这个命令就能打开本工具（原理与 sconfig 相同，命令会自己提权）。'
-            Params = @( @{ Name = 'Name'; Label = '命令名'; Type = 'Text'; Width = 220; Default = 'scm' } )
+            Id = 'login-shell'; Group = '会话与登录'; Name = '设置登录 Shell（cmd / 自动进 sconfig / 恢复原值）'
+            Desc = '改 Winlogon 的 Shell 值。cmd.exe = 登录后是命令行；自动进 sconfig = 登录后直接进 Server Core 配置菜单（Server Core 原生行为，靠 servercoreshelllaunch.bat 拉起）。写入前会自动备份（backup\shell-*，reg export），可用「恢复原值」回退。注意：Server Core 上把 Shell 设成 explorer.exe 会导致从 sconfig 选“退出到命令行”之后黑屏/什么都没有。'
+            Params = @(
+                @{ Name = 'Mode'; Label = '登录 Shell'; Type = 'Combo'; Options = @('自动进 sconfig（Server Core 原生）', 'cmd.exe（登录后命令行）', '恢复原值（从备份导入）', '启动器（旧版小面板）', 'explorer.exe（仅带桌面体验的系统）') }
+            )
             DryRun = $true
-            Script = { param($P) Install-GuiReadyCommand -Name $P['Name'] -WhatIf:([bool]$P['DryRun']) | Out-Null }
-        }
-        [pscustomobject]@{
-            Id = 'command-uninstall'; Group = '会话与登录'; Name = '一行命令：卸载'
-            Desc = '只删除本工具装的命令文件；如果同名文件不是本工具装的，会拒绝删除。'
-            Params = @( @{ Name = 'Name'; Label = '命令名'; Type = 'Text'; Width = 220; Default = 'scm' } )
-            DryRun = $true
-            Script = { param($P) Uninstall-GuiReadyCommand -Name $P['Name'] -WhatIf:([bool]$P['DryRun']) | Out-Null }
+            Script = {
+                param($P)
+                # 下拉是 1 基索引
+                $modes = @('SConfig', 'Cmd', 'Restore', 'Launcher', 'Explorer')
+                $i = [int]$P['Mode']
+                if ($i -lt 1 -or $i -gt $modes.Count) { $i = 1 }
+                Set-GuiReadyShell -Mode $modes[$i - 1] -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
         }
 
         # ---------------- 使用与工具 ----------------
@@ -303,22 +339,6 @@ function Get-GuiReadyActions {
                 if ([string]::IsNullOrWhiteSpace($a)) { $a = Get-GuiReadyCatalogLaunchArgs -ExePath ([string]$P['Path']) }
                 Start-GuiReadyPersistentProcess -Name $n -ExePath $P['Path'] -Arguments $a -WorkingDirectory $P['WorkDir'] -AtStartup:([bool]$P['AtStartup']) -WhatIf:([bool]$P['DryRun']) | Out-Null
             }
-        }
-        [pscustomobject]@{
-            Id = 'launcher'; Group = '使用与工具'; Name = '启动图形启动器（旧版小面板）'
-            Desc = '一个轻量的 WinForms 面板：系统工具按钮 + 我的程序列表（支持启动参数、持久化启动）。'
-            Params = @(); DryRun = $false
-            Script = {
-                param($P)
-                $lp = Join-Path (Split-Path -Parent (Split-Path -Parent $PSScriptRoot)) 'launcher\Start-Launcher.ps1'
-                Write-Log '该操作需要在桌面会话里直接打开，请用“使用与工具 → 打开启动器”按钮。' 'WARN'
-            }
-        }
-        [pscustomobject]@{
-            Id = 'phase-b'; Group = '使用与工具'; Name = '阶段 B（IDD 远程渲染）准备指引'
-            Desc = '显示阶段 B 的必要条件、推荐的开源基线、以及参考文档里的 4 处 API 用法错误。'
-            Params = @(); DryRun = $false
-            Script = { param($P) Show-GuiReadyPhaseBGuide }
         }
 
         # ---------------- Windows Admin Center ----------------
