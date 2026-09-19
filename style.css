@@ -156,6 +156,13 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .cmd-note { margin-top: 11px; font-size: 13px; color: var(--text-faint); }
 
+/* 两条安装线路并排给（Gitee / GitHub），各带一个复制按钮 */
+.cmd-set { margin-top: 26px; }
+.cmd-set .cmd { margin-top: 0; }
+.cmd-set .cmd + .cmd { margin-top: 10px; }
+.cmd-label { margin: 0 0 7px; font-size: 12.5px; color: var(--text-faint); }
+.cmd-set .cmd + .cmd-label { margin-top: 14px; }
+
 .cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 28px; }
 .btn {
   display: inline-block; padding: 11px 22px; border-radius: var(--r-2);
@@ -230,6 +237,9 @@ a:hover { text-decoration: underline; text-underline-offset: 3px; }
 }
 .cell:hover { border-color: var(--accent); transform: translateY(-2px); }
 .cell-wide, .cell:nth-child(3n+1) { grid-column: span 7; }
+/* 相邻两张都是 span 5 时只占 10/12 列，右边会空出一条。把第 5、11 张也改成 span 7，
+   六行就都是 7+5 满格（12 张卡片时第 5+6、第 11+12 这两行原本各空 2 列）。 */
+.cell:nth-child(6n+5) { grid-column: span 7; }
 .cell-media {
   grid-column: span 5; padding: 0; overflow: hidden;
   display: flex; flex-direction: column; background: var(--surface);
