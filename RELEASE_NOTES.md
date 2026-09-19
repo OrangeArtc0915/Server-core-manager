@@ -1,16 +1,18 @@
-# Server Core Manager v1.0.0
+# Server Core Manager v1.1.0
 
-**让带图形界面的程序，在 Windows Server Core 上真正跑起来。** 首个公开版本。
+**让带图形界面的程序，在 Windows Server Core 上真正跑起来。** 启动提速 + 动作精简 + 终端美化收尾。
 
 Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。本工具把「补全图形环境 → 添加程序 → 启动并排障」做成一键操作，并且自带图形界面。
 
 项目主页（介绍、截图、实测数据）：**https://orangeartc0915.github.io/Server-core-manager/**
 
-> 作者：**mmm** ｜ QQ 群：**1034243331** ｜ GitHub：<https://github.com/OrangeArtc0915/Server-core-manager>
+> 作者：**mmm** ｜ QQ 群：**1034243331**
+> GitHub：<https://github.com/OrangeArtc0915/Server-core-manager>
+> Gitee（国内）：<https://gitee.com/orangearc655743/server-core-manager>
 
 ---
 
-## 本次更新（下一版）
+## 本次更新（v1.1.0）
 
 **启动提速：环境探测挪到后台（实测冻结降 82%）**
 
@@ -117,20 +119,28 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。�
 | 文件 | 用途 |
 |---|---|
 | **`ServerCoreManager.zip`** | 压缩包安装用。**就下这个**（固定名字，`install.ps1` 也是按这个名字取） |
-| `ServerCoreManager-v1.0.0.zip` | 内容相同，只是文件名带版本号，方便留档 |
-| `Source code (zip/tar.gz)` | GitHub 自动生成的源码包，普通用户不需要 |
+| `ServerCoreManager-v1.1.0.zip` | 内容相同，只是文件名带版本号，方便留档 |
+| `Source code (zip/tar.gz)` | GitHub / Gitee 自动生成的源码包，普通用户不需要 |
 
-两个 zip 内容完全一致，45 个文件，解压后直接可用。
+两个 zip 内容完全一致，52 个文件，解压后直接可用。
 
 ---
 
 ## 安装方式一：命令行一行安装
 
-在**管理员** PowerShell 里执行：
+在**管理员** PowerShell 里执行（国内推荐走 Gitee）：
+
+```powershell
+irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
+```
+
+GitHub 能直连时也可以走 GitHub：
 
 ```powershell
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
+
+两条线路装的是同一个发布包。脚本里的下载顺序是 **GitHub Releases → Gitee Releases → GitHub 分支源码打包**，前一条不通、或拿到的不是真 zip 就自动换下一条（Gitee 对不存在的下载路径会返回 `200` + 一段 JSON，所以脚本按 zip 魔数 `PK` 校验内容，不是只看状态码）。
 
 装到 `C:\Program Files\ServerCoreManager`，并安装 `scm` 一行命令。之后**在任意目录输入 `scm` 回车**即可打开图形界面（首次会像 `sconfig` 一样弹一次提权确认）。
 
@@ -139,7 +149,7 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # 改安装目录
 $env:SCM_NO_COMMAND = '1'     # 不装 scm 命令
-irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
+irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
 ```
 
 重复执行等于**升级**：只覆盖程序文件，不动你的程序列表、日志和断点状态。

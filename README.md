@@ -147,11 +147,22 @@ Server Core 上没有 Windows Terminal 可用，所以这个功能是**直接把
 
 ## 安装方式一：命令行一行安装
 
-在**管理员** PowerShell 里执行：
+在**管理员** PowerShell 里执行（国内推荐走 Gitee）：
+
+```powershell
+irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
+```
+
+GitHub 能直连时也可以走 GitHub：
 
 ```powershell
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
+
+两条线路装的是同一个发布包，脚本内容也一致。脚本里的下载顺序是：
+**GitHub Releases → Gitee Releases → GitHub 分支源码打包**，前一条不通或拿到的不是真 zip 就自动换下一条。
+
+（Gitee 对不存在的下载路径会返回 `200` + 一段 JSON，所以脚本会按 zip 魔数 `PK` 校验内容，不是只看状态码。）
 
 它会：下载最新发布包 → 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → 安装 `scm` 一行命令。
 
@@ -162,7 +173,7 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # 改安装目录
 $env:SCM_NO_COMMAND = '1'     # 不装 scm 命令
-irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
+irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
 ```
 
 也可以先把 [install.ps1](install.ps1) 存成文件，再当普通脚本跑，这样能直接传参：
@@ -224,6 +235,7 @@ ServerCoreManager.zip
 | 变量 | 作用 |
 |---|---|
 | `SCM_MIRROR_GITHUB` | 把 `https://github.com` 前缀换成你的镜像（`install.ps1` 下载发布包也用它） |
+| `SCM_MIRROR_GITEE` | 换一个 Gitee 基址（默认 `https://gitee.com/orangearc655743/server-core-manager`） |
 | `SCM_MIRROR_TUNA` | 清华镜像基址（默认 `https://mirrors.tuna.tsinghua.edu.cn`） |
 | `SCM_MIRROR_DOTNET` | 替换 `https://builds.dotnet.microsoft.com/dotnet` 前缀（内网 .NET 源） |
 

@@ -12,13 +12,20 @@
   用 PowerShell 7 跑，或直接走 irm | iex，都没有这个问题。
 
   推荐用法（在【管理员】PowerShell 里执行一行）：
+      # 国内推荐走 Gitee
+      irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
+      # GitHub 可达时走 GitHub
       irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
+
+  两条线路装的是同一个发布包，本脚本内容也完全一致（发版时同步推送）。
+  下载顺序：GitHub Releases → Gitee Releases → GitHub 分支源码打包，前一条不通就自动换下一条。
 
   因为 iex 没法传参数，需要改默认值时用环境变量：
       $env:SCM_DEST       = 'D:\SCM'    指定安装目录（默认 C:\Program Files\ServerCoreManager）
       $env:SCM_NO_COMMAND = '1'         不安装 scm 一行命令
       $env:SCM_BRANCH     = 'main'      指定分支（仅下载分支压缩包时用到）
       $env:SCM_MIRROR_GITHUB = 'http://内网镜像'   把 https://github.com 换成你的镜像/内网源
+      $env:SCM_MIRROR_GITEE  = 'https://gitee.com/你的账号/你的仓库'  换一个 Gitee 基址镜像
       $env:SCM_MIRROR_TUNA   = 'https://mirrors.tuna.tsinghua.edu.cn'  清华镜像基址（工具内部装 PowerShell 7 用）
 
   也可以先存成文件、再当普通脚本跑，这样能直接传参：
@@ -44,6 +51,13 @@ $ProgressPreference    = 'SilentlyContinue'
 $Owner     = 'OrangeArtc0915'
 $Repo      = 'Server-core-manager'
 $AssetName = 'ServerCoreManager.zip'
+
+# Gitee 线路：仓库里只放本脚本与发布包（不含项目源码），面向国内用户。
+# $GiteeVer 写死是故意的：Gitee 的发行版必须挂在 tag 上，没有 GitHub 那样的 releases/latest 别名。
+# 发版时要把本文件一起同步推到 Gitee，两边保持同一份内容。
+$GiteeOwner = 'orangearc655743'
+$GiteeRepo  = 'server-core-manager'
+$GiteeVer   = 'v1.1.0'
 
 # 用 irm | iex 运行时 $PSCommandPath 为空。这种情况下一律不能用 exit：
 # 实测 exit 会直接终止宿主，把用户刚打开的 PowerShell 窗口关掉，报错信息根本来不及看。
@@ -105,16 +119,18 @@ function Save-RemoteFile {
     # 一条路不通就换另一条，两条都试过才算失败
     $curl = Join-Path (Join-Path $env:windir 'System32') 'curl.exe'
     if (Test-Path -LiteralPath $curl) {
-        # 两个实测坑：
+        # 三个实测坑：
         # 1) --ssl-no-revoke 必须加。在企业 MITM 代理（加速器之类）后面，
         #    schannel 的证书吊销检查会以 CRYPT_E_NO_REVOCATION_CHECK(0x80092012) 直接失败。
         # 2) 必须临时把 ErrorActionPreference 调回 Continue。本脚本开头设成了 Stop，
         #    而原生命令往 stderr 写东西会被当成终止性错误抛出去，
         #    结果就是 Invoke-WebRequest 那条回退分支根本轮不到执行。
+        # 3) --connect-timeout 必须设。GitHub 在国内常是被丢包而不是立刻拒绝连接，
+        #    不设就会卡到 TCP 超时（分钟级）才轮到下一条线路，回退等于形同虚设。
         $prevEap = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         try {
-            & $curl -L --fail --retry 3 --retry-delay 3 --retry-all-errors --ssl-no-revoke -s -S -o $Path $Url 2>$null
+            & $curl -L --fail --connect-timeout 15 --retry 3 --retry-delay 3 --retry-all-errors --ssl-no-revoke -s -S -o $Path $Url 2>$null
         } finally {
             $ErrorActionPreference = $prevEap
         }
@@ -132,6 +148,33 @@ function Save-RemoteFile {
     }
 }
 
+function Test-ZipFile {
+    param([string]$Path)
+
+    # 为什么不能只看 HTTP 状态码：实测 Gitee 对【不存在的下载路径】返回的是
+    # 200 + {"message":"..."}（几十字节 JSON），随便编一个版本号也是 200。
+    # 也就是说 curl --fail 不会失败，会安安静静地下回来一个 JSON，
+    # 直到 Expand-Archive 才报错。所以必须按内容判：zip 的魔数是 "PK"。
+    if (-not (Test-Path -LiteralPath $Path)) { return $false }
+    try { if ((Get-Item -LiteralPath $Path).Length -lt 4) { return $false } } catch { return $false }
+
+    $fs = $null
+    try {
+        $fs = [System.IO.File]::OpenRead($Path)
+        $b = New-Object byte[] 4
+        if ($fs.Read($b, 0, 4) -lt 4) { return $false }
+        if ($b[0] -ne 0x50 -or $b[1] -ne 0x4B) { return $false }
+        # 0x0304 普通 zip / 0x0506 空归档 / 0x0708 分卷
+        return (($b[2] -eq 0x03 -and $b[3] -eq 0x04) -or
+                ($b[2] -eq 0x05 -and $b[3] -eq 0x06) -or
+                ($b[2] -eq 0x07 -and $b[3] -eq 0x08))
+    } catch {
+        return $false
+    } finally {
+        if ($fs) { $fs.Dispose() }
+    }
+}
+
 $releaseUrl = ('https://github.com/{0}/{1}/releases/latest/download/{2}' -f $Owner, $Repo, $AssetName)
 $branchUrl  = ('https://github.com/{0}/{1}/archive/refs/heads/{2}.zip' -f $Owner, $Repo, $Branch)
 
@@ -144,23 +187,48 @@ if ($MirrorGitHub) {
     Write-Step ('已启用镜像: ' + $MirrorGitHub)
 }
 
-Write-Step '下载发布压缩包 ...'
-$ok = Save-RemoteFile -Url $releaseUrl -Path $zip
+# Gitee 线路（国内直连）。注意 Gitee 的下载地址格式与 GitHub 不同：
+# 是 /releases/download/<tag>/<文件名>，没有 releases/latest 这种别名，所以 tag 用的是上面的 $GiteeVer。
+$GiteeBase = if ($env:SCM_MIRROR_GITEE) { ([string]$env:SCM_MIRROR_GITEE).TrimEnd('/') } else { ('https://gitee.com/{0}/{1}' -f $GiteeOwner, $GiteeRepo) }
+$giteeUrl  = ($GiteeBase + '/releases/download/' + $GiteeVer + '/' + $AssetName)
 
-if (-not $ok) {
-    Write-Warn 'Releases 里没有找到压缩包，改从分支源码打包下载。'
-    Write-Warn ('  ' + $branchUrl)
-    $ok = Save-RemoteFile -Url $branchUrl -Path $zip
+Write-Step '下载发布压缩包 ...'
+
+# 顺序：GitHub Releases → Gitee Releases → GitHub 分支源码。
+# 每条线路下完都要过 Test-ZipFile：Gitee 对错误路径是假 200，只认状态码会把 JSON 当压缩包。
+$lines = @(
+    [pscustomobject]@{ Name = 'GitHub Releases'; Url = $releaseUrl },
+    [pscustomobject]@{ Name = 'Gitee Releases';  Url = $giteeUrl },
+    [pscustomobject]@{ Name = 'GitHub 分支源码'; Url = $branchUrl }
+)
+
+$ok   = $false
+$used = ''
+foreach ($ln in $lines) {
+    Write-Step ('试 ' + $ln.Name + '  ' + $ln.Url)
+    if (-not (Save-RemoteFile -Url $ln.Url -Path $zip)) {
+        Write-Warn '  下载失败，换下一条线路。'
+        continue
+    }
+    if (-not (Test-ZipFile -Path $zip)) {
+        Write-Warn '  拿到的不是压缩包（服务端假 200），换下一条线路。'
+        continue
+    }
+    $ok   = $true
+    $used = $ln.Name
+    break
 }
 
 if (-not $ok) {
-    Write-Err '下载失败。请检查网络（GitHub 在部分网络下不可达）。'
+    Write-Err '所有下载线路都失败。'
     Write-Warn '备选方案：用「压缩包安装」—— 手工下载 zip 解压后运行 一键运行.bat。'
+    Write-Warn ('  GitHub : https://github.com/' + $Owner + '/' + $Repo + '/releases')
+    Write-Warn ('  Gitee  : ' + $GiteeBase + '/releases')
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     if ($RunAsFile) { exit 1 } else { return }
 }
 
-Write-Ok ('已下载 {0:N0} KB' -f ((Get-Item -LiteralPath $zip).Length / 1KB))
+Write-Ok ('已下载 {0:N0} KB（来源: {1}）' -f ((Get-Item -LiteralPath $zip).Length / 1KB), $used)
 Write-Host ''
 
 # ---------------------------------------------------------------- 解压
@@ -254,4 +322,5 @@ Write-Host '      「更多 → 终端美化 → 一键美化终端」，装好�
 Write-Host ''
 Write-Host '    作者 mmm    QQ群 1034243331' -ForegroundColor Gray
 Write-Host '    https://github.com/OrangeArtc0915/Server-core-manager' -ForegroundColor Gray
+Write-Host ('    ' + $GiteeBase) -ForegroundColor Gray
 Write-Host ''
