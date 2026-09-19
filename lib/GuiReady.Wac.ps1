@@ -134,8 +134,16 @@ function Save-GuiReadyWacInstaller {
     $proc = $null
     try {
         if (Test-Path -LiteralPath $errFile) { Remove-Item -LiteralPath $errFile -Force -ErrorAction SilentlyContinue }
-        $proc = Start-Process -FilePath $curl -PassThru -NoNewWindow -RedirectStandardError $errFile -ArgumentList @(
-            '-L', '--fail', '--retry', '3', '--retry-delay', '3', '--retry-all-errors', '-s', '-S', '-o', $dest, $Url)
+        # 关键：Start-Process -ArgumentList 不会给含空格的值自动加引号，必须手工加。
+        # 实测事故：-o 收到 "C:\Program"（后面被截断），剩下的路径被 curl 当成 URL，
+        # 于是既报 "URL rejected: Bad hostname" 下不到东西，又把整个响应体打到 stdout，
+        # 而 stdout 正是 GUI 的日志文件 —— 结果满屏乱码 + 日志狂跳 + 界面假死。
+        # 同时把 stdout 也重定向走，杜绝任何输出污染 GUI 日志。
+        $outFile = Join-Path (Split-Path -Parent $errFile) 'wac-download.out.txt'
+        $proc = Start-Process -FilePath $curl -PassThru -NoNewWindow `
+                    -RedirectStandardOutput $outFile -RedirectStandardError $errFile -ArgumentList @(
+            '-L', '--fail', '--retry', '3', '--retry-delay', '3', '--retry-all-errors', '-s', '-S',
+            '-o', ('"' + $dest + '"'), $Url)
         $lastPct = -10
         while (-not $proc.HasExited) {
             Start-Sleep -Seconds 5
@@ -234,7 +242,9 @@ function Test-GuiReadyWacHttp {
 }
 
 function Get-GuiReadyWacStatus {
-    param([switch]$SkipProbe)
+    # -Lite：只查“装没装 / 什么版本 / 服务在不在 / 端口配置”，跳过端口占用、证书、防火墙、IP 这些重查询。
+    #        界面卡片每秒都在刷，用 -Lite；命令行状态检查仍走完整查询。
+    param([switch]$SkipProbe, [switch]$Lite)
     $reg  = Get-GuiReadyWacRegistryInfo
     $svcs = Get-GuiReadyWacServices
     $main = @($svcs | Where-Object { $_.Name -eq 'WindowsAdminCenter' })
@@ -242,26 +252,32 @@ function Get-GuiReadyWacStatus {
     $fqdn = Get-GuiReadyWacEndpointFqdn
 
     $portOwner = ''
-    try {
-        $l = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
-        if ($l) {
-            $pr = Get-Process -Id $l.OwningProcess -ErrorAction SilentlyContinue
-            if ($pr) { $portOwner = ($pr.ProcessName + ' (PID ' + $pr.Id + ')') }
-        }
-    } catch { }
+    if (-not $Lite) {
+        try {
+            $l = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
+            if ($l) {
+                $pr = Get-Process -Id $l.OwningProcess -ErrorAction SilentlyContinue
+                if ($pr) { $portOwner = ($pr.ProcessName + ' (PID ' + $pr.Id + ')') }
+            }
+        } catch { }
+    }
 
     $cert = $null
-    try {
-        $cert = Get-ChildItem Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
-                Where-Object { $_.Subject -like '*WindowsAdminCenter*' } |
-                Sort-Object NotAfter -Descending | Select-Object -First 1
-    } catch { }
+    if (-not $Lite) {
+        try {
+            $cert = Get-ChildItem Cert:\LocalMachine\My -ErrorAction SilentlyContinue |
+                    Where-Object { $_.Subject -like '*WindowsAdminCenter*' } |
+                    Sort-Object NotAfter -Descending | Select-Object -First 1
+        } catch { }
+    }
 
     $fw = @()
-    try {
-        $fw = @(Get-NetFirewallRule -ErrorAction SilentlyContinue |
-                Where-Object { $_.DisplayName -like '*Windows Admin Center*' -and $_.Direction -eq 'Inbound' })
-    } catch { }
+    if (-not $Lite) {
+        try {
+            $fw = @(Get-NetFirewallRule -ErrorAction SilentlyContinue |
+                    Where-Object { $_.DisplayName -like '*Windows Admin Center*' -and $_.Direction -eq 'Inbound' })
+        } catch { }
+    }
 
     $serving = $false
     try { $serving = ($main.Count -gt 0 -and $main[0].State -eq 'Running') } catch { }
@@ -270,11 +286,13 @@ function Get-GuiReadyWacStatus {
     if ($serving -and -not $SkipProbe) { $probe = Test-GuiReadyWacHttp -Url ('https://127.0.0.1:{0}/shell/' -f $port) }
 
     $ip = ''
-    try {
-        $ip = [string]((Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
-              Where-Object { $_.IPAddress -notlike '127.*' -and $_.PrefixOrigin -ne 'WellKnown' } |
-              Select-Object -First 1).IPAddress)
-    } catch { }
+    if (-not $Lite) {
+        try {
+            $ip = [string]((Get-NetIPAddress -AddressFamily IPv4 -ErrorAction SilentlyContinue |
+                  Where-Object { $_.IPAddress -notlike '127.*' -and $_.PrefixOrigin -ne 'WellKnown' } |
+                  Select-Object -First 1).IPAddress)
+        } catch { }
+    }
 
     return [pscustomobject]@{
         Installed     = ($reg.DisplayName -ne '')
@@ -539,10 +557,11 @@ $exe = '__EXE__'
 $setupLog = '__LOG__'
 $port = __PORT__
 if ($exe -like '*.msi') {
-    $msiArgs = @('/i', $exe, '/qn', '/norestart', '/L*v', $setupLog, ('SME_PORT=' + $port), 'SSL_CERTIFICATE_OPTION=generate', 'RESTART_WINRM=0')
+    # 路径含空格时必须手工加引号（Start-Process 不会自动加），否则安装器收到的参数是错的
+    $msiArgs = @('/i', ('"' + $exe + '"'), '/qn', '/norestart', '/L*v', ('"' + $setupLog + '"'), ('SME_PORT=' + $port), 'SSL_CERTIFICATE_OPTION=generate', 'RESTART_WINRM=0')
     $p = Start-Process -FilePath 'msiexec.exe' -ArgumentList $msiArgs -PassThru -Wait
 } else {
-    $innoArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/LOG=' + $setupLog))
+    $innoArgs = @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', ('/LOG="' + $setupLog + '"'))
     $p = Start-Process -FilePath $exe -ArgumentList $innoArgs -PassThru -Wait
 }
 '安装器退出码: ' + $p.ExitCode

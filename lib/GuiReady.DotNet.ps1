@@ -10,6 +10,9 @@ $Global:GuiReadyDotNetSection = @{
 }
 
 function Get-GuiReadyDotNetStatus {
+    # -Fast：跳过 dotnet.exe --list-runtimes（要起一个进程，实测在 Server Core 上约 0.7 秒），
+    #        界面卡片只需要 shared 目录里的框架列表，用这个开关把刷新开销压下来。
+    param([switch]$Fast)
     $o = [ordered]@{
         Root      = $Global:GuiReadyDotNetRoot
         RootExists= (Test-Path -LiteralPath $Global:GuiReadyDotNetRoot)
@@ -39,7 +42,7 @@ function Get-GuiReadyDotNetStatus {
         }
     }
 
-    if ($o.DotNetExe) {
+    if ($o.DotNetExe -and -not $Fast) {
         try { $o.ListOutput = ((& (Join-Path $Global:GuiReadyDotNetRoot 'dotnet.exe') --list-runtimes 2>&1) | Out-String).Trim() } catch { }
     }
     return [pscustomobject]$o
@@ -224,7 +227,9 @@ function Install-GuiReadyDotNetRuntime {
             $sw = [System.Diagnostics.Stopwatch]::StartNew()
             $old = $ProgressPreference
             $ProgressPreference = 'SilentlyContinue'
-            Invoke-WebRequest -Uri $info.Url -OutFile $zip -TimeoutSec 1800 -UseBasicParsing -ErrorAction Stop
+            $dlUrl = Get-GuiReadyDownloadUrl -Url $info.Url
+            if ($dlUrl -ne $info.Url) { Write-Log ('下载源: ' + $dlUrl + '（已按镜像配置改写）') 'INFO' }
+            Invoke-WebRequest -Uri $dlUrl -OutFile $zip -TimeoutSec 1800 -UseBasicParsing -ErrorAction Stop
             $ProgressPreference = $old
             $sw.Stop()
             Write-Log ('下载完成 {0:N1} MB，用时 {1:N1} 秒' -f ((Get-Item -LiteralPath $zip).Length / 1MB), $sw.Elapsed.TotalSeconds) 'OK'
