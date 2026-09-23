@@ -25,6 +25,31 @@ export interface TimelineItem {
 
 export const timelineData: TimelineItem[] = [
 	{
+		id: "v1-2-0",
+		title: "v1.2.0 · 国内安装线路与内容校验",
+		description:
+			"一行安装新增 Gitee 线路：下载顺序改为 GitHub Releases → Gitee Releases → GitHub 分支打包，前一条不通就自动换下一条。同时按 zip 魔数校验下载内容 —— Gitee 对不存在的下载路径返回的是 200 + 一段 JSON，只看状态码会把 JSON 当压缩包下回来。",
+		type: "achievement",
+		startDate: "2026-09-23",
+		skills: ["PowerShell", "curl", "Gitee"],
+		achievements: [
+			"新增 SCM_MIRROR_GITEE 环境变量，可换 Gitee 基址 / 内网镜像",
+			"curl 加 --connect-timeout 15，回退不再卡在 TCP 超时上",
+			"README 一行安装改为国内推荐 Gitee",
+			"项目主页改用 Astro + Mizuki 重做",
+		],
+		links: [
+			{
+				name: "发布包（Gitee）",
+				url: "https://gitee.com/orangearc655743/server-core-manager/releases",
+				type: "website",
+			},
+		],
+		icon: "material-symbols:cloud-download",
+		color: "#0EA5E9",
+		featured: true,
+	},
+	{
 		id: "v1-1-0",
 		title: "v1.1.0 · 启动提速与终端美化",
 		description:

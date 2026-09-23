@@ -266,7 +266,7 @@ export const commentConfig: CommentConfig = {
 };
 
 export const announcementConfig: AnnouncementConfig = {
-	title: "v1.1.0 已发布", // 公告标题
+	title: "v1.2.0 已发布", // 公告标题
 	content: "国内推荐走 Gitee 一行安装：irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex", // 公告内容
 	type: "info",
 	closable: true, // 允许用户关闭公告
