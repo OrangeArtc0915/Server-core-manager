@@ -194,7 +194,16 @@ export const navBarConfig: NavBarConfig = {
 			name: "更多",
 			url: "#",
 			icon: "material-symbols:more-horiz",
-			children: [LinkPreset.Skills, LinkPreset.Timeline, LinkPreset.Friends],
+			children: [
+				LinkPreset.Skills,
+				LinkPreset.Timeline,
+				LinkPreset.Friends,
+				{
+					name: "赞助",
+					url: "/support/",
+					icon: "material-symbols:favorite",
+				},
+			],
 		},
 		{
 			name: "获取",
