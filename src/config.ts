@@ -72,12 +72,12 @@ export const siteConfig: SiteConfig = {
 		// 支持单张图片或图片数组，当数组长度 > 1 时自动启用轮播
 		src: {
 			desktop: [
-				"/assets/banner/banner-1.jpg",
-				"/assets/banner/banner-2.jpg",
+				"/assets/banner/banner-1.webp",
+				"/assets/banner/banner-2.webp",
 			], // 桌面横幅图片
 			mobile: [
-				"/assets/banner/banner-1.jpg",
-				"/assets/banner/banner-2.jpg",
+				"/assets/banner/banner-1.webp",
+				"/assets/banner/banner-2.webp",
 			], // 移动横幅图片
 		}, // 使用本地横幅图片
 
@@ -91,8 +91,8 @@ export const siteConfig: SiteConfig = {
 
 		waves: {
 			enable: true, // 是否启用水波纹效果(这个功能比较吃性能)
-			performanceMode: false, // 性能模式：减少动画复杂度(性能提升40%)
-			mobileDisable: false, // 移动端禁用
+			performanceMode: true, // 性能模式：减少动画复杂度(性能提升40%)
+			mobileDisable: true, // 移动端禁用
 		},
 
 		// PicFlow API支持(智能图片API)
@@ -149,9 +149,12 @@ export const siteConfig: SiteConfig = {
 	],
 
 	// 字体配置
+	// zenMaruGothic 的正文 TTF 有 3.7 MB，首屏实测占全页传输的 60%（2.1 MB），
+	// 而且模板注释里就写了「对中文适配一般」。所以关掉它，走系统字体栈
+	// （Windows 上落到微软雅黑，Mac 上落到苹方），首屏直接从 3.5 MB 降到 1.1 MB。
 	font: {
 		zenMaruGothic: {
-			enable: true, // 启用全局圆体适合日语和英语，对中文适配一般
+			enable: false, // 启用全局圆体适合日语和英语，对中文适配一般
 		},
 		hanalei: {
 			enable: false, // 启用 Hanalei 字体作为全局字体，适合中文去使用
@@ -163,12 +166,12 @@ export const fullscreenWallpaperConfig: FullscreenWallpaperConfig = {
 	enable: false, // 启用全屏壁纸功能,非Banner模式下生效
 	src: {
 		desktop: [
-			"/assets/banner/banner-1.jpg",
-			"/assets/banner/banner-2.jpg",
+			"/assets/banner/banner-1.webp",
+			"/assets/banner/banner-2.webp",
 		], // 桌面横幅图片
 		mobile: [
-			"/assets/banner/banner-1.jpg",
-			"/assets/banner/banner-2.jpg",
+			"/assets/banner/banner-1.webp",
+			"/assets/banner/banner-2.webp",
 		], // 移动横幅图片
 	}, // 使用本地横幅图片
 	position: "center", // 壁纸位置，等同于 object-position
@@ -222,8 +225,9 @@ export const navBarConfig: NavBarConfig = {
 };
 
 export const profileConfig: ProfileConfig = {
-	// 顶栏/侧栏头像。换成自己的图时，把文件放到 src/assets/images/ 下同名替换即可。
-	avatar: "assets/images/avatar.jpg",
+	// 顶栏/侧栏头像。这里用 512 见方的源图，Astro 会再压成 webp —— 直接用 1080 原图的话
+	// 产出的 webp 接近 85 KB，而侧栏最大只显示到 300 px 左右。
+	avatar: "assets/images/avatar-512.jpg",
 	name: "mmm",
 	bio: "让带图形界面的程序，在 Windows Server Core 上真正跑起来",
 	typewriter: {
