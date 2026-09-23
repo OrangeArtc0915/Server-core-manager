@@ -188,7 +188,7 @@ export const navBarConfig: NavBarConfig = {
 	links: [
 		LinkPreset.Home,
 		{
-			name: "文档",
+			name: "wiki",
 			url: "/wiki/",
 			icon: "material-symbols:menu-book",
 		},
