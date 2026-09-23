@@ -7,8 +7,9 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。�
 项目主页（介绍、截图、实测数据）：**https://orangeartc0915.github.io/Server-core-manager/**
 
 > 作者：**mmm** ｜ QQ 群：**1034243331**
-> GitHub：<https://github.com/OrangeArtc0915/Server-core-manager>
-> Gitee（国内）：<https://gitee.com/orangearc655743/server-core-manager>
+> 源码：<https://github.com/OrangeArtc0915/Server-core-manager>
+> 国内下载（Gitee）：<https://gitee.com/orangearc655743/server-core-manager/releases>
+> Gitee 上**没有源码**，只放了一个安装脚本 `install.ps1` 与发布包
 
 ---
 
