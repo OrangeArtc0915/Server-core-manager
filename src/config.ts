@@ -194,27 +194,27 @@ export const navBarConfig: NavBarConfig = {
 			children: [LinkPreset.Skills, LinkPreset.Timeline, LinkPreset.Friends],
 		},
 		{
-			name: "源码",
+			name: "获取",
 			url: "#",
-			icon: "material-symbols:code",
+			icon: "material-symbols:download",
 			children: [
 				{
-					name: "GitHub",
+					name: "源码（GitHub）",
 					url: "https://github.com/OrangeArtc0915/Server-core-manager",
 					external: true,
 					icon: "fa6-brands:github",
 				},
 				{
-					name: "Gitee（国内）",
-					url: "https://gitee.com/orangearc655743/server-core-manager",
-					external: true,
-					icon: "mdi:git",
-				},
-				{
-					name: "下载发布包",
+					name: "下载发布包（Gitee）",
 					url: "https://gitee.com/orangearc655743/server-core-manager/releases",
 					external: true,
 					icon: "material-symbols:download",
+				},
+				{
+					name: "安装脚本（Gitee）",
+					url: "https://gitee.com/orangearc655743/server-core-manager/blob/main/install.ps1",
+					external: true,
+					icon: "material-symbols:terminal",
 				},
 			],
 		},
@@ -232,14 +232,15 @@ export const profileConfig: ProfileConfig = {
 	},
 	links: [
 		{
-			name: "GitHub",
+			// Gitee 上只有安装脚本与发布包，没有源码，所以这里指到 GitHub
+			name: "GitHub（源码）",
 			icon: "fa6-brands:github",
 			url: "https://github.com/OrangeArtc0915/Server-core-manager",
 		},
 		{
-			name: "Gitee（国内）",
+			name: "Gitee（发布包）",
 			icon: "mdi:git",
-			url: "https://gitee.com/orangearc655743/server-core-manager",
+			url: "https://gitee.com/orangearc655743/server-core-manager/releases",
 		},
 	],
 };

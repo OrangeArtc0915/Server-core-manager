@@ -39,4 +39,4 @@ draft: false
 
 ---
 
-作者 **mmm** ｜ QQ 群 **1034243331** ｜ [GitHub](https://github.com/OrangeArtc0915/Server-core-manager) ｜ [Gitee（国内）](https://gitee.com/orangearc655743/server-core-manager)
+作者 **mmm** ｜ QQ 群 **1034243331** ｜ [源码（GitHub）](https://github.com/OrangeArtc0915/Server-core-manager) ｜ [发布包（Gitee）](https://gitee.com/orangearc655743/server-core-manager/releases)

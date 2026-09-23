@@ -40,8 +40,8 @@ Server Core 里想跑一个带界面的程序，正常流程要跨好几个工�
 ## 获取与支持
 
 - 一行安装（国内推荐）：`irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex`
-- 源码：[GitHub](https://github.com/OrangeArtc0915/Server-core-manager) ｜ [Gitee（国内）](https://gitee.com/orangearc655743/server-core-manager)
-- 发布包：[Gitee Releases](https://gitee.com/orangearc655743/server-core-manager/releases)
+- 源码：[GitHub](https://github.com/OrangeArtc0915/Server-core-manager) ｜ **Gitee 上没有源码**，只放了下面两个文件
+- 国内下载（Gitee）：[发布包](https://gitee.com/orangearc655743/server-core-manager/releases) ｜ [安装脚本 install.ps1](https://gitee.com/orangearc655743/server-core-manager/blob/main/install.ps1)
 - 作者 **mmm** ｜ QQ 群 **1034243331**
 - 许可证 **GPL-3.0**
 

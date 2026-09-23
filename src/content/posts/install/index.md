@@ -50,7 +50,7 @@ irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 |
 
 ## 方式二：压缩包
 
-1. 从 [Releases](https://gitee.com/orangearc655743/server-core-manager/releases) 下载 `ServerCoreManager.zip`
+1. 从 [Gitee 发布页](https://gitee.com/orangearc655743/server-core-manager/releases) 下载 `ServerCoreManager.zip`
 2. 解压到任意目录，例如 `D:\ServerCoreManager`
 3. 右键**以管理员身份运行** `一键运行.bat`
 
@@ -68,4 +68,4 @@ irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 |
 
 ---
 
-作者 **mmm** ｜ QQ 群 **1034243331** ｜ [GitHub](https://github.com/OrangeArtc0915/Server-core-manager) ｜ [Gitee（国内）](https://gitee.com/orangearc655743/server-core-manager)
+作者 **mmm** ｜ QQ 群 **1034243331** ｜ [源码（GitHub）](https://github.com/OrangeArtc0915/Server-core-manager) ｜ [发布包（Gitee）](https://gitee.com/orangearc655743/server-core-manager/releases)
