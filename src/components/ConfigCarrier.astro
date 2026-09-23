@@ -1,0 +1,12 @@
+---
+
+import { siteConfig } from "../config";
+import { url } from "../utils/url-utils";
+---
+
+<!-- 全局配置载体 -->
+<div id="config-carrier" data-hue={siteConfig.themeColor.hue}>
+</div>
+
+<!-- 引入Umami Share工具脚本（用 url() 拼 base，子路径部署才不会 404） -->
+<script is:inline src={url("/js/umami-share.js")}></script>

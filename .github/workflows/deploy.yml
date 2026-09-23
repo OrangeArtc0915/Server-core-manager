@@ -1,0 +1,63 @@
+name: Deploy site to GitHub Pages
+
+# 站点源码就在本仓库的 WEB 分支上，推 WEB 即触发构建与发布。
+# 产物通过官方的 Pages Actions 走 artifact 发布，不入库（所以 dist/ 一直在 .gitignore 里）。
+# 注意：仓库 Settings → Pages → Build and deployment → Source 必须选 "GitHub Actions"。
+
+on:
+  push:
+    branches: [WEB]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.14.4
+          run_install: false
+
+      # 本项目 package.json 里有 preinstall: only-allow pnpm，用 npm 装会直接被拒
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build site
+        run: pnpm run build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
