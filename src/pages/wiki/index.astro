@@ -1,0 +1,63 @@
+---
+import { getCollection } from "astro:content";
+import MainGridLayout from "@layouts/MainGridLayout.astro";
+import { url } from "@utils/url-utils";
+
+const GROUP_ORDER = ["入门", "使用", "进阶", "参考"] as const;
+
+const entries = await getCollection("wiki");
+const chapters = entries
+	.map((e) => ({
+		slug: e.slug,
+		title: e.data.title,
+		group: e.data.group as string,
+		order: e.data.order,
+		description: e.data.description,
+	}))
+	.sort((a, b) => {
+		const d = GROUP_ORDER.indexOf(a.group as never) - GROUP_ORDER.indexOf(b.group as never);
+		return d !== 0 ? d : a.order - b.order;
+	});
+const groups = GROUP_ORDER.filter((g) => chapters.some((c) => c.group === g));
+
+const GROUP_LEAD: Record<string, string> = {
+	入门: "先把它装上、跑起来，再回头了解细节。",
+	使用: "日常真正会用到的东西：看环境、加程序、起不来时怎么查。",
+	进阶: "让这台机器更好用：终端美化、会话与登录、远程管理、离线与内网源。",
+	参考: "常见问题、做不到的事，以及想改代码时需要知道的结构与发版流程。",
+};
+---
+<MainGridLayout title="文档" description="Server Core Manager 使用文档：安装、上手、功能说明、排障与开发者指南">
+    <div class="card-base px-6 py-6 md:px-9 md:py-8">
+        <h1 class="text-3xl font-bold text-black/90 dark:text-white/90">文档</h1>
+        <p class="mt-3 max-w-3xl text-50 leading-relaxed">
+            这里写的是这个工具<b class="text-90">实际怎么做、以及为什么这么做</b>。所有结论都来自真机实测，
+            做不到的事也写在「已知限制」里，不含糊。
+        </p>
+
+        {groups.map((g) => (
+            <section class="mt-9">
+                <div class="flex items-baseline gap-3">
+                    <h2 class="text-xl font-bold text-black/90 dark:text-white/90">{g}</h2>
+                    <span class="text-sm text-50">{GROUP_LEAD[g]}</span>
+                </div>
+                <div class="mt-4 grid gap-3 sm:grid-cols-2">
+                    {chapters.filter((c) => c.group === g).map((c) => (
+                        <a href={url(`/wiki/${c.slug}/`)}
+                           class="group flex h-full flex-col rounded-[var(--radius-large)] border border-[var(--line-divider)] bg-[var(--card-bg)] px-4 py-3.5 transition hover:border-[var(--primary)]">
+                            <div class="font-medium transition group-hover:text-[var(--primary)]">{c.title}</div>
+                            {c.description && <div class="mt-1.5 text-sm leading-relaxed text-50">{c.description}</div>}
+                        </a>
+                    ))}
+                </div>
+            </section>
+        ))}
+
+        <div class="mt-10 rounded-[var(--radius-large)] border border-[var(--line-divider)] px-4 py-3.5 text-sm text-50">
+            文档有问题、或者某一步在你机器上复现不出来？欢迎到
+            <a href="https://github.com/OrangeArtc0915/Server-core-manager/issues" target="_blank" rel="noopener noreferrer"
+               class="link font-medium text-[var(--primary)]">Issues</a>
+            说，或者加 QQ 群 <b>1034243331</b>。
+        </div>
+    </div>
+</MainGridLayout>

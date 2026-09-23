@@ -187,6 +187,11 @@ export const fullscreenWallpaperConfig: FullscreenWallpaperConfig = {
 export const navBarConfig: NavBarConfig = {
 	links: [
 		LinkPreset.Home,
+		{
+			name: "文档",
+			url: "/wiki/",
+			icon: "material-symbols:menu-book",
+		},
 		LinkPreset.Archive,
 		LinkPreset.About,
 		LinkPreset.Projects,

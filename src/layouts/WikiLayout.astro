@@ -1,0 +1,130 @@
+---
+import { getCollection } from "astro:content";
+import type { MarkdownHeading } from "astro";
+import MainGridLayout from "@layouts/MainGridLayout.astro";
+import { url } from "@utils/url-utils";
+
+interface Props {
+	title: string;
+	description?: string;
+	/** 当前页面的 slug，用于在章节树里高亮自己 */
+	slug?: string;
+	headings?: MarkdownHeading[];
+}
+const { title, description = "", slug = "", headings = [] } = Astro.props;
+
+// 章节顺序由 frontmatter 的 group + order 决定，这里只做排序与分组
+const GROUP_ORDER = ["入门", "使用", "进阶", "参考"] as const;
+
+const entries = await getCollection("wiki");
+const chapters = entries
+	.map((e) => ({
+		slug: e.slug,
+		title: e.data.title,
+		group: e.data.group as string,
+		order: e.data.order,
+		description: e.data.description,
+	}))
+	.sort((a, b) => {
+		const d = GROUP_ORDER.indexOf(a.group as never) - GROUP_ORDER.indexOf(b.group as never);
+		return d !== 0 ? d : a.order - b.order;
+	});
+
+const groups = GROUP_ORDER.filter((g) => chapters.some((c) => c.group === g));
+const current = chapters.find((c) => c.slug === slug) || null;
+const index = chapters.findIndex((c) => c.slug === slug);
+const prev = index > 0 ? chapters[index - 1] : null;
+const next = index >= 0 && index < chapters.length - 1 ? chapters[index + 1] : null;
+
+const itemClass = (active: boolean) =>
+	[
+		"block rounded-lg border-l-2 px-2.5 py-1.5 text-sm transition leading-6",
+		active
+			? "border-[var(--primary)] text-[var(--primary)] font-medium bg-black/5 dark:bg-white/5"
+			: "border-transparent text-black/70 dark:text-white/70 hover:text-[var(--primary)] hover:bg-black/5 dark:hover:bg-white/5",
+	].join(" ");
+---
+<MainGridLayout title={title} description={description} headings={headings}>
+    <div class="grid items-start gap-4 xl:grid-cols-[13.5rem_minmax(0,1fr)]">
+        <!-- 章节树：宽屏常驻（窄屏用下面的折叠导航） -->
+        <aside class="sticky top-20 hidden max-h-[calc(100vh-7rem)] overflow-y-auto pr-1 hide-scrollbar xl:block">
+            <a href={url("/wiki/")} class:list={[
+                "flex items-center gap-2 rounded-lg px-2.5 py-2 text-sm font-semibold transition",
+                slug === "" ? "text-[var(--primary)]" : "text-90 hover:text-[var(--primary)]",
+            ]}>
+                <span>文档首页</span>
+            </a>
+            {groups.map((g) => (
+                <div class="mt-4">
+                    <div class="px-2.5 text-xs font-semibold tracking-wide text-50">{g}</div>
+                    <ul class="mt-1.5 space-y-0.5">
+                        {chapters.filter((c) => c.group === g).map((c) => (
+                            <li>
+                                <a href={url(`/wiki/${c.slug}/`)} class={itemClass(c.slug === slug)}>{c.title}</a>
+                            </li>
+                        ))}
+                    </ul>
+                </div>
+            ))}
+        </aside>
+
+        <div class="min-w-0">
+            <!-- 窄屏：折叠的章节导航 -->
+            <details class="card-base mb-4 px-4 py-3 xl:hidden">
+                <summary class="cursor-pointer text-sm font-medium">
+                    章节导航（共 {chapters.length} 篇）
+                </summary>
+                <div class="mt-3">
+                    {groups.map((g) => (
+                        <div class="mt-3 first:mt-0">
+                            <div class="text-xs font-semibold text-50">{g}</div>
+                            <ul class="mt-1.5 space-y-0.5">
+                                {chapters.filter((c) => c.group === g).map((c) => (
+                                    <li>
+                                        <a href={url(`/wiki/${c.slug}/`)} class={itemClass(c.slug === slug)}>{c.title}</a>
+                                    </li>
+                                ))}
+                            </ul>
+                        </div>
+                    ))}
+                </div>
+            </details>
+
+            <article class="card-base px-6 py-6 md:px-9 md:py-8">
+                <!-- 面包屑 -->
+                <nav class="mb-4 flex flex-wrap items-center gap-1 text-xs text-50" aria-label="面包屑">
+                    <a href={url("/wiki/")} class="link">文档</a>
+                    {current && <span class="opacity-60">/</span>}
+                    {current && <span>{current.group}</span>}
+                    {current && <span class="opacity-60">/</span>}
+                    {current && <span class="text-75">{current.title}</span>}
+                </nav>
+
+                <h1 class="text-3xl font-bold text-black/90 dark:text-white/90">{title}</h1>
+                {description && <p class="mt-3 text-50 leading-relaxed">{description}</p>}
+
+                <hr class="my-7 border-[var(--line-divider)]" />
+
+                <slot />
+
+                <!-- 上一篇 / 下一篇 -->
+                {(prev || next) && (
+                    <div class="mt-12 grid gap-3 border-t border-[var(--line-divider)] pt-6 sm:grid-cols-2">
+                        {prev ? (
+                            <a href={url(`/wiki/${prev.slug}/`)} class="group rounded-[var(--radius-large)] border border-[var(--line-divider)] px-4 py-3 transition hover:border-[var(--primary)]">
+                                <div class="text-xs text-50">← 上一篇</div>
+                                <div class="mt-1 font-medium transition group-hover:text-[var(--primary)]">{prev.title}</div>
+                            </a>
+                        ) : <span class="hidden sm:block"></span>}
+                        {next ? (
+                            <a href={url(`/wiki/${next.slug}/`)} class="group rounded-[var(--radius-large)] border border-[var(--line-divider)] px-4 py-3 text-right transition hover:border-[var(--primary)]">
+                                <div class="text-xs text-50">下一篇 →</div>
+                                <div class="mt-1 font-medium transition group-hover:text-[var(--primary)]">{next.title}</div>
+                            </a>
+                        ) : <span class="hidden sm:block"></span>}
+                    </div>
+                )}
+            </article>
+        </div>
+    </div>
+</MainGridLayout>

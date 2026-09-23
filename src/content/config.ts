@@ -33,7 +33,19 @@ const postsCollection = defineCollection({
 const specCollection = defineCollection({
 	schema: z.object({}),
 });
+
+// 文档（wiki）：group 决定左侧章节树的分组，order 决定组内顺序
+const wikiCollection = defineCollection({
+	schema: z.object({
+		title: z.string(),
+		description: z.string().optional().default(""),
+		group: z.enum(["入门", "使用", "进阶", "参考"]),
+		order: z.number(),
+	}),
+});
+
 export const collections = {
 	posts: postsCollection,
 	spec: specCollection,
+	wiki: wikiCollection,
 };
