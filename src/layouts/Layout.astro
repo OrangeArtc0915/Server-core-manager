@@ -183,6 +183,16 @@ const umamiScripts = umamiConfig.scripts || ""; // 获取Umami scripts配置
 			<link rel="preload" as="image" href={url(banner)} fetchpriority="high" />
 		)}
 
+		{/* 把 @iconify/svelte 用到的图标在本地注册掉。不注册的话，Svelte 的图标组件会在
+		    运行时去 api.iconify.design 取图标数据 —— 国内访问该域名可能很慢或不通，
+		    表现就是导航栏按钮没图标、标签页一直转圈。图标数据由 @iconify-json/* 抽出来，
+		    见 src/data/iconify-local.json（新增图标后需要重新生成，命令写在 wiki 的开发者指南里）。 */}
+		<script>
+			import { addCollection } from "@iconify/svelte";
+			import localIcons from "../data/iconify-local.json";
+			for (const c of localIcons) addCollection(c as never);
+		</script>
+
 		<!-- Set the theme before the page is rendered to avoid a flash -->
 		<script is:inline define:vars={{DEFAULT_THEME, LIGHT_MODE, DARK_MODE, BANNER_HEIGHT_EXTEND, PAGE_WIDTH, configHue}}>
 			// Load the theme from local storage

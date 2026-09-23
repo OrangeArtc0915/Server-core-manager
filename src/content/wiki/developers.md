@@ -98,6 +98,23 @@ pnpm run build      # 产物在 dist\
 pnpm run preview    # 本地预览，会按 base 提供
 ```
 
+### 图标别用运行时 CDN
+
+站点的图标有两套机制，新增时别用错：
+
+- **`.astro` 里**用 astro-icon 的 `<Icon name="mdi:github" />` —— 构建期就把 SVG 内联进 HTML，零请求、零外部依赖
+- **`.svelte` 里**只能用 `@iconify/svelte` 的 `<Icon icon="material-symbols:search" />`，它默认会在**运行时**去 `api.iconify.design` 取图标数据
+
+为了不让页面依赖那个第三方域名（国内可能访问不到，表现是按钮没图标、标签页一直转圈），Svelte 用到的图标会被**抽出来本地注册** —— 数据在 `src/data/iconify-local.json`，在 `Layout.astro` 的 `<head>` 里用 `addCollection()` 注册。
+
+所以在 `.svelte` 里加了新图标之后，要跑一次：
+
+```powershell
+pnpm run icons      # 重新生成 src/data/iconify-local.json
+```
+
+漏跑的后果：只有那一个新图标不在本地集合里，它会去请求 `api.iconify.design`，在国内可能就是不显示。
+
 ## 相关
 
 - [诊断与排障](../diagnose/)
