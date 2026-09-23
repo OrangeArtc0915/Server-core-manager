@@ -1,6 +1,6 @@
-# Server Core Manager v1.1.0
+# Server Core Manager v1.2.0
 
-**让带图形界面的程序，在 Windows Server Core 上真正跑起来。** 启动提速 + 动作精简 + 终端美化收尾。
+**让带图形界面的程序，在 Windows Server Core 上真正跑起来。** 本版重点是国内安装线路与下载内容校验。
 
 Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。本工具把「补全图形环境 → 添加程序 → 启动并排障」做成一键操作，并且自带图形界面。
 
@@ -13,7 +13,24 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。�
 
 ---
 
-## 本次更新（v1.1.0）
+## 本次更新（v1.2.0）
+
+**安装：新增 Gitee 线路，并按内容校验下载**
+
+- 一行安装多了一条国内线路：下载顺序变成 **GitHub Releases → Gitee Releases → GitHub 分支源码**，
+  前一条不通、或拿到的不是真 zip 就自动换下一条；两条线路装的是同一个包
+- **下载内容按 zip 魔数（`PK`）校验**。实测 Gitee 对不存在的下载路径返回的是 `200` + 一段 JSON
+  （60 字节），随便编个版本号也返回 200 —— 只看 HTTP 状态码会把一个 JSON 当压缩包下回来，
+  直到解压才报错
+- `curl` 加 `--connect-timeout 15`：GitHub 在国内多是被丢包而不是立刻拒连，不设这个参数会卡到
+  TCP 超时（分钟级）才轮到下一条线路，回退等于形同虚设
+- 新增 `SCM_MIRROR_GITEE` 环境变量，可换 Gitee 基址 / 内网镜像
+- 文档同步：README 的一行安装改为国内推荐 Gitee，并说明两条线路与自动回退
+- 项目主页改用 Astro + Mizuki 重做，实测结论与限制整理成文章
+
+> Gitee 上**没有源码**，只放一个安装脚本 `install.ps1` 与发布包。
+
+## 上一版（v1.1.0）带来了什么
 
 **启动提速：环境探测挪到后台（实测冻结降 82%）**
 
@@ -120,7 +137,7 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。�
 | 文件 | 用途 |
 |---|---|
 | **`ServerCoreManager.zip`** | 压缩包安装用。**就下这个**（固定名字，`install.ps1` 也是按这个名字取） |
-| `ServerCoreManager-v1.1.0.zip` | 内容相同，只是文件名带版本号，方便留档 |
+| `ServerCoreManager-v1.2.0.zip` | 内容相同，只是文件名带版本号，方便留档 |
 | `Source code (zip/tar.gz)` | GitHub / Gitee 自动生成的源码包，普通用户不需要 |
 
 两个 zip 内容完全一致，52 个文件，解压后直接可用。

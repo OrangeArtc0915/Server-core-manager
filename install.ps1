@@ -57,7 +57,7 @@ $AssetName = 'ServerCoreManager.zip'
 # 发版时要把本文件一起同步推到 Gitee，两边保持同一份内容。
 $GiteeOwner = 'orangearc655743'
 $GiteeRepo  = 'server-core-manager'
-$GiteeVer   = 'v1.1.0'
+$GiteeVer   = 'v1.2.0'
 
 # 用 irm | iex 运行时 $PSCommandPath 为空。这种情况下一律不能用 exit：
 # 实测 exit 会直接终止宿主，把用户刚打开的 PowerShell 窗口关掉，报错信息根本来不及看。
