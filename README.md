@@ -27,6 +27,7 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`，�
 - [常见问题](#常见问题)
 - [目录结构](#目录结构)
 - [卸载](#卸载)
+- [支持作者](#支持作者)
 - [许可证](#许可证)
 
 ---
@@ -432,6 +433,16 @@ Remove-Item 'C:\Program Files\ServerCoreManager' -Recurse -Force
 ```powershell
 Remove-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 ```
+
+---
+
+## 支持作者
+
+这个工具是免费的、开源的（GPL-3.0），没有付费功能，也没有广告。如果它确实帮你省下了折腾 Server Core 的时间，可以请作者喝杯咖啡 —— 微信与支付宝收款码见 **[docs/helpus.md](docs/helpus.md)**。
+
+赞助完全自愿，不影响任何功能，也不影响提 issue 的处理顺序。
+
+还有更省事的支持方式：把使用体验、踩到的坑写进 [Issues](https://github.com/OrangeArtc0915/Server-core-manager/issues)，或者告诉身边同样在折腾 Server Core 的人。
 
 ---
 

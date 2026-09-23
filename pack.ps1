@@ -35,7 +35,7 @@ $files = @(
     'Install-GuiReadyCommand.ps1', 'Resume-GuiReadyPipeline.ps1',
     '一键运行.bat', '打开命令行菜单.bat', '安装一行命令.bat'
 )
-$dirs = @('gui', 'lib', 'launcher', 'setup')
+$dirs = @('gui', 'lib', 'launcher', 'setup', 'docs')
 
 # 双保险：即使哪天把不该公开的东西挪进了上面这些目录，也不会被打进发布包
 $denyDirs = @('logs', 'reports', 'backup', 'state', 'payload', 'dist', '.git')
