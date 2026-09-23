@@ -13,6 +13,9 @@ import I18nKey from "../i18n/i18nKey";
 import { i18n } from "../i18n/translation";
 import MainGridLayout from "../layouts/MainGridLayout.astro";
 import { loadIconify } from "../utils/icon-loader";
+// 页面里有 <iconify-icon> 元素，必须自己带加载器
+// （原先靠 MainGridLayout 全局那份，现在全局那份已移除，只在真正需要的页面加载）
+import IconifyLoader from "../components/misc/IconifyLoader.astro";
 
 // 检查项目页面是否启用
 if (!siteConfig.featurePages.projects) {
@@ -68,6 +71,7 @@ const getCategoryText = (category: string) => {
 ---
 
 <MainGridLayout title={title} description={subtitle}>
+  <IconifyLoader />
   <div class="flex w-full rounded-[var(--radius-large)] overflow-hidden relative min-h-32">
     <div class="card-base z-10 px-9 py-6 relative w-full">
       <!-- 页面标题 -->

@@ -1,7 +1,8 @@
 ---
 // 只加载最常用的字体权重，减少加载时间
-import "@fontsource/roboto/400.css";
-import "@fontsource/roboto/700.css";
+// 说明：这里原先 import 了 @fontsource/roboto 的 400/700 两个 woff2。
+// 它只是给正文用的拉丁字体，中文字形本来就要回退到系统字体；实测这两个文件
+// 合计 41 KB + 2 个请求，去掉后正文走系统字体栈（微软雅黑 / 苹方），更省更快。
 
 import ConfigCarrier from "@components/ConfigCarrier.astro";
 import MusicPlayer from "@components/widget/MusicPlayer.svelte";
@@ -175,6 +176,12 @@ const umamiScripts = umamiConfig.scripts || ""; // 获取Umami scripts配置
 				  media={favicon.theme && `(prefers-color-scheme: ${favicon.theme})`}
 			/>
 		))}
+
+		{/* 首屏最大的元素就是横幅图，提前把它提到最高优先级开始下载，
+		    否则要等 HTML → CSS/JS 之后浏览器才发现它，白白多等一个往返 */}
+		{siteConfig.banner?.enable && banner && (
+			<link rel="preload" as="image" href={url(banner)} fetchpriority="high" />
+		)}
 
 		<!-- Set the theme before the page is rendered to avoid a flash -->
 		<script is:inline define:vars={{DEFAULT_THEME, LIGHT_MODE, DARK_MODE, BANNER_HEIGHT_EXTEND, PAGE_WIDTH, configHue}}>
