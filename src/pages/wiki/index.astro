@@ -3,7 +3,7 @@ import { getCollection } from "astro:content";
 import MainGridLayout from "@layouts/MainGridLayout.astro";
 import { url } from "@utils/url-utils";
 
-const GROUP_ORDER = ["入门", "使用", "进阶", "参考"] as const;
+const GROUP_ORDER = ["入门", "使用", "进阶", "参考", "支持"] as const;
 
 const entries = await getCollection("wiki");
 const chapters = entries
@@ -25,6 +25,7 @@ const GROUP_LEAD: Record<string, string> = {
 	使用: "日常真正会用到的东西：看环境、加程序、起不来时怎么查。",
 	进阶: "让这台机器更好用：终端美化、会话与登录、远程管理、离线与内网源。",
 	参考: "常见问题、做不到的事，以及想改代码时需要知道的结构与发版流程。",
+	支持: "免费开源，赞助完全自愿；不花钱的支持方式其实更有用。",
 };
 ---
 <MainGridLayout title="文档" description="Server Core Manager 使用文档：安装、上手、功能说明、排障与开发者指南">

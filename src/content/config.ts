@@ -39,7 +39,7 @@ const wikiCollection = defineCollection({
 	schema: z.object({
 		title: z.string(),
 		description: z.string().optional().default(""),
-		group: z.enum(["入门", "使用", "进阶", "参考"]),
+		group: z.enum(["入门", "使用", "进阶", "参考", "支持"]),
 		order: z.number(),
 	}),
 });

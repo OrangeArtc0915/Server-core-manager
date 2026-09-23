@@ -14,7 +14,7 @@ interface Props {
 const { title, description = "", slug = "", headings = [] } = Astro.props;
 
 // 章节顺序由 frontmatter 的 group + order 决定，这里只做排序与分组
-const GROUP_ORDER = ["入门", "使用", "进阶", "参考"] as const;
+const GROUP_ORDER = ["入门", "使用", "进阶", "参考", "支持"] as const;
 
 const entries = await getCollection("wiki");
 const chapters = entries
