@@ -2,7 +2,7 @@
 // 导入 Svelte 的生命周期函数和过渡效果
 
 // 导入 Icon 组件，用于显示图标
-import Icon from "@iconify/svelte";
+import Icon from "@iconify/svelte/dist/OfflineIcon.svelte";
 import { onDestroy, onMount } from "svelte";
 import { slide } from "svelte/transition";
 // 从配置文件中导入音乐播放器配置

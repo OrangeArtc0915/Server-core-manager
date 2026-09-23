@@ -183,12 +183,18 @@ const umamiScripts = umamiConfig.scripts || ""; // 获取Umami scripts配置
 			<link rel="preload" as="image" href={url(banner)} fetchpriority="high" />
 		)}
 
-		{/* 把 @iconify/svelte 用到的图标在本地注册掉。不注册的话，Svelte 的图标组件会在
-		    运行时去 api.iconify.design 取图标数据 —— 国内访问该域名可能很慢或不通，
-		    表现就是导航栏按钮没图标、标签页一直转圈。图标数据由 @iconify-json/* 抽出来，
-		    见 src/data/iconify-local.json（新增图标后需要重新生成，命令写在 wiki 的开发者指南里）。 */}
+		{/* 把 @iconify/svelte 用到的图标在本地注册掉。组件那边用的是 OfflineIcon
+		    （@iconify/svelte/dist/OfflineIcon.svelte），它只认本地注册的数据、永不请求 API；
+		    所以这里必须从 offline-functions 引 addCollection，才能和组件用同一份存储。
+		    不这么做的话：Svelte 图标组件会在运行时去 api.iconify.design 取数据，国内可能取不到，
+		    表现就是导航栏按钮没图标、标签页一直转圈。
+		    图标数据由 @iconify-json/* 抽出来，见 src/data/iconify-local.json
+		    （在 .svelte 里新增图标后要跑 `pnpm run icons` 重新生成）。 */}
 		<script>
-			import { addCollection } from "@iconify/svelte";
+			// 注意：这里必须写成带 .js 的完整路径。@iconify/svelte 的 exports 里
+			// "./dist/offline-functions" 映射到了 lib/dist/…，而包里根本没有 lib 目录，
+			// 不写扩展名会报 "Rollup failed to resolve import"。
+			import { addCollection } from "@iconify/svelte/dist/offline-functions.js";
 			import localIcons from "../data/iconify-local.json";
 			for (const c of localIcons) addCollection(c as never);
 		</script>
