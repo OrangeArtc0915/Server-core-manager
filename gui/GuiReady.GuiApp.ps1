@@ -781,7 +781,7 @@ $navMore   = New-NavItem -Text '更多'    -PageKey 'more'     -Y 404 -Icon 'mor
 $navAbout  = New-NavItem -Text '关于'    -PageKey 'about'    -Y 448 -Icon 'about'
 $script:NavButtons = @($navEnv, $navApp, $navStore, $navRole, $navMon, $navSec, $navBeauty, $navDsh, $navTool, $navMore, $navAbout)
 
-$lblVer = New-Label -Text ('v1.0  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.5 -Color Hint
+$lblVer = New-Label -Text ('v1.3.0  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.5 -Color Hint
 $lblVer.Dock = 'Bottom'
 $lblVer.Height = 30
 $lblVer.TextAlign = 'MiddleLeft'
@@ -4326,7 +4326,7 @@ $lblAuQQ               = New-Label -Text 'QQ 群：1034243331' -Size 10
 $lblAuQQ.Location      = New-Object System.Drawing.Point(20, 46)
 $cardAbout.Controls.Add($lblAuQQ)
 
-$lblAuVer              = New-Label -Text ('版本：v1.0    构建 ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 10
+$lblAuVer              = New-Label -Text ('版本：v1.3.0    构建 ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 10
 $lblAuVer.Location     = New-Object System.Drawing.Point(20, 76)
 $cardAbout.Controls.Add($lblAuVer)
 
