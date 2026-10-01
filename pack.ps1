@@ -15,13 +15,24 @@
   但必须在打包机上存在，否则发布包会缺内置素材。
 
   用法：
-    .\pack.ps1 -Version v1.0.0
+    .\pack.ps1 -Version v1.0.0                     # 只打包（仍会生成 manifest.sha256 与 .sha256 侧车）
+    .\pack.ps1 -Version v1.0.0 -Sign -Thumbprint <证书指纹>       # 顺便给包内脚本签名
+    .\pack.ps1 -Version v1.0.0 -Sign -PfxPath .\签名\证书.pfx     # 用 pfx（密码读环境变量 SCM_PFX_PASSWORD）
+
+  签名/校验的细节见 Sign-GuiReady.ps1。顺序永远是「先签名、后清单、再打包」——
+  清单里存的是最终内容的哈希，签完再改文件就会对不上（这正是我们要能发现的事）。
 #>
 [CmdletBinding()]
 param(
     [string]$Version = 'v0.0.0',
     [string]$OutDir = '',
-    [switch]$KeepStage
+    [switch]$KeepStage,
+    # 给包内脚本签名（复用 Sign-GuiReady.ps1）
+    [switch]$Sign,
+    [string]$Thumbprint = '',
+    [string]$PfxPath = '',
+    # pfx 密码（不传则读环境变量 SCM_PFX_PASSWORD；再不行会交互提示）
+    [string]$PfxPassword = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -31,6 +42,7 @@ if (-not $OutDir) { $OutDir = Join-Path $root 'dist' }
 $files = @(
     'README.md', 'README.en.md', 'LICENSE',
     'install.ps1', 'pack.ps1', 'RELEASE_NOTES.md',
+    'Sign-GuiReady.ps1',
     'Start-GuiReadyApp.ps1', 'Start-GuiReady.ps1',
     'Install-GuiReadyCommand.ps1', 'Resume-GuiReadyPipeline.ps1',
     '一键运行.bat', '打开命令行菜单.bat', '安装一行命令.bat'
@@ -72,6 +84,42 @@ foreach ($d in $dirs) {
 }
 
 if (-not (Test-Path -LiteralPath $OutDir)) { New-Item -ItemType Directory -Path $OutDir -Force | Out-Null }
+
+# ---------------------------------------------------------------- 签名 + 完整性清单
+# 顺序不能变：先签名（改文件）→ 再生成清单（记录最终哈希）→ 最后打包。
+# 如果清单在这之前生成，签名会把哈希改掉，用户侧校验就会报"文件被改过"（假警报）。
+$integrityMod = Join-Path $root 'lib\GuiReady.Integrity.ps1'
+$haveIntegrity = Test-Path -LiteralPath $integrityMod
+if ($haveIntegrity) { . $integrityMod }
+
+if ($Sign) {
+    $signScript = Join-Path $root 'Sign-GuiReady.ps1'
+    if (-not (Test-Path -LiteralPath $signScript)) {
+        Write-Warning '找不到 Sign-GuiReady.ps1，跳过签名。'
+    } else {
+        Write-Host ''
+        Write-Host '  给包内脚本签名 ...' -ForegroundColor Cyan
+        # 在**暂存目录**里签，不动仓库里的文件
+        $signArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $signScript, '-Root', $stage, '-Quiet')
+        if ($Thumbprint)   { $signArgs += @('-Thumbprint', $Thumbprint) }
+        if ($PfxPath)      { $signArgs += @('-PfxPath', $PfxPath) }
+        if ($PfxPassword)  { $signArgs += @('-PfxPassword', $PfxPassword) }
+        & powershell @signArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning ('签名未成功（退出码 {0}）—— 本次仍会打包，但包内脚本没有签名。' -f $LASTEXITCODE)
+        }
+    }
+}
+
+# 清单：无论是否签名都要生成（用户侧靠它核对"文件是否被改过"）
+if ($haveIntegrity) {
+    $manPath = Join-Path $stage 'manifest.sha256'
+    $manCount = New-GuiReadyManifest -Root $stage -OutFile $manPath
+    Write-Host ('  已生成完整性清单: manifest.sha256（{0} 个文件）' -f $manCount) -ForegroundColor Green
+} else {
+    Write-Warning '找不到 lib\GuiReady.Integrity.ps1，本次发布包不含完整性清单。'
+}
+
 $plain   = Join-Path $OutDir 'ServerCoreManager.zip'
 $versioned = Join-Path $OutDir ('ServerCoreManager-' + $Version + '.zip')
 foreach ($z in @($plain, $versioned)) { if (Test-Path -LiteralPath $z) { Remove-Item -LiteralPath $z -Force } }
@@ -124,6 +172,26 @@ $count = (Get-ChildItem -LiteralPath $stage -Recurse -File).Count
 Write-Host ''
 Write-Host ('  包内文件 {0} 个' -f $count) -ForegroundColor Gray
 
+# ---------------------------------------------------------------- 发布包哈希（侧车文件）
+# 生成 <zip>.sha256（sha256sum 兼容格式）。install.ps1 会尝试取这个侧车文件来校验下载到的包；
+# 用户也可以拿它手工比对。发版时【要和 zip 一起上传】，否则校验链就断了。
+if ($haveIntegrity) {
+    Write-Host ''
+    Write-Host '  发布包 SHA256（写进 Release 说明，并把 .sha256 侧车与 zip 一起上传）:' -ForegroundColor Cyan
+    foreach ($z in @($plain, $versioned)) {
+        $h = Get-GuiReadyFileHash -Path $z
+        if (-not $h) { Write-Warning ('算不出哈希: ' + $z); continue }
+        $side = $z + '.sha256'
+        try {
+            [System.IO.File]::WriteAllText($side, ($h + '  ' + (Split-Path $z -Leaf) + "`r`n"), (New-Object System.Text.UTF8Encoding($false)))
+        } catch { Write-Warning ('写侧车文件失败: ' + $side + ' —— ' + $_.Exception.Message) }
+        Write-Host ('    {0,-12} {1}' -f (Split-Path $z -Leaf), $h) -ForegroundColor Gray
+    }
+    Write-Host ''
+    Write-Host '  用户侧核对完整性（解压后在该目录执行）:' -ForegroundColor Cyan
+    Write-Host '    powershell -ExecutionPolicy Bypass -File Sign-GuiReady.ps1 -Verify' -ForegroundColor Gray
+}
+
 # 终端美化素材自检（Nerd Font + oh-my-posh + fastfetch + 启动器）
 $conDir  = Join-Path $root 'setup\console'
 $conPkgs = @()
@@ -155,4 +223,5 @@ else { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyCont
 Write-Host ''
 Write-Host '  上传到 Releases 时记得两个都传：ServerCoreManager.zip 必须用这个固定名字，' -ForegroundColor Yellow
 Write-Host '  因为 install.ps1 是按 releases/latest/download/ServerCoreManager.zip 取的。' -ForegroundColor Yellow
+Write-Host '  同时把 ServerCoreManager.zip.sha256 一起传上去 —— install.ps1 会用它校验下载到的包。' -ForegroundColor Yellow
 Write-Host ''

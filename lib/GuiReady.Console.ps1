@@ -217,8 +217,63 @@ function Get-GuiReadyConsoleProfilePaths {
     return @($paths | Where-Object { $_ } | Select-Object -Unique)
 }
 
+function Test-GuiReadyScriptPolicyBlocked {
+    # 新开一个 PowerShell 时，执行策略会不会拒绝加载 profile？
+    #
+    # ⚠ 不能看"当前进程的生效值"：本工具的进程基本都是 -ExecutionPolicy Bypass 起来的，
+    # 那里看到的是 Bypass，而用户双击/新开窗口时**没有 Process 作用域**，真实生效值往往是
+    # 默认的 Restricted —— 结果就是"美化装完了、profile 也写了，但新窗口里一点效果没有"，
+    # 还伴着一句"因为在此系统上禁止运行脚本"（实测被用户抓到）。
+    # 优先级：MachinePolicy > UserPolicy > CurrentUser > LocalMachine > 默认(Restricted)
+    try {
+        foreach ($sc in @('MachinePolicy', 'UserPolicy', 'CurrentUser', 'LocalMachine')) {
+            $v = [string](Get-ExecutionPolicy -Scope $sc)
+            if ($v -eq 'Restricted' -or $v -eq 'AllSigned') { return $true }
+            if ($v -ne 'Undefined') { return $false }
+        }
+        return $true
+    } catch { return $false }
+}
+
+function Enable-GuiReadyProfileLoading {
+    # 保证新开的 PowerShell 真的能加载 profile：把「当前用户」作用域设为 RemoteSigned。
+    # 为什么是 CurrentUser：不需要管理员、不动机器级策略；RemoteSigned 是微软一直推荐的常用值
+    #（本地脚本可跑，从网上下载来的必须签名）。原值记进 backup，还原美化时会放回去。
+    if (-not (Test-GuiReadyScriptPolicyBlocked)) { return $true }
+
+    Write-Log '当前执行策略会拒绝加载 PowerShell profile（生效值 Restricted / AllSigned），美化提示符不会生效。' 'WARN'
+    $old = 'Undefined'
+    try { $old = [string](Get-ExecutionPolicy -Scope CurrentUser) } catch { }
+    try {
+        if (-not (Test-Path -LiteralPath $script:BackupDir)) { New-Item -ItemType Directory -Path $script:BackupDir -Force | Out-Null }
+        $rec = Join-Path $script:BackupDir 'console-executionpolicy.txt'
+        if (-not (Test-Path -LiteralPath $rec)) { [System.IO.File]::WriteAllText($rec, $old) }
+    } catch { }
+
+    try {
+        Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned -Force -ErrorAction Stop
+        Write-Log ('已把「当前用户」执行策略设为 RemoteSigned（原值: {0}；只影响当前用户、不需要管理员）。' -f $old) 'OK'
+        return $true
+    } catch {
+        # 实测：PowerShell 5.1 的 Set-ExecutionPolicy 会出现"注册表值已经写进去了、它自己却仍然抛
+        # Security error"的情况（写完还会再校验一次）。所以**以实际生效值为准**，不凭异常下结论，
+        # 否则会出现"其实改成功了、日志却报错、用户以为没修好"。
+        if (-not (Test-GuiReadyScriptPolicyBlocked)) {
+            Write-Log ('已把「当前用户」执行策略设为 RemoteSigned（原值: {0}；只影响当前用户、不需要管理员）。' -f $old) 'OK'
+            Write-Log ('  Set-ExecutionPolicy 同时报了一句「{0}」，但实测生效值已经改过来了。' -f $_.Exception.Message) 'INFO'
+            return $true
+        }
+        Write-Log '设置执行策略失败，请手动执行：Set-ExecutionPolicy -Scope CurrentUser RemoteSigned' 'ERROR'
+        Write-Log ('  原因: ' + $_.Exception.Message) 'ERROR'
+        return $false
+    }
+}
+
 function Write-GuiReadyConsoleProfileHook {
     param([switch]$Remove, [switch]$Quiet)
+
+    # 写 profile 之前先确保"新窗口真的能加载它"，否则这一步等于白做（见上面函数的说明）
+    if (-not $Remove) { Enable-GuiReadyProfileLoading | Out-Null }
 
     $bin   = Get-GuiReadyConsoleRoot
     $posh  = Join-Path $bin 'oh-my-posh.exe'
@@ -233,9 +288,15 @@ function Write-GuiReadyConsoleProfileHook {
 
 # --- __TAG__ (managed block) ---
 # 两个入口提示：只在真终端里显示（输出被重定向时保持安静，免得污染脚本抓取的输出）
+# 只提示**真的存在**的命令 —— 否则等于骗用户去敲一个不存在的命令（实测被用户抓到：
+# "scm" 只有跑过「一行命令安装」才有，没装的时候却照样提示）。
 function Show-ScmWelcome {
-    Write-Host '  输入 "Sconfig" 返回服务器菜单' -ForegroundColor Yellow
-    Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow
+    if (Get-Command Sconfig -ErrorAction SilentlyContinue) {
+        Write-Host '  输入 "Sconfig" 返回服务器菜单' -ForegroundColor Yellow
+    }
+    if (Get-Command scm -ErrorAction SilentlyContinue) {
+        Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow
+    }
 }
 # 清屏后把提示重新打到最上面（cls / clear 都是 Clear-Host 的别名）
 function global:Clear-Host {
@@ -382,7 +443,10 @@ doskey cls=cls `$T "%~f0" --force >nul 2>&1
 :show
 echo.
 echo   __ESC__[93m输入 "Sconfig" 返回服务器菜单__ESC__[0m
-echo   __ESC__[93m输入 "scm" 打开 GUI 工具__ESC__[0m
+rem 只在 "scm" 真的装过时才提示：默认装在 System32（一行命令安装的产物）。
+rem 用 if exist 这个 cmd 内建判断 —— 不能用 where/find 之类的**外部命令或管道**，
+rem 否则 AutoRun 会拉起子进程（历史上踩过 cmd 递归把机器拖死）。
+if exist "%SystemRoot%\System32\scm.cmd" echo   __ESC__[93m输入 "scm" 打开 GUI 工具__ESC__[0m
 echo.
 "@
         # ANSI 亮黄（93）需要 VT 支持 —— 「一键美化终端」会设置 HKCU\Console\VirtualTerminalLevel=1
@@ -438,6 +502,27 @@ function Install-GuiReadyPowerShell7 {
     Write-Head '安装 PowerShell 7（zip 免安装，国内源优先）'
     if (-not (Assert-Administrator)) { return $false }
 
+    $target = Join-Path $env:ProgramFiles 'PowerShell\7'
+
+    # 预览放在最前面：只预览就不该去联网查版本（实测在受限网络下会因 403 直接报错，
+    # 让人以为功能坏了 —— 其实它只是没网）。
+    if ($WhatIf) {
+        Write-Log '--- 预览模式，不做任何改动 ---' 'DRY'
+        if ($ZipPath) {
+            Write-Log ('将使用本地 zip: ' + $ZipPath) 'DRY'
+            Write-Log ('将解压到 ' + $target) 'DRY'
+        } elseif ($Url) {
+            Write-Log ('将从指定链接下载: ' + $Url) 'DRY'
+            Write-Log ('将解压到 ' + $target) 'DRY'
+        } else {
+            Write-Log ('将先查最新版本（优先清华镜像 ' + $Global:GuiReadyMirrorTuna + '，拿不到再回退 GitHub 官方）') 'DRY'
+            Write-Log ('将解压到 ' + $target) 'DRY'
+        }
+        if (-not $SkipPath)     { Write-Log '将把该目录加入系统 PATH' 'DRY' }
+        if (-not $SkipProfile)  { Write-Log '将给 PowerShell 5.1 与 7 都写 oh-my-posh 初始化（若已做过美化）' 'DRY' }
+        return $true
+    }
+
     $info = $null
     if ($ZipPath) {
         if (-not (Test-Path -LiteralPath $ZipPath)) { Write-Log ('本地 zip 不存在: ' + $ZipPath) 'ERROR'; return $false }
@@ -455,15 +540,6 @@ function Install-GuiReadyPowerShell7 {
     }
     Write-Log ('版本 ' + $info.Version + '，包 ' + $info.Name) 'OK'
     Write-Log ('来源 ' + $info.Note) 'INFO'
-
-    $target = Join-Path $env:ProgramFiles 'PowerShell\7'
-    if ($WhatIf) {
-        Write-Log '--- 预览模式，不做任何改动 ---' 'DRY'
-        Write-Log ('将下载并解压到 ' + $target) 'DRY'
-        Write-Log '将把该目录加入系统 PATH' 'DRY'
-        Write-Log '将给 PowerShell 5.1 与 7 都写 oh-my-posh 初始化（若已做过美化）' 'DRY'
-        return $true
-    }
 
     $zip = $ZipPath
     if (-not $zip) {
@@ -886,6 +962,20 @@ function Restore-GuiReadyConsoleTheme {
 
     # 2) 删 profile managed 块（5.1 与 7 两边都清）
     Write-GuiReadyConsoleProfileHook -Remove | Out-Null
+
+    # 2b) 执行策略：只有我们改过（装的时候为了让 profile 能加载才改的）才放回原值
+    try {
+        $rec = Join-Path $script:BackupDir 'console-executionpolicy.txt'
+        if (Test-Path -LiteralPath $rec) {
+            $old = ([System.IO.File]::ReadAllText($rec)).Trim()
+            if (-not $old) { $old = 'Undefined' }
+            Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy $old -Force -ErrorAction Stop
+            Remove-Item -LiteralPath $rec -Force -ErrorAction SilentlyContinue
+            Write-Log ('已把「当前用户」执行策略恢复为: ' + $old) 'OK'
+        }
+    } catch {
+        Write-Log ('恢复执行策略失败（可手动执行 Set-ExecutionPolicy -Scope CurrentUser Undefined）: ' + $_.Exception.Message) 'WARN'
+    }
 
     # 3) 字体与注册表
     if (-not $KeepFonts) {

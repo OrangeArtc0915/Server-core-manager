@@ -279,11 +279,12 @@ function Set-GuiReadyAutoLogon {
             $body += "if (`$r -eq 0) { 'SECRET_OK' } else { 'SECRET_FAIL ' + [GuiReadyLsa]::Explain(`$r) }`r`n"
             $t = Invoke-GuiReadyElevatedTask -Name 'AutoLogonSecret' -Body $body -TimeoutSeconds 180 -PollSeconds 5
 
-            # 这条兜底路径会把密码写进临时工作脚本，跑完必须立刻销毁
+            # 这条兜底路径会把密码写进临时工作脚本 —— Invoke-GuiReadyElevatedTask 跑完就把它
+            #（连同日志、结果文件）一起销毁了，这里只是兜底确认，避免以后改动漏删。
             if ($t.WorkerScript -and (Test-Path -LiteralPath $t.WorkerScript)) {
                 Remove-Item -LiteralPath $t.WorkerScript -Force -ErrorAction SilentlyContinue
-                Write-Log '已销毁含密码的临时工作脚本' 'OK'
             }
+            Write-Log '含密码的提权 worker 脚本已销毁（日志与结果文件一并清理）' 'OK'
 
             if ($t.Log -match 'SECRET_OK') {
                 $secretOk = $true

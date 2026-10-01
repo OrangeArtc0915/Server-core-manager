@@ -67,23 +67,38 @@ Add-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 ## 功能一览
 
-### 图形界面（5 个页面 + 7 张状态卡片）
+### 图形界面（11 个页面 + 7 张状态卡片，只做深色主题）
+
+> **深色是唯一主题**：目标场景是 Server Core —— 运维就在深色终端里干活，界面与终端同调不刺眼；且 Server Core 常年缺主题/显示个性化组件，浅色在远桌面里更晃眼。所有颜色都走设计 Token（`$Pal`），`-SelfTest` 里的「主题覆盖自检」会遍历 11 个页面的全部控件，把漏改的浅色件报出来。
 
 | 页面 | 内容 |
 |---|---|
 | **环境** | 7 张状态卡片（系统版本 / 图形组件 / 渲染管线 / .NET 运行时 / 登录会话 / 提权 UAC / Web 管理）+ 一键补全、重新探测、GUI 自检、自动登录、Windows Admin Center |
 | **软件** | 添加程序、启动、设置启动参数、后台常驻、启动诊断、查看兼容档案、移除 |
+| **商店** | 包管理器状态（Chocolatey / Scoop / npm / pip）+ 搜索 + **工具详情** + 安装 / 卸载。**本机还没有包管理器时（刚装好的 Server Core 就是这样），点搜索/安装会先弹一次确认：用户选「是」之后自动下载安装 Chocolatey，装完自动把你刚才那步操作做完**；页面上也常驻「自动安装 Chocolatey」主按钮。**当前主线是 Chocolatey**（`choco search --limit-output` 的 名称\|版本 格式是稳定的机器可读输出）；Scoop 可用安装与卸载、搜索未接入；npm / pip 只做检测 |
+| **角色** | 图形化封装 `Install-WindowsFeature` / `Uninstall-WindowsFeature`：能力胶囊（系统类型 / ServerManager / 按需功能 / 管理员）+ 过滤（全部 / 仅已安装 / 仅未安装 / 仅角色）+ 列表逐项安装 / 移除。**装完是否需要重启会写进日志**；Server Core 上用不到 MMC 管理单元，所以「包含管理工具」默认关闭。客户端 Windows 上没有 ServerManager，这一页会**如实说明并指向按需功能**，不给空列表 |
+| **仪表盘** | 4 张指标卡（CPU / 内存 / 系统盘 / 关键服务）+ 关键服务列表（带「重启」按钮）+ 最近的系统错误与警告事件 + 占内存最多的进程。CPU 用 `Get-Counter` 取样、取不到就退回 CIM 并标注来源；采集全在子进程，界面不卡 |
+| **安全** | 10 项**本机可验证**的安全基线（防火墙 / Defender 实时保护 / UAC / SMBv1 / 来宾账户 / 管理员组成员 / 网络共享 / RDP 与 NLA / 本地密码与锁定策略 / 最近 24h 登录失败），每项都带**原始证据**；可修项带「修复」按钮，只修安全且可逆的（改 UAC 这类只给建议）。密码策略用 `secedit` 导出的英文键名解析，不受系统语言影响 |
+| **美化** | 终端美化状态（Nerd Font / 中文回退 / oh-my-posh / fastfetch / scm-term / 当前主题 / PowerShell 7）+ 主题下拉 + 一键美化 / 打开美化终端 / 状态检查（实测回读 conhost 字体）/ 安装 PowerShell 7 / 一键还原。状态是同步读注册表与本地文件，不联网 |
+| **AI** | DeepSeek Harness（dsh-TUI）依赖检查：Node.js ≥ 22.19 / pnpm ≥ 10 / `@deepseek-ai/dsh` / `@deepseek-harness-tui/dsh-tui` / `DEEPSEEK_API_KEY`。**包名由 npm 实查回答**（不是照抄文档），一键装依赖、一键在新控制台里启动。**本机没有 Node.js 时会先问一次，选「是」后自动装包管理器 + nodejs 再一路装完**。密钥只提示用户自己 `setx`，工具不碰 |
 | **工具** | 默认只列 **7 个本机工具**（记事本、命令提示符、美化终端、MMC 控制台、资源监视器、系统信息、PowerShell ISE）；本机没有的会标上「（缺失）」并变浅色，**点它照样有反应** —— 会说明缺什么、去哪补，并问你要不要用命令提示符代替。与 Windows Admin Center 重复的 14 个管理工具收在「Windows Admin Center 里也有」一组里**默认收起**，**本机装了 WAC 并在运行时整组隐藏**（服务/事件/磁盘/注册表这些直接在 WAC 里用） |
-| **更多** | 全部 **29 个功能**，分 8 组：一键流程 / 探测与诊断 / 程序档案 / 补给 / 会话与登录 / 使用与工具 / Windows Admin Center / 终端美化 |
+| **更多** | 全部 **45 个功能**，分 13 组：一键流程 / 探测与诊断 / 程序档案 / 补给 / **应用商店** / **角色与功能** / **监控与诊断** / **安全与合规** / **AI 辅助** / 会话与登录 / 使用与工具 / Windows Admin Center / 终端美化 |
 | **关于** | 作者 / QQ 群 / GitHub / 项目主页（链接可点），以及「打开 GitHub / 打开项目主页 / 打开日志目录 / 打开报告目录」按钮 |
 | **终端美化** | 4 个功能：状态检查（含实测回读 conhost 真实字体）/ **一键美化终端**（Nerd Font + Oh My Posh + Fastfetch，素材内置不联网）/ 打开美化终端 / 一键还原；另有「安装 PowerShell 7（走清华镜像）」 |
 
-### 29 个功能动作
+> 「商店」「角色」「仪表盘」「安全」「AI」五页的数据都在**子进程**里取（`choco search` 是网络调用、`Get-WindowsFeature` 要问 CBS、`Get-Counter` 取样要 1 秒、事件日志查询要几百毫秒），结果写成 JSON 由界面轮询回填 —— 和环境卡片同一套做法（`New-GuiQueryHost`），界面不会卡住；查询超时会自己收尾，不会永远停在「正在…」。
+
+### 45 个功能动作
 
 - **一键流程（4）**：一键就绪（自动重启 / 需要重启时暂停）、续跑未完成的流程、查看流程状态
 - **探测与诊断（4）**：环境探测、exe 兼容性预检、GUI 能力自检（真的建窗 + 抓图取证）、启动并诊断
 - **程序档案（3）**：查询某个程序的兼容档案、列出全部档案、添加你自己的档案条目
 - **补给（2）**：安装 App Compatibility FOD（官方路线）、按程序需求补齐 .NET 运行时
+- **应用商店（5）**：包管理器状态（只读）、安装 Chocolatey（包管理器本体）、安装软件包、卸载软件包、查看软件包详情（只读）
+- **角色与功能（3）**：角色/功能状态（只读）、安装角色/功能、移除角色/功能
+- **监控与诊断（2）**：系统快照（只读）、服务控制（启动 / 停止 / 重启，做完复核真实状态）
+- **安全与合规（3）**：安全基线审计（只读）、本工具完整性自检（只读：目录权限 / 文件清单 / 脚本签名）、安全基线一键修复（只修安全可逆的 6 项）
+- **AI 辅助（3）**：dsh-TUI 依赖检查（只读，含 npm 实查包名）、安装 dsh-TUI 依赖、启动 dsh-TUI
 - **会话与登录（6）**：RDP / 会话 / UAC / .NET 状态、远程会话一键修复、开机自动登录（状态 / 启用 / 关闭）、设置登录 Shell（cmd / 自动进 sconfig / 恢复原值）
 - **使用与工具（1）**：持久化启动程序（计划任务）
 - **Windows Admin Center（4）**：状态检查、一键安装并自动配置、服务控制、打开界面
@@ -312,10 +327,126 @@ LSA 机密写入（密码不以明文落注册表）→ 真实重启 → 自动�
 > 想自己看启动明细：设 `SCM_BOOT_TRACE=1` 再启动，各阶段耗时（毫秒）会追加到 `state\boot-trace.txt`。
 > 后台探测的原始结果在 `state\probe.json`（本次）与 `state\env-cache.json`（上次完整结果）。
 
+### 全功能实测（11 个页面 + 44 个动作）
+
+界面用 `-SelfTest` 与 `-LayoutDump` 过一遍（页面渲染、控件数、越界检查），44 个动作再用无头执行器**逐个跑** —— 只读和对本机安全的动作真跑，会改系统状态的动作只跑预览（`DryRun`）。实测环境：Windows 10 22H2（build 19044），管理员会话。
+
+| 分类 | 数量 | 结果 |
+|---|---|---|
+| 真实执行（只读 / 安全可逆） | 27 | 全部通过 |
+| 仅预览（`DryRun`，不动系统） | 17 | 全部通过 |
+| 按设计拒绝（本机不适用） | 1 | `fod` 在客户端 Windows 上主动中止并说明原因 |
+
+**这轮实测改掉的 5 个真问题**（都是跑出来的，不是看出来的）：
+
+1. **工具详情的解析**：`choco info` 会把多个键塞进同一行（`Title: 7-Zip | Published: 2026/9/4`），且 `Package url` 那行没有冒号 —— 按实测格式重写了切块逻辑；找不到的包现在会明确说「没找到」而不是显示空格子。
+2. **装完包管理器后没重启就不认**：`Chocolatey / node / pnpm` 装完，已经运行的进程 PATH 还是旧的，工具会一直显示「未安装」。改成「先查 PATH，再回退已知安装位置」。
+3. **dsh-TUI 依赖装不上**：npm 依赖的构建脚本（koffi）在 cmd 子进程里找不到 `node`，整次安装以 exit 1 结束。安装前会把 node / npm 全局 bin 目录补进 PATH。
+4. **dsh-TUI 启动即退出**：它会自己去找 `dsh` CLI，而 `dsh.cmd` 在 `%APPDATA%\npm`（同样可能不在 PATH 里），报「未检测到 dsh CLI」；启动前同样补 PATH。另外 `Start-Process` 不接受空字符串参数，`-Resume` 为空时**每次默认启动都会失败** —— 这两个都是真跑一次才暴露的。
+5. **PowerShell 7 的「仅预览」会联网**：受限网络下直接报 403，看着像功能坏了。预览已经挪到网络请求之前。
+
+顺带记一条实测环境事实：**npm 11 默认拦下依赖的 install/postinstall 脚本**（`allowScripts`），dsh-TUI 的原生依赖（koffi / node-pty）因此没编译 —— 工具不替用户放开脚本执行，但会把 npm 原样提示和确切的补救命令打出来。
+
 ### GUI 能力自检
 
 工具自带 `-SelfTest` 与 `-LayoutDump`：前者核对页面/卡片/按钮数量（并会用后台探测产出的 JSON 再渲染一遍卡片，
 验证数据往返没问题），后者把控件树的真实坐标打出来并标出越界。用于在 Server Core 上验证界面真的渲染出来了，而不只是「进程还在」。
+
+---
+
+## 安全设计
+
+这个工具**以管理员身份运行，部分步骤以 SYSTEM 执行**（装 FOD、写 LSA 机密、装 WAC 都要提权）。所以它的安全边界必须讲清楚——否则它自己就会变成服务器上的一个提权入口。
+
+### 一句话威胁模型
+
+> **谁能写工具目录，谁就能拿到管理员/SYSTEM 权限。**
+
+因为工具目录里所有东西都会以高权限被执行：`lib\` `gui\` 下的脚本由提权后的界面拉起；`logs\elevated\worker-*.ps1` 注册成 SYSTEM 计划任务执行；`bin\scm-welcome.cmd` 被 cmd 的 `AutoRun` 挂在**每个** cmd 窗口上。
+
+因此做了三件事：
+
+1. **启动时检查工具目录权限**：只要发现普通用户/`Authenticated Users` 等非管理员主体对工具目录有写权限，就在日志里用醒目格式报出来，并弹一次提示，建议移到 `C:\Program Files\ServerCoreManager`（或按日志里给出的 `icacls` 命令收紧）。
+2. **提权 worker 目录自动回退**：工具目录安全时用 `logs\elevated\`；不安全时改用 `%ProgramData%\ServerCoreManager\elevated`（默认 ACL 只有管理员与 SYSTEM 能写）。
+3. **worker 目录与文件都收紧 ACL**：去掉继承，只留 `SYSTEM` + `Administrators`（用固定 SID 写，不受系统语言影响）；worker 文件名带随机后缀，写完还会复核「文件够长 + 除管理员/SYSTEM 外没人能改」，不满足就**不注册**计划任务。
+
+### 敏感数据怎么处理
+
+| 数据 | 处理 |
+|---|---|
+| 开机自动登录的密码 | 默认写 **LSA 机密**（不落注册表明文）；只有显式选「注册表明文」才会写 `DefaultPassword`，且会警告该项目可被远程读取。落盘失败改走 SYSTEM 时用的临时脚本，**跑完立刻销毁** |
+| 动作参数（含密码） | GUI 把参数写成 `%TEMP%\gui-ready-*\args.json` 交给子进程；**runner 解析完立刻删文件**，GUI 在动作结束、读完输出后再删整个临时目录（双保险） |
+| 查询用的临时文件 | 商店/角色/仪表盘/安全/AI 的查询结果目录（`%TEMP%\gui-*`）在查询收尾时整目录删除 |
+| DeepSeek API Key | 只检测环境变量是否存在，**从不写入任何文件**；提示用户自己 `setx` |
+
+### 远程内容与命令执行
+
+| 场景 | 做法 |
+|---|---|
+| 下载安装脚本（Chocolatey 本体） | 先落盘再执行（不用 `iex`）；**默认只接受 https**，非 https 必须显式 `-AllowInsecure` 才会继续并打警告；下载后检查内容像不像 PowerShell 脚本（大小 + 关键字），不像就拒绝执行；实际地址（含重定向）打进日志 |
+| 包名 / 搜索词 / 服务名等外部输入 | 一律走 **JSON 参数文件或 argv 数组**，不做命令行字符串拼接（Windows 下 `Start-Process` 不会自动加引号，拼引号是注入入口）；包名额外做字符集校验（只允许 `A-Za-z0-9._+-`） |
+| `npm install -g`（dsh-TUI 依赖） | 只执行安装命令；**不替用户放开**依赖的 install/postinstall 脚本（npm 11+ 默认拦截），而是把后果与确切的补救命令打印出来 |
+| `choco install <包>` | 会执行**第三方包的安装脚本（管理员身份）**——这是包管理器的固有风险，所以所有安装类动作都支持「仅预览」，先看清要执行什么再跑 |
+| 一键美化终端 | 只往 `HKCU`（当前用户）写控制台外观，`AutoRun` 与 `PATH` 里的启动器都带引号写入；任何一步失败都保留备份可还原 |
+| Windows Admin Center | 安装会开放 443 端口并加防火墙规则——这是该功能的目的，装之前请确认你确实想暴露 Web 管理界面 |
+
+### 签名与完整性校验
+
+工具本身也要能被验证 —— 否则"以管理员身份执行自己目录里的脚本"这件事就没有任何保险。现在提供三层：
+
+| 层 | 做什么 | 怎么用 |
+|---|---|---|
+| **发布包哈希** | `pack.ps1` 打包时算出 zip 的 SHA256，生成 `ServerCoreManager.zip.sha256` 侧车文件 | 用户对照发布页里的 SHA256；`install.ps1` 也会**自动取这个侧车**校验，不一致就**中止且不解压** |
+| **文件清单** | 打包时生成 `manifest.sha256`（包内每个代码/配置文件的 SHA256），随包分发 | 解压后执行 `powershell -ExecutionPolicy Bypass -File Sign-GuiReady.ps1 -Verify`，能看出哪个文件被改过；GUI 每次启动也会自动核对一次并在日志里报警 |
+| **脚本签名** | `Sign-GuiReady.ps1` 用 Authenticode 给包内 .ps1 签名（PowerShell 原生，不需要 Windows SDK） | 用户可用 `Get-AuthenticodeSignature` 看签名；签名被破坏（改文件）会直接显示不匹配 |
+
+**发版时（维护者）**：
+
+```powershell
+# 没有证书：先生成一个自签名代码签名证书（会导出 .pfx 与 .cer）
+.\Sign-GuiReady.ps1 -CreateSelfSigned -Subject 'CN=ServerCoreManager'
+
+# 用证书存储里的证书签名（或 -PfxPath .\签名\证书.pfx，密码读环境变量 SCM_PFX_PASSWORD）
+.\pack.ps1 -Version v1.2.1 -Sign -Thumbprint <证书指纹>
+```
+
+`pack.ps1 -Sign` 的顺序是**先签名 → 再生成清单 → 最后打包**。顺序反了的话，签名会改掉文件哈希，用户侧校验就会误报"文件被改过"。
+
+上传 Releases 时记得 **zip 与 `.sha256` 侧车一起传**，并把 SHA256 写进 Release 说明 —— 校验链才有根。
+
+> **自签名证书只能证明"这份包没被改过"，不能证明"是谁发的"**：在别人的机器上会显示"签名有效但证书不受信任"，需要把那台机器导入 `.cer`（受信任的根证书颁发机构）才会变成"有效"。对外分发建议用受信任 CA 的代码签名证书；本项目目前**没有**受信任 CA 的证书。
+>
+> `签名\` 目录里那两个 .cmd 是给 **.exe** 用的 signtool 交互式包装（`makecert` → `certmgr` → `cert2spc` → `pvk2pfx` → `signtool` + wosign 时间戳），需要 Windows SDK；本项目发布的是 .ps1 + zip，所以走上面的原生链路。**同一个 .pfx 两边都能用** —— 将来要签 .exe 仍可用它们（路径里带 `签名\` 的那个）。同目录的 `krnln.fnr` / `shell.fne` 是易语言支持库，与签名无关。
+
+### 关于 `irm ... | iex` 这种安装方式
+
+官方推荐的一行安装（`irm https://.../install.ps1 | iex`）本质是「把远端脚本直接喂给管理员 PowerShell」——**传输链路被劫持就等于交出管理员权限**。如果这一点让你不放心，请改用更稳的两步走：
+
+```powershell
+# 1) 先下载，自己看一眼
+irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 -OutFile install.ps1
+notepad install.ps1
+
+# 2) 确认后再执行。注意别用 .\install.ps1 —— 见下面的说明
+iex (Get-Content -Raw -Encoding UTF8 .\install.ps1)
+```
+
+> **为什么不能直接 `.\install.ps1`**：这个文件是不带 BOM 的 UTF-8（带 BOM 会破坏 `irm | iex`：BOM 会被当成脚本第一个字符，`iex` 直接报 `The term '﻿Write-Host' is not recognized`，实测确认）。而 Windows PowerShell 5.1 读**不带 BOM** 的文件时按系统 ANSI 代码页解码 —— 中文系统上就变成乱码，脚本会因语法错误跑不起来。用 `iex (Get-Content -Raw -Encoding UTF8 ...)` 显式按 UTF-8 解码就绕开了这个矛盾。
+>
+> 想传参数就这样调用：
+
+```powershell
+$sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); & $sb -Dest 'D:\SCM' -NoCommand
+```
+
+`install.ps1` 会校验下载到的包是不是真 zip（魔数 `PK`），并**校验 SHA256**：设了 `SCM_EXPECT_SHA256` 就用你给的哈希，否则自动取 `<包>.sha256` 侧车；两者都没有时会明确提示"本次未校验来源"并把本次哈希打出来供比对。内网镜像可以用 `SCM_MIRROR_*` 环境变量指向你自己的源。
+
+### 还没做 / 做不到的
+
+- **没有受信任 CA 的代码签名证书**：签名链路已经通了（`Sign-GuiReady.ps1`），但用自签名证书只能证明"没被改过"，不能证明"是谁发的"。拿到正式证书后直接 `pack.ps1 -Sign -Thumbprint <指纹>` 即可，不需要改代码。
+- **发布页的 SHA256 仍需人工核对**：`install.ps1` 会自动校验侧车文件，但侧车本身也是从同一处下载的 —— 真正可信的根是**你自己从发布页抄下的 SHA256**（用 `SCM_EXPECT_SHA256` 传给它）。
+- **安装目录只查了 ACL 可写性，没查所有权（owner）**：极端情况下 owner 可以改 ACL 再写文件，还需要补一层 owner 校验。
+- **提权计划任务跑完不删任务定义**（脚本/日志/结果文件已清理），排查时可以用 `Get-ScheduledTask GuiReady*` 看。
 
 ---
 
@@ -377,13 +508,22 @@ LSA 机密写入（密码不以明文落注册表）→ 真实重启 → 自动�
 ├─ Start-GuiReady.ps1           15 项两级控制台菜单
 ├─ Install-GuiReadyCommand.ps1  一行命令的安装器
 ├─ Resume-GuiReadyPipeline.ps1  跨重启断点续跑
-├─ install.ps1                  命令行一行安装（远程拉取发布包）
-├─ pack.ps1                     打包发布压缩包
+├─ install.ps1                  命令行一行安装（远程拉取发布包；校验 PK 魔数 + SHA256）
+├─ pack.ps1                     打包发布（生成 manifest.sha256 与 <zip>.sha256；-Sign 顺便签名）
+├─ Sign-GuiReady.ps1            签名 / 生成清单 / 校验（-CreateSelfSigned 造证书，-Verify 只校验）
+├─ 签名\                        给 .exe 用的 signtool 包装脚本（需 Windows SDK；本项目用不到）
 │
+├─ manifest.sha256              发布包里的完整性清单（打包时生成，逐个文件 SHA256）
 ├─ gui\
 │   ├─ GuiReady.GuiApp.ps1      主界面（含 -SelfTest / -LayoutDump 诊断开关）
-│   ├─ GuiReady.Actions.ps1     29 个动作的清单（GUI 与无头执行器共用同一份）
+│   ├─ GuiReady.Actions.ps1     45 个动作的清单（GUI 与无头执行器共用同一份）
+│   ├─ GuiReady.Ui.ps1          设计系统：Token 组件 + 子进程查询宿主 + 列表行
 │   ├─ Run-GuiReadyAction.ps1   动作执行器（子进程运行，界面不卡）
+│   ├─ Run-GuiReadyStore.ps1    商店查询（子进程里查源状态 / 搜索，结果写 JSON）
+│   ├─ Run-GuiReadyRole.ps1     角色查询（子进程里读角色/功能清单，结果写 JSON）
+│   ├─ Run-GuiReadyMonitor.ps1  监控采集（子进程里取 CPU/内存/磁盘/服务/事件）
+│   ├─ Run-GuiReadySecurity.ps1 安全审计（子进程里跑 10 项基线检查）
+│   ├─ Run-GuiReadyDsh.ps1      dsh-TUI 依赖检查（含 npm 实查包名）
 │   └─ Run-GuiReadyProbe.ps1    环境探针（子进程里查环境，卡片不再卡界面）
 │
 ├─ setup\
@@ -402,6 +542,12 @@ LSA 机密写入（密码不以明文落注册表）→ 真实重启 → 自动�
 │   ├─ GuiReady.GuiTest.ps1     GUI 能力自检 + 窗口截图取证
 │   ├─ GuiReady.Pipeline.ps1    一键流程
 │   ├─ GuiReady.Catalog.ps1     程序兼容档案读取
+│   ├─ GuiReady.Package.ps1     应用商店：包管理器检测 / 搜索 / 安装 / 卸载
+│   ├─ GuiReady.Role.ps1        角色与功能：能力探测 / 列表 / 安装 / 移除
+│   ├─ GuiReady.Monitor.ps1     系统监控：快照采集（只读）+ 服务控制
+│   ├─ GuiReady.Security.ps1    安全合规：10 项基线检查 + 有限的自动修复
+│   ├─ GuiReady.Integrity.ps1   完整性：文件清单（SHA256）+ 脚本签名校验 + 目录权限汇总
+│   ├─ GuiReady.Dsh.ps1         DeepSeek Harness：依赖检测 / 安装 / 启动
 │   ├─ GuiReady.Diag.ps1        排障采集
 │   ├─ GuiReady.Matrix.ps1      版本适配矩阵
 │   ├─ GuiReady.PhaseB.ps1      阶段 B（IDD 远程渲染）指引
@@ -438,7 +584,7 @@ Remove-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 ## 支持作者
 
-这个工具是免费的、开源的（GPL-3.0），没有付费功能，也没有广告。如果它确实帮你省下了折腾 Server Core 的时间，可以请作者喝杯咖啡 —— 微信与支付宝收款码见 **[docs/helpus.md](docs/helpus.md)**。
+这个工具是免费的、开源的（MIT），没有付费功能，也没有广告。如果它确实帮你省下了折腾 Server Core 的时间，可以请作者喝杯咖啡 —— 微信与支付宝收款码见 **[docs/helpus.md](docs/helpus.md)**。
 
 赞助完全自愿，不影响任何功能，也不影响提 issue 的处理顺序。
 
@@ -448,6 +594,6 @@ Remove-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 ## 许可证
 
-[GPL-3.0](LICENSE) —— 你可以自由使用、修改、分发，但**修改后分发必须同样以 GPL-3.0 开源**。
+[MIT](LICENSE) —— 自由使用、修改、分发（包括商用与闭源分发），只需保留版权与许可声明。
 
 本项目包含的所有「实测结论」都来自真实环境的测试记录，欢迎提交你验证过的机型与程序档案（`lib/catalog.json`）。

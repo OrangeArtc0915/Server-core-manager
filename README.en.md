@@ -274,6 +274,6 @@ Remove-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 ## License
 
-[GPL-3.0](LICENSE) — free to use, modify and distribute, but **modified distributions must also be released under GPL-3.0**.
+[MIT](LICENSE) — free to use, modify and distribute (including commercial and closed-source distribution); just keep the copyright and permission notice.
 
 Every "measured result" in this project comes from a real test record. Contributions of verified hardware/software profiles (`lib/catalog.json`) are welcome.

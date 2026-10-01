@@ -175,6 +175,38 @@ function Test-ZipFile {
     }
 }
 
+function Get-FileSha256 {
+    # 发布包哈希校验用。返回大写十六进制；读不出来返回空串。
+    param([string]$Path)
+    try {
+        $sha = [System.Security.Cryptography.SHA256]::Create()
+        $fs  = [System.IO.File]::OpenRead($Path)
+        try { return ([System.BitConverter]::ToString($sha.ComputeHash($fs)) -replace '-', '') }
+        finally { $fs.Dispose(); $sha.Dispose() }
+    } catch { return '' }
+}
+
+function Get-ExpectedSha256 {
+    # 期望哈希从哪来（按可信度排序）：
+    #   1) 环境变量 SCM_EXPECT_SHA256 —— 你自己从发布页抄过来的，最可信；
+    #   2) 发布包旁边的 <包名>.sha256 侧车文件（pack.ps1 会自动生成并一起上传）。
+    # 都拿不到就返回空串，由调用方决定是"警告放行"还是"拒绝"。
+    param([string]$Url)
+    $e = [string]$env:SCM_EXPECT_SHA256
+    if ($e) { return (($e -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()) }
+    try {
+        $side = Join-Path $tmp ('side-' + [System.IO.Path]::GetRandomFileName() + '.sha256')
+        if (Save-RemoteFile -Url ($Url + '.sha256') -Path $side) {
+            $t = ''
+            try { $t = [string](Get-Content -LiteralPath $side -Raw -ErrorAction SilentlyContinue) } catch { }
+            Remove-Item -LiteralPath $side -Force -ErrorAction SilentlyContinue
+            $hex = ($t -replace '[^0-9A-Fa-f]', '')
+            if ($hex.Length -ge 64) { return $hex.Substring(0, 64).ToUpperInvariant() }
+        }
+    } catch { }
+    return ''
+}
+
 $releaseUrl = ('https://github.com/{0}/{1}/releases/latest/download/{2}' -f $Owner, $Repo, $AssetName)
 $branchUrl  = ('https://github.com/{0}/{1}/archive/refs/heads/{2}.zip' -f $Owner, $Repo, $Branch)
 
@@ -214,6 +246,26 @@ foreach ($ln in $lines) {
         Write-Warn '  拿到的不是压缩包（服务端假 200），换下一条线路。'
         continue
     }
+
+    # 哈希校验：拿得到期望值就必须一致，不一致直接中止（不解压、不执行）；
+    # 拿不到就明确说"这次没校验来源"，并把本次哈希打出来供人工比对。
+    $expected = Get-ExpectedSha256 -Url $ln.Url
+    $actual   = Get-FileSha256 -Path $zip
+    if ($expected) {
+        if ($actual -ne $expected) {
+            Write-Err ('发布包哈希不匹配！期望 ' + $expected + '，实际 ' + $actual)
+            Write-Err '这通常意味着文件被篡改或下载损坏 —— 已中止安装（不会解压执行）。'
+            Write-Err '请换网络重下，或从发布页核对 SHA256 后再试。'
+            Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+            if ($RunAsFile) { exit 1 } else { return }
+        }
+        Write-Ok ('哈希校验通过: ' + $actual)
+    } else {
+        Write-Warn '本次没有可用的期望哈希（既没设 SCM_EXPECT_SHA256，也没取到 <包>.sha256），未校验发布包来源。'
+        Write-Warn '要强校验：从发布页抄下 SHA256，然后  $env:SCM_EXPECT_SHA256 = ''<哈希>''  再执行安装。'
+        if ($actual) { Write-Host ('  本次下载的 SHA256: ' + $actual) -ForegroundColor DarkGray }
+    }
+
     $ok   = $true
     $used = $ln.Name
     break

@@ -18,6 +18,17 @@ foreach ($f in @('GuiReady.Common.ps1', 'GuiReady.Detect.ps1', 'GuiReady.PeInspe
     }
 }
 
+# 提权：菜单里绝大多数操作都要管理员，所以先在这里把自己提起来；
+# 提不起来也把菜单照常显示（横幅里会如实写"管理员权限: 否"），而不是直接退出。
+switch (Request-GuiReadyElevation -EntryScript $PSCommandPath -What '命令行菜单') {
+    'Relaunched' { return }
+    'Failed' {
+        Write-Host '  提权没成功，菜单照常显示，但需要管理员权限的项会失败。' -ForegroundColor Yellow
+        Write-Host '  想要完整功能：关掉本窗口，右键「打开命令行菜单.bat」→ 以管理员身份运行。' -ForegroundColor Yellow
+        Write-Host ''
+    }
+}
+
 function Show-Banner {
     Write-Host ''
     Write-Host '  ================================================================' -ForegroundColor Cyan

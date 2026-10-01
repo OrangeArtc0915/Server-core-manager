@@ -3,7 +3,7 @@
 # Script blocks take param($P) so lookups are explicit and scope-safe.
 
 function Get-GuiReadyActions {
-    return @(
+    return Set-GuiReadyActionRequirements -Actions @(
         # ---------------- 一键流程 ----------------
         [pscustomobject]@{
             Id    = 'pipeline-auto'
@@ -248,6 +248,184 @@ function Get-GuiReadyActions {
             }
         }
 
+        # ---------------- 应用商店 ----------------
+        [pscustomobject]@{
+            Id = 'pkg-source-status'; Group = '应用商店'; Name = '包管理器状态（只读）'
+            Desc = '检测本机有哪些包管理器（Chocolatey / Scoop / npm / pip）、版本、路径，以及我们支持到哪一步。目前搜索只接了 Chocolatey。'
+            Params = @(); DryRun = $false
+            Script = { param($P) Show-GuiReadyPackageSourceStatus | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'pkg-install-choco'; Group = '应用商店'; Name = '安装 Chocolatey（包管理器本体）'
+            Desc = '下载官方安装脚本并执行（先落盘再运行，不用 iex，出问题有文件可查），装到 C:\ProgramData\chocolatey。需要管理员权限与联网；内网环境可以在参数里把地址换成内网副本。安全限制：默认只接受 https（这条链会以管理员身份执行下载到的内容），下载后还会检查内容像不像 PowerShell 脚本。'
+            Params = @(
+                @{ Name = 'Url'; Label = '安装脚本地址（留空=官方 community.chocolatey.org）'; Type = 'Text'; Width = 520 }
+                @{ Name = 'AllowInsecure'; Label = '允许非 https 地址（内网确实只有 http 时才勾）'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Install-GuiReadyPackageManager -Id 'choco' -Url ([string]$P['Url']) `
+                    -AllowInsecure:([bool]$P['AllowInsecure']) -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'pkg-install'; Group = '应用商店'; Name = '安装软件包'
+            Desc = '从包管理器安装软件包并把输出实时打进日志。Chocolatey 走 choco install -y --no-progress；Scoop 走 scoop install。拿不准就先按「仅预览」看要执行哪条命令。'
+            Params = @(
+                @{ Name = 'Source';  Label = '包管理器'; Type = 'Combo'; Options = @('Chocolatey', 'Scoop'); Default = 1 }
+                @{ Name = 'Package'; Label = '包名（如 7zip / git）'; Type = 'Text'; Width = 320 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $src = 'choco'
+                if ([int]$P['Source'] -eq 2) { $src = 'scoop' }
+                Install-GuiReadyPackage -Source $src -Package ([string]$P['Package']) -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'pkg-info'; Group = '应用商店'; Name = '查看软件包详情（只读）'
+            Desc = '等价于 choco info <包>：把标题/版本/发布时间/下载量/摘要/标签/官网/许可证/描述解析出来（解析规则按 Chocolatey 2.7.4 的实测输出写，见 lib\GuiReady.Package.ps1）。'
+            Params = @( @{ Name = 'Package'; Label = '包名（如 7zip）'; Type = 'Text'; Width = 320 } )
+            DryRun = $false
+            Script = { param($P) Show-GuiReadyPackageInfo -Package ([string]$P['Package']) | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'pkg-uninstall'; Group = '应用商店'; Name = '卸载软件包'
+            Desc = '从包管理器卸载软件包。Chocolatey 走 choco uninstall -y --no-progress；Scoop 走 scoop uninstall。'
+            Params = @(
+                @{ Name = 'Source';  Label = '包管理器'; Type = 'Combo'; Options = @('Chocolatey', 'Scoop'); Default = 1 }
+                @{ Name = 'Package'; Label = '包名'; Type = 'Text'; Width = 320 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $src = 'choco'
+                if ([int]$P['Source'] -eq 2) { $src = 'scoop' }
+                Uninstall-GuiReadyPackage -Source $src -Package ([string]$P['Package']) -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+
+        # ---------------- 角色与功能 ----------------
+        [pscustomobject]@{
+            Id = 'role-status'; Group = '角色与功能'; Name = '角色/功能状态（只读）'
+            Desc = '探测本机能不能管角色与功能（ServerManager / DISM / 管理员 / 系统类型），并在可用时列出已安装的角色与未安装的角色。客户端 Windows 上会说明「不适用」并指向按需功能。'
+            Params = @(); DryRun = $false
+            Script = { param($P) Show-GuiReadyRoleStatus | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'role-install'; Group = '角色与功能'; Name = '安装角色/功能'
+            Desc = '等价于 Install-WindowsFeature -Name <名称>。默认不包含管理工具 —— Server Core 上装了 MMC 管理单元也用不了，管理工具建议装在管理端的 RSAT 上。安装可能需要重启，是否需要会写进日志。'
+            Params = @(
+                @{ Name = 'Name';                 Label = '角色/功能名称（如 Web-Server / DNS / Hyper-V）'; Type = 'Text'; Width = 360 }
+                @{ Name = 'WithManagementTools';  Label = '同时包含管理工具（-IncludeManagementTools）'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Install-GuiReadyRole -Name ([string]$P['Name']) -WithManagementTools:([bool]$P['WithManagementTools']) `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'role-remove'; Group = '角色与功能'; Name = '移除角色/功能'
+            Desc = '等价于 Uninstall-WindowsFeature -Name <名称>（不带 -Restart，是否重启由你决定）。'
+            Params = @(
+                @{ Name = 'Name'; Label = '角色/功能名称'; Type = 'Text'; Width = 360 }
+            )
+            DryRun = $true
+            Script = { param($P) Remove-GuiReadyRole -Name ([string]$P['Name']) -WhatIf:([bool]$P['DryRun']) | Out-Null }
+        }
+
+        # ---------------- 监控与诊断 ----------------
+        [pscustomobject]@{
+            Id = 'monitor-snapshot'; Group = '监控与诊断'; Name = '系统快照（只读）'
+            Desc = '一次采集 CPU / 内存 / 磁盘 / 关键服务 / 占内存最多的进程 / 最近的系统错误与警告事件。全只读，不改系统。'
+            Params = @(); DryRun = $false
+            Script = { param($P) Show-GuiReadyMonitorStatus | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'monitor-service'; Group = '监控与诊断'; Name = '服务控制（启动 / 停止 / 重启）'
+            Desc = '控制单个 Windows 服务，做完会复核一次真实状态（Start-Service 返回不代表服务真起来了）。填的是服务名而不是显示名，例如 WinRM / LanmanServer / TermService。'
+            Params = @(
+                @{ Name = 'Name';   Label = '服务名（如 WinRM）'; Type = 'Text'; Width = 280 }
+                @{ Name = 'Action'; Label = '操作'; Type = 'Combo'; Options = @('启动', '停止', '重启'); Default = 1 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $map = @('Start', 'Stop', 'Restart')
+                $i = 1
+                if ($P['Action']) { $i = [int]$P['Action'] }
+                if ($i -lt 1 -or $i -gt $map.Count) { $i = 1 }
+                Invoke-GuiReadyServiceControl -Name ([string]$P['Name']) -Action $map[$i - 1] -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+
+        # ---------------- 安全与合规 ----------------
+        [pscustomobject]@{
+            Id = 'security-audit'; Group = '安全与合规'; Name = '安全基线审计（只读）'
+            Desc = '只做「能在本机直接验证」的 10 项：防火墙、Defender 实时保护、UAC、SMBv1、来宾账户、管理员组成员、网络共享、RDP 与 NLA、本地密码与锁定策略、最近 24 小时的登录失败。每项都带原始证据。'
+            Params = @(); DryRun = $false
+            Script = { param($P) Show-GuiReadySecurityAudit | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'selfcheck'; Group = '安全与合规'; Name = '本工具完整性自检（只读）'
+            Desc = '检查本工具自身：安装目录是否只有管理员能写、文件是否与发布清单（manifest.sha256）一致、脚本签名是否有效。回答的是"我手上这份工具被人改过没有"。'
+            Params = @(); DryRun = $false
+            Script = { param($P) Show-GuiReadyIntegrityReport | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'security-fix'; Group = '安全与合规'; Name = '安全基线一键修复（只修安全可逆的项）'
+            Desc = '只处理白名单里的项：打开防火墙、打开 Defender 实时保护、关闭 SMBv1、禁用来宾账户、开启 RDP 的 NLA、收紧本地密码与锁定策略。改 UAC、删管理员这类可能把人锁在门外的项只给建议，不代改。'
+            Params = @(
+                @{ Name = 'Fix'; Label = '要修复的项'; Type = 'Combo'; Options = @(
+                        '打开 Windows 防火墙（三个配置文件）',
+                        '打开 Defender 实时保护',
+                        '关闭 SMBv1 协议',
+                        '禁用来宾账户（Guest）',
+                        '开启远程桌面的 NLA',
+                        '收紧本地密码与锁定策略'
+                    ); Default = 1 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $map = @('firewall', 'defender-rt', 'smbv1', 'guest', 'rdp-nla', 'password-policy')
+                $i = 1
+                if ($P['Fix']) { $i = [int]$P['Fix'] }
+                if ($i -lt 1 -or $i -gt $map.Count) { $i = 1 }
+                Invoke-GuiReadySecurityFix -Id $map[$i - 1] -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+
+        # ---------------- AI 辅助 ----------------
+        [pscustomobject]@{
+            Id = 'dsh-status'; Group = 'AI 辅助'; Name = 'DeepSeek Harness 依赖检查（只读）'
+            Desc = '检查 Node.js / pnpm / dsh CLI / dsh-TUI / DEEPSEEK_API_KEY，并**真的问一次 npm** 这两个包存不存在（包名以 npm 的回答为准，不照抄文档）。'
+            Params = @(); DryRun = $false
+            Script = { param($P) Show-GuiReadyDshStatus | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'dsh-install'; Group = 'AI 辅助'; Name = '安装 dsh-TUI 依赖'
+            Desc = 'npm install -g pnpm，再 npm install -g @deepseek-ai/dsh @deepseek-harness-tui/dsh-tui，输出原样进日志；装完复核命令是否可用（刚装完当前进程 PATH 可能没刷新，会走回退路径）。不会碰你的 API Key。'
+            Params = @(
+                @{ Name = 'SkipPnpm'; Label = '跳过 pnpm（已经装过）'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = { param($P) Install-GuiReadyDsh -SkipPnpm:([bool]$P['SkipPnpm']) -WhatIf:([bool]$P['DryRun']) | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'dsh-launch'; Group = 'AI 辅助'; Name = '启动 dsh-TUI'
+            Desc = '在独立的控制台窗口里启动 dsh-TUI（交互式 TUI 需要真控制台）。没设 DEEPSEEK_API_KEY 时会先提醒。'
+            Params = @(
+                @{ Name = 'Resume'; Label = '恢复上次会话（--resume）'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $false
+            Script = { param($P) Start-GuiReadyDsh -Resume:([bool]$P['Resume']) | Out-Null }
+        }
+
         # ---------------- 会话与登录 ----------------
         [pscustomobject]@{
             Id = 'session-status'; Group = '会话与登录'; Name = '查看 RDP / 会话 / UAC / .NET 状态'
@@ -398,4 +576,42 @@ function Get-GuiReadyActions {
             Script = { param($P) [void](Open-GuiReadyWacUi -Url ([string]$P['Url'])) }
         }
     )
+}
+
+function Set-GuiReadyActionRequirements {
+    # 必填参数表。
+    #
+    # 为什么要有它：这些参数一旦为空，动作脚本就会以
+    #   "Cannot bind argument to parameter 'Path' because it is an empty string"
+    # 收场 —— 用户看到的就是一句看不懂的英文报错，还以为是"这个功能坏了"。
+    # 标上 Req 之后，GUI 与 runner 都会在开跑前拦住，并明确说"哪一项没填"。
+    # 表放在这里而不是散在各条动作里，是为了"哪些字段必填"一眼能看完、也只改一处。
+    param([object[]]$Actions)
+
+    $required = @{
+        'pecheck'          = @('Path')
+        'diag'             = @('Path')
+        'catalog-query'    = @('Path')
+        'catalog-add'      = @('Id', 'Name', 'Pattern')
+        'dotnet'           = @('Path')
+        'pkg-install'      = @('Package')
+        'pkg-info'         = @('Package')
+        'pkg-uninstall'    = @('Package')
+        'role-install'     = @('Name')
+        'role-remove'      = @('Name')
+        'monitor-service'  = @('Name')
+        'autologon-enable' = @('User', 'Password')
+        'persistent-run'   = @('Path')
+    }
+
+    foreach ($a in @($Actions)) {
+        if (-not $a) { continue }
+        $id = [string]$a.Id
+        if (-not $required.ContainsKey($id)) { continue }
+        $keys = @($required[$id])
+        foreach ($pd in @($a.Params)) {
+            if ($keys -contains [string]$pd.Name) { $pd['Req'] = $true }
+        }
+    }
+    return $Actions
 }

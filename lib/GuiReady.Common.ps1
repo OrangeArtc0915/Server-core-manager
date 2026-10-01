@@ -63,6 +63,81 @@ function Assert-Administrator {
     return $false
 }
 
+function Request-GuiReadyElevation {
+    # 以管理员身份重启自己。返回值（调用方按这个决定下一步）：
+    #   'Admin'      —— 当前已经是管理员，正常往下跑
+    #   'Relaunched' —— 已拉起提权进程，调用方**必须立刻 return**（别在普通权限下再开一份）
+    #   'Failed'     —— 提不起来（UAC 被取消 / 标准用户没输密码 / 被策略挡住），调用方自己决定怎么办
+    #
+    # 为什么这件事必须在 PowerShell 里做、不能留在 .bat 里（三个都实测/已知的坑）：
+    #   1. cmd 只能看到 Start-Process 的返回码，而 UAC 被取消时这个返回码并不可靠 ——
+    #      用户看到的只有"窗口闪一下、什么都没发生"，连原因都拿不到；
+    #   2. PowerShell 里 Start-Process -Verb RunAs 失败会**抛异常**
+    #      （例如 "The operation was canceled by the user"），能拿到准确原因；
+    #   3. 只有拿到原因，才能退一步：**用普通权限照样把界面打开**（只读功能可用），
+    #      而不是让用户"双击了打不开"。
+    # 每次尝试都写一行到 logs\launcher.log —— 万一还是起不来，这个文件就是证据。
+    param(
+        [string]$EntryScript = '',
+        [string]$What = '本工具'
+    )
+
+    if (Test-IsAdministrator) { return 'Admin' }
+
+    # 调用方一般会显式传 -EntryScript $PSCommandPath；$PSCommandPath 在函数里也能取到
+    # （它是脚本级自动变量），所以这里再兜一次，免得漏传时静默失败。
+    if (-not $EntryScript) {
+        try { $EntryScript = [string]$PSCommandPath } catch { }
+    }
+
+    $root = ''
+    if ($EntryScript) { try { $root = Split-Path -Parent $EntryScript } catch { } }
+    if (-not $root) { $root = [string]$script:GuiReadyRoot }
+    # 日志路径要能容错：入口脚本路径万一不可用（盘符不存在等），也别让"写日志"本身炸掉，
+    # 退回模块自己的 logs 目录。
+    $log = ''
+    try {
+        $dir = Join-Path $root 'logs'
+        $log = Join-Path $dir 'launcher.log'
+    } catch { }
+    if (-not $log) {
+        try {
+            $dir = [string]$script:LogDir
+            if (-not $dir) { $dir = Join-Path $env:TEMP 'scm-logs' }
+            if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            $log = Join-Path $dir 'launcher.log'
+        } catch { $log = '' }
+    }
+
+    Write-Host ''
+    Write-Host ('  {0} 需要管理员权限（补环境、装软件、改服务都要）。' -f $What) -ForegroundColor Yellow
+    Write-Host '  正在请求提权，请在弹出的 UAC 窗口里点「是」…' -ForegroundColor Yellow
+
+    if (-not $EntryScript -or -not (Test-Path -LiteralPath $EntryScript)) {
+        Write-Host ('  [X] 找不到入口脚本，没法提权重启: ' + $EntryScript) -ForegroundColor Red
+        try { Add-Content -LiteralPath $log -Value ('{0} [ERROR] 入口脚本不存在: {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $EntryScript) -Encoding UTF8 } catch { }
+        return 'Failed'
+    }
+
+    try {
+        # 路径带空格时 -ArgumentList 不会自动加引号，所以要自己加上；
+        # 同时用 -WorkingDirectory 兜一层 —— 两种手段都给上，尽量不依赖子进程的初始工作目录。
+        Start-Process -FilePath 'powershell.exe' -Verb RunAs -ErrorAction Stop `
+            -WorkingDirectory $root `
+            -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $EntryScript + '"')) | Out-Null
+        try { Add-Content -LiteralPath $log -Value ('{0} [OK] 已请求提权重启: {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $EntryScript) -Encoding UTF8 } catch { }
+        Write-Host '  提权进程已启动（新窗口），本窗口可以关掉了。' -ForegroundColor Gray
+        return 'Relaunched'
+    } catch {
+        $msg = [string]$_.Exception.Message
+        try { Add-Content -LiteralPath $log -Value ('{0} [WARN] 提权失败: {1}' -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $msg) -Encoding UTF8 } catch { }
+        Write-Host ''
+        Write-Host ('  [!] 提权失败：' + $msg) -ForegroundColor Red
+        Write-Host '      常见原因：UAC 窗口里点了「否」；或者当前是标准用户（弹出来的是「输入管理员密码」）。' -ForegroundColor Yellow
+        return 'Failed'
+    }
+}
+
 function Get-GuiReadyLogFile { return $Global:GuiReadyLogFile }
 
 # ============================ 下载源（国内镜像优先）============================
@@ -314,6 +389,86 @@ function Get-GuiReadyPreamble {
     return $sb.ToString()
 }
 
+function Test-GuiReadyToolDirSafe {
+    # 判断「工具目录是否只有管理员能写」。
+    #
+    # 为什么这件事是安全前提：本工具的一切都以**管理员/SYSTEM**身份执行 ——
+    #   lib\ / gui\ 下的脚本由提权后的界面拉起；
+    #   logs\elevated\worker-*.ps1 会注册成 SYSTEM 计划任务执行；
+    #   bin\scm-welcome.cmd 被 cmd 的 AutoRun 挂在**每个** cmd 窗口上。
+    # 所以只要普通用户能往工具目录里写文件，他就能替换掉上面任何一个，从而拿到管理员/SYSTEM 权限。
+    # 安装到 C:\Program Files 下是安全的；解压到桌面/下载目录再以管理员运行就不安全。
+    param([string]$Path)
+
+    $risky = @()
+    $ok = $true
+    try {
+        $acl = Get-Acl -LiteralPath $Path
+        # 允许写的主体里，除了下面这些，其余都算危险
+        $safeSids = @(
+            'S-1-5-18',      # SYSTEM
+            'S-1-5-32-544',  # Administrators
+            'S-1-3-0',       # CREATOR OWNER
+            'S-1-3-4',       # OWNER RIGHTS
+            'S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464'  # TrustedInstaller
+        )
+        try { $safeSids += [string]([System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value) } catch { }
+
+        foreach ($rule in @($acl.Access)) {
+            if ([string]$rule.AccessControlType -ne 'Allow') { continue }
+            # 用字符串判断权限位：枚举的 ToString() 会给出 Modify / WriteData / FullControl 这类名字，
+            # 比按位与组合枚举更直观，也不容易漏。
+            if (([string]$rule.FileSystemRights) -notmatch 'Write|Modify|FullControl|Delete|ChangePermissions|TakeOwnership') { continue }
+            $sid = ''
+            try { $sid = [string]$rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { $sid = '' }
+            if ($sid -and ($safeSids -contains $sid)) { continue }
+            $ok = $false
+            $risky += ('{0}（{1}）' -f $rule.IdentityReference, $(if ($sid) { $sid } else { '未知 SID' }))
+        }
+    } catch {
+        return [pscustomobject]@{ Safe = $false; Known = $false; Reason = ('读不到目录 ACL: ' + $_.Exception.Message); Risky = @() }
+    }
+
+    $reason = ''
+    if (-not $ok) {
+        $reason = ('以下主体对工具目录有写权限: {0}' -f ($risky -join '、'))
+    }
+    return [pscustomobject]@{ Safe = $ok; Known = $true; Reason = $reason; Risky = $risky }
+}
+
+function Protect-GuiReadyDir {
+    # 去掉继承、只留 SYSTEM 与 Administrators。用固定 SID 写，不受系统语言影响。
+    param([string]$Path)
+    try {
+        if (-not (Test-Path -LiteralPath $Path)) { return $false }
+        & icacls $Path /inheritance:r /grant:r '*S-1-5-18:(OI)(CI)F' '*S-1-5-32-544:(OI)(CI)F' 2>$null | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    } catch { return $false }
+}
+
+function Get-GuiReadyElevatedWorkDir {
+    # 以 SYSTEM/管理员身份执行的 worker 脚本放哪。
+    # 默认放工具目录的 logs\elevated（可携带、好排查），**前提是工具目录只有管理员能写**；
+    # 若工具目录普通用户可写（解压到桌面/下载目录再提权运行这种），就换 %ProgramData%：
+    # 那里默认 ACL 只允许管理员与 SYSTEM 写，普通用户改不了我们的 worker。
+    $toolRoot = Split-Path -Parent $PSScriptRoot
+    $def = Join-Path (Join-Path $toolRoot 'logs') 'elevated'
+    $safe = Test-GuiReadyToolDirSafe -Path $toolRoot
+    if ($safe.Safe -and $safe.Known) {
+        if (-not (Test-Path -LiteralPath $def)) { New-Item -ItemType Directory -Path $def -Force | Out-Null }
+        [void](Protect-GuiReadyDir -Path $def)
+        return $def
+    }
+
+    Write-Log ('工具目录不是管理员独占（{0}）—— 提权 worker 改用 %ProgramData% 存放。' -f $safe.Reason) 'WARN'
+    $alt = Join-Path (Join-Path $env:ProgramData 'ServerCoreManager') 'elevated'
+    try {
+        if (-not (Test-Path -LiteralPath $alt)) { New-Item -ItemType Directory -Path $alt -Force | Out-Null }
+        [void](Protect-GuiReadyDir -Path $alt)
+    } catch { }
+    return $alt
+}
+
 function Invoke-GuiReadyElevatedTask {
     param(
         [Parameter(Mandatory = $true)][string]$Name,
@@ -324,12 +479,16 @@ function Invoke-GuiReadyElevatedTask {
     )
 
     $stamp   = Get-Date -Format 'yyyyMMdd-HHmmss'
-    $workDir = Join-Path $script:LogDir 'elevated'
+    # worker 目录：优先工具目录下的 logs\elevated，工具目录不安全时自动改用 %ProgramData%
+    # （见 Get-GuiReadyElevatedWorkDir 的说明）—— 这个目录里的脚本是**以 SYSTEM 运行的**。
+    $workDir = Get-GuiReadyElevatedWorkDir
     if (-not (Test-Path -LiteralPath $workDir)) { New-Item -ItemType Directory -Path $workDir -Force | Out-Null }
 
-    $worker  = Join-Path $workDir ('worker-{0}-{1}.ps1'    -f $Name, $stamp)
-    $logFile = Join-Path $workDir ('worker-{0}-{1}.log'    -f $Name, $stamp)
-    $resFile = Join-Path $workDir ('worker-{0}-{1}.result' -f $Name, $stamp)
+    # 文件名不可预测：抢在写入之前抢先占位同名文件、或猜名字替换内容，都是提权路径上的典型手法
+    $rand    = [System.IO.Path]::GetRandomFileName()
+    $worker  = Join-Path $workDir ('worker-{0}-{1}-{2}.ps1'    -f $Name, $stamp, $rand)
+    $logFile = Join-Path $workDir ('worker-{0}-{1}-{2}.log'    -f $Name, $stamp, $rand)
+    $resFile = Join-Path $workDir ('worker-{0}-{1}-{2}.result' -f $Name, $stamp, $rand)
 
     $workerContent = @"
 `$ErrorActionPreference = 'Continue'
@@ -344,6 +503,27 @@ $Body
 }
 "@
     [System.IO.File]::WriteAllText($worker, $workerContent, (New-Object System.Text.UTF8Encoding -ArgumentList $true))
+
+    # 写完后复核：文件真的存在、非空，且只有管理员/SYSTEM 能改 —— 否则宁可不注册计划任务，
+    # 也不要把一个可能被人替换过的脚本交给 SYSTEM 执行。
+    try {
+        $fi = Get-Item -LiteralPath $worker -ErrorAction Stop
+        if ($fi.Length -lt 10) { Write-Log '提权 worker 脚本内容异常（过短），已中止。' 'ERROR'; return [pscustomobject]@{ Result = 'FAIL worker 脚本异常'; Log = ''; LogFile = ''; TimedOut = $false; WorkerScript = $worker } }
+        $aclChk = Get-Acl -LiteralPath $worker
+        foreach ($rule in @($aclChk.Access)) {
+            if ([string]$rule.AccessControlType -ne 'Allow') { continue }
+            if (([string]$rule.FileSystemRights) -notmatch 'Write|Modify|FullControl') { continue }
+            $sid = ''
+            try { $sid = [string]$rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value } catch { }
+            if ($sid -and $sid -notin @('S-1-5-18', 'S-1-5-32-544', 'S-1-3-0', 'S-1-3-4')) {
+                Write-Log ('提权 worker 脚本可被 {0} 修改，已中止（这会变成普通用户提权到 SYSTEM 的入口）。' -f $rule.IdentityReference) 'ERROR'
+                return [pscustomobject]@{ Result = 'FAIL worker 脚本权限不安全'; Log = ''; LogFile = ''; TimedOut = $false; WorkerScript = $worker }
+            }
+        }
+    } catch {
+        Write-Log ('提权 worker 复核失败: ' + $_.Exception.Message) 'ERROR'
+        return [pscustomobject]@{ Result = 'FAIL worker 复核失败'; Log = ''; LogFile = ''; TimedOut = $false; WorkerScript = $worker }
+    }
 
     $taskName = 'GuiReadyElevated-' + $Name
     if ($AsUser) { $taskName = 'GuiReadyInteractive-' + $Name }
@@ -401,6 +581,12 @@ $Body
     try { $log = [string](Get-Content -LiteralPath $logFile -Raw -ErrorAction SilentlyContinue) } catch { }
 
     try { Unregister-ScheduledTask -TaskName $taskName -Confirm:$false -ErrorAction SilentlyContinue } catch { }
+
+    # 内容已经读进内存（Log / Result），磁盘上的三件套（worker 脚本、日志、结果）全部销毁：
+    # worker 脚本可能含敏感值（自动登录密码就在里面），日志/结果也没必要留在服务器上。
+    foreach ($f in @($worker, $logFile, $resFile)) {
+        try { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue } catch { }
+    }
 
     return [pscustomobject]@{
         Result       = $result

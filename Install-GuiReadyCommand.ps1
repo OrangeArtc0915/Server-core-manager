@@ -23,6 +23,18 @@ foreach ($f in @('GuiReady.Common.ps1', 'GuiReady.Detect.ps1', 'GuiReady.PeInspe
     if (Test-Path -LiteralPath $p) { . $p }
 }
 
+# 提权：这个功能要往 C:\Windows\System32 放 scm.cmd，没有管理员权限做不了，
+# 所以提不起来时直接说清楚并退出（不像界面那样还能降级用）。
+switch (Request-GuiReadyElevation -EntryScript $PSCommandPath -What '一行命令安装') {
+    'Relaunched' { return }
+    'Failed' {
+        Write-Host '  一行命令安装必须写 C:\Windows\System32，请在管理员权限下进行：' -ForegroundColor Red
+        Write-Host '  关掉本窗口，右键「安装一行命令.bat」→ 以管理员身份运行。' -ForegroundColor Yellow
+        [void](Read-Host '按回车关闭')
+        return
+    }
+}
+
 if ($Interactive) {
     Write-Host ''
     Write-Host '  ================================================================' -ForegroundColor Cyan
