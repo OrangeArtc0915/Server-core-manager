@@ -74,10 +74,14 @@ export const siteConfig: SiteConfig = {
 			desktop: [
 				"/assets/banner/banner-1.webp",
 				"/assets/banner/banner-2.webp",
+				"/assets/banner/banner-3.webp",
+				"/assets/banner/banner-4.webp",
 			], // 桌面横幅图片
 			mobile: [
 				"/assets/banner/banner-1.webp",
 				"/assets/banner/banner-2.webp",
+				"/assets/banner/banner-3.webp",
+				"/assets/banner/banner-4.webp",
 			], // 移动横幅图片
 		}, // 使用本地横幅图片
 
@@ -86,7 +90,7 @@ export const siteConfig: SiteConfig = {
 		carousel: {
 			enable: true, // 为 true 时：为多张图片启用轮播。为 false 时：从数组中随机显示一张图片
 
-			interval: 6, // 轮播间隔时间（秒）。模板默认 1.5 秒，两张图来回切太晃眼，改成 6 秒
+			interval: 3, // 轮播间隔时间（秒）。模板默认 1.5 秒；这里是 4 张背景图，按 3 秒轮换
 		},
 
 		waves: {
