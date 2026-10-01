@@ -284,14 +284,14 @@ export const commentConfig: CommentConfig = {
 };
 
 export const announcementConfig: AnnouncementConfig = {
-	title: "v1.2.0 已发布", // 公告标题
-	content: "国内推荐走 Gitee 一行安装：irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex", // 公告内容
+	title: "v2.0 已发布", // 公告标题
+	content: "界面整体重做，并修好「仪表盘 / 安全 / AI 点进去就报错」。国内推荐走 Gitee 一行安装：irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex", // 公告内容
 	type: "info",
 	closable: true, // 允许用户关闭公告
 	link: {
 		enable: true, // 启用链接
-		text: "看安装教程", // 链接文本
-		url: "/posts/install/", // 链接 URL
+		text: "看更新了什么", // 链接文本
+		url: "/posts/v2-0-release/", // 链接 URL
 		external: false, // 内部链接
 	},
 };

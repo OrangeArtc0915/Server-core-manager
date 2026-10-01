@@ -25,13 +25,13 @@ Server-core-manager\                （main 分支 = 程序本体）
 ## 打包
 
 ```powershell
-.\pack.ps1 -Version v1.2.0
+.\pack.ps1 -Version v2.0
 ```
 
 产出两个文件到 `dist\`：
 
 - `ServerCoreManager.zip` —— **固定名字**，`install.ps1` 按这个名字取，每次发版必须上传
-- `ServerCoreManager-v1.2.0.zip` —— 内容相同，只是带版本号方便留档
+- `ServerCoreManager-v2.0.zip` —— 内容相同，只是带版本号方便留档
 
 打包会：
 - 排除 `logs` / `reports` / `backup` / `state` / `payload` / `dist` / `.git` 与所有 `.exe` / `.msi` / `.zip`

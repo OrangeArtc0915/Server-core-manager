@@ -25,6 +25,37 @@ export interface TimelineItem {
 
 export const timelineData: TimelineItem[] = [
 	{
+		id: "v2-0",
+		title: "v2.0 · 界面重做与三页修复",
+		description:
+			"界面按设计稿整体重做：无边框外壳、自绘标题栏与侧栏导航、矢量图标、语义化配色，仍然只用 GDI+ / WinForms，不依赖任何第三方 UI 库。同时修掉「仪表盘 / 安全 / AI 点进去就报错」的根因 —— 查询宿主的定时器回调用了 GetNewClosure()，闭包会新建模块作用域，脚本里定义的函数在里面看不见，而且只在「被别的脚本 & 调用」这条路径上发作。",
+		type: "achievement",
+		startDate: "2026-10-01",
+		skills: ["PowerShell", "WinForms", "GDI+", "conhost"],
+		achievements: [
+			"界面重做：只用 GDI+ / WinForms，Server Core 上可直接跑",
+			"修掉三个页面打不开，并给自检补上 & 调用路径",
+			"三个 .bat 改纯 ASCII + CRLF，修掉一屏「不是内部或外部命令」",
+			"窗口尺寸跟随屏幕，修掉 1024×768 下右侧与底部被切",
+			"终端入口提示改成「有什么提示什么」",
+		],
+		links: [
+			{
+				name: "发布说明",
+				url: "https://github.com/OrangeArtc0915/Server-core-manager/blob/main/RELEASE_NOTES.md",
+				type: "project",
+			},
+			{
+				name: "发布包（Gitee）",
+				url: "https://gitee.com/orangearc655743/server-core-manager/releases",
+				type: "website",
+			},
+		],
+		icon: "material-symbols:palette",
+		color: "#8B5CF6",
+		featured: true,
+	},
+	{
 		id: "v1-2-0",
 		title: "v1.2.0 · 国内安装线路与内容校验",
 		description:
