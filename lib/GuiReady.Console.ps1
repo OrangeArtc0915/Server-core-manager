@@ -287,15 +287,21 @@ function Write-GuiReadyConsoleProfileHook {
     $block = @'
 
 # --- __TAG__ (managed block) ---
-# 两个入口提示：只在真终端里显示（输出被重定向时保持安静，免得污染脚本抓取的输出）
-# 只提示**真的存在**的命令 —— 否则等于骗用户去敲一个不存在的命令（实测被用户抓到：
-# "scm" 只有跑过「一行命令安装」才有，没装的时候却照样提示）。
+# 入口提示：只在真终端里显示（输出被重定向时保持安静，免得污染脚本抓取的输出）
+# 规则是「有什么提示什么」，两头都踩过坑：
+#   1) 无脑提示 scm —— 但 scm 只有跑过「一行命令安装」才有，没装的时候提示等于骗用户
+#      去敲一个不存在的命令（实测被用户抓到）；
+#   2) 反过来「只提示存在的命令」也不行：三个入口一个都没装时一行都不显示，用户会以为
+#      提示功能坏了（实测被抓到）。所以三个入口各自独立判断，有几个提示几个。
 function Show-ScmWelcome {
     if (Get-Command Sconfig -ErrorAction SilentlyContinue) {
         Write-Host '  输入 "Sconfig" 返回服务器菜单' -ForegroundColor Yellow
     }
     if (Get-Command scm -ErrorAction SilentlyContinue) {
         Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow
+    }
+    if (Get-Command scm-term -ErrorAction SilentlyContinue) {
+        Write-Host '  输入 "scm-term" 打开美化终端' -ForegroundColor Yellow
     }
 }
 # 清屏后把提示重新打到最上面（cls / clear 都是 Clear-Host 的别名）
@@ -442,11 +448,13 @@ rem (must stay freestanding - no pipe, no external command, or AutoRun recursion
 doskey cls=cls `$T "%~f0" --force >nul 2>&1
 :show
 echo.
-echo   __ESC__[93m输入 "Sconfig" 返回服务器菜单__ESC__[0m
-rem 只在 "scm" 真的装过时才提示：默认装在 System32（一行命令安装的产物）。
-rem 用 if exist 这个 cmd 内建判断 —— 不能用 where/find 之类的**外部命令或管道**，
+rem 三个入口各自独立判断，有几个提示几个 —— 与 PowerShell 侧的 profile 用的是同一套规则。
+rem 一律用 if exist 这个 cmd 内建判断 —— 不能用 where/find 之类的**外部命令或管道**，
 rem 否则 AutoRun 会拉起子进程（历史上踩过 cmd 递归把机器拖死）。
-if exist "%SystemRoot%\System32\scm.cmd" echo   __ESC__[93m输入 "scm" 打开 GUI 工具__ESC__[0m
+if exist "%SystemRoot%\System32\sconfig.cmd"  echo   __ESC__[93m输入 "Sconfig" 返回服务器菜单__ESC__[0m
+rem "scm" 与 "scm-term" 默认都装在 System32（分别由「一行命令安装」与「一键美化终端」写入）。
+if exist "%SystemRoot%\System32\scm.cmd"      echo   __ESC__[93m输入 "scm" 打开 GUI 工具__ESC__[0m
+if exist "%SystemRoot%\System32\scm-term.cmd" echo   __ESC__[93m输入 "scm-term" 打开美化终端__ESC__[0m
 echo.
 "@
         # ANSI 亮黄（93）需要 VT 支持 —— 「一键美化终端」会设置 HKCU\Console\VirtualTerminalLevel=1

@@ -1,4 +1,4 @@
-# Server Core Manager v1.3.0
+# Server Core Manager v2.0
 
 **让带图形界面的程序，在 Windows Server Core 上真正跑起来。** 本版重点是界面重做，以及把几个「点进去就报错」的页面修好。
 
@@ -13,7 +13,7 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。�
 
 ---
 
-## 本次更新（v1.3.0）
+## 本次更新（v2.0）
 
 **界面重做，并修好「点进去会报错」的三个页面**
 
@@ -36,6 +36,10 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。�
 - 窗口尺寸跟随屏幕：Server Core 常见分辨率是 1024×768，以前窗口比屏幕还大、右侧和底部被切，
   连缩都缩不小
 - 仪表盘指标卡、美化页按钮在窄屏下会被裁掉（卡片挤成两行但容器只有一行高、按钮行不换行），已修
+- 终端入口提示改成**「有什么提示什么」**：上一版改成只提示真的装过的命令，结果三个入口一个都没装时
+  一行都不显示，看起来就像提示坏了（实测被用户当成 bug 报回来）。现在 `sconfig` / `scm` / `scm-term`
+  各自独立判断，有几个提示几个；没装 `scm` 但装了美化终端的话，会提示 `scm-term`。
+  cmd 与 PowerShell 两侧用同一套规则
 
 ## 上一版（v1.2.0）带来了什么
 
@@ -161,7 +165,7 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。�
 | 文件 | 用途 |
 |---|---|
 | **`ServerCoreManager.zip`** | 压缩包安装用。**就下这个**（固定名字，`install.ps1` 也是按这个名字取） |
-| `ServerCoreManager-v1.3.0.zip` | 内容相同，只是文件名带版本号，方便留档 |
+| `ServerCoreManager-v2.0.zip` | 内容相同，只是文件名带版本号，方便留档 |
 | `Source code (zip/tar.gz)` | GitHub / Gitee 自动生成的源码包，普通用户不需要 |
 
 两个 zip 内容完全一致，52 个文件，解压后直接可用。
