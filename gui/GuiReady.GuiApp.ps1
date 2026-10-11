@@ -202,6 +202,11 @@ $Pal = @{
     Accent3   = Convert-HexToColor '#5D7BDB'   # Hover  提亮（悬停）
     Accent4   = Convert-HexToColor '#2C3648'   # Nav.ItemActive 选中项底
     Accent5   = Convert-HexToColor '#242B37'   # Nav.ItemHover  悬停底
+    # 浅底两档：HMOL 的 Accent.Faint / Accent.Soft（深色推导值原样搬）
+    # 用在 PageHeader 的图标块、提示条底色这类"淡色面"上
+    AccentFaint = Convert-HexToColor '#364C89' # Faint = Mix(#3B55A0, #20262F, 0.20)
+    AccentSoft  = Convert-HexToColor '#304170' # Soft  = Mix(#3B55A0, #20262F, 0.42)
+    AccentBase  = Convert-HexToColor '#5E74B1' # Base  = Lighten(#3B55A0, 0.18)
 
     # ---- 语义状态（HMOL 深色：Warn #E0A94A / Danger #E8735F / Success #6FAF63）----
     Ok        = Convert-HexToColor '#6FAF63'   # Status.Success
@@ -438,32 +443,26 @@ function New-IconButton {
 }
 
 function New-HintBar {
-    # 说明条：语义浅色底 + 左侧色条（对应 PCL 的 MyHint）。
+    # 说明条，照 HMOL 的样式：整条淡色底（Accent.Faint）+ Radius.Item=10，
+    # 左侧没有色条（HMOL 的提示条就是一整条淡底），文字 11.5 DIP ≈ 8.6pt。
     # 注意：返回值上的 .Tag 必须是内层 Label —— 自适应布局靠它同步文字宽度
     #（见 Update-PageLayout 里 `$hintEnv.Tag.Width = ...`），别再往 .Tag 上挂别的东西。
-    param([string]$Text, [string]$Kind = 'Blue', [int]$Width = 600, [int]$Height = 34)
-    $bg = $Pal.Accent4
-    $bar = $Pal.Accent2
+    param([string]$Text, [string]$Kind = 'Blue', [int]$Width = 600, [int]$Height = 38)
+    $bg = $Pal.AccentFaint
     switch ($Kind) {
-        'Green'  { $bg = $Pal.OkBg;   $bar = $Pal.Ok }
-        'Yellow' { $bg = $Pal.WarnBg; $bar = $Pal.Warn }
-        'Red'    { $bg = $Pal.ErrBg;  $bar = $Pal.Err }
+        'Green'  { $bg = $Pal.OkBg }
+        'Yellow' { $bg = $Pal.WarnBg }
+        'Red'    { $bg = $Pal.ErrBg }
     }
     $host_ = New-Object System.Windows.Forms.Panel
     $host_.Size      = New-Object System.Drawing.Size($Width, $Height)
     $host_.BackColor = $bg
-    $edge = New-Object System.Windows.Forms.Panel
-    $edge.Size      = New-Object System.Drawing.Size(3, [Math]::Max(8, $Height - 12))
-    $edge.Location  = New-Object System.Drawing.Point(1, 6)
-    $edge.BackColor = $bar
-    Set-Rounded -Control $edge -Radius 2
-    $host_.Controls.Add($edge)
-    $lb = New-Label -Text $Text -Size 9 -Color SubText
-    $lb.Location = New-Object System.Drawing.Point(14, [int](($Height - 18) / 2))
+    $lb = New-Label -Text $Text -Size 8.6 -Color SubText
+    $lb.Location = New-Object System.Drawing.Point(12, [int](($Height - 17) / 2))
     $lb.AutoSize = $false
-    $lb.Size = New-Object System.Drawing.Size(($Width - 24), 18)
+    $lb.Size = New-Object System.Drawing.Size(($Width - 24), 17)
     $host_.Controls.Add($lb)
-    Set-Rounded -Control $host_ -Radius 8
+    Set-Rounded -Control $host_ -Radius 10
     $host_.Tag = $lb      # 便于自适应布局时同步改内部文字宽度
     return $host_
 }
@@ -1143,13 +1142,11 @@ $pageEnv.AutoScroll = $true     # 窗口很小的时候宁可出滚动条，也�
 $script:Pages['env'] = $pageEnv
 $pnlContent.Controls.Add($pageEnv)
 
-$lblEnvHead          = New-Label -Text '环境补全' -Size 14 -Style Bold
-$lblEnvHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageEnv.Controls.Add($lblEnvHead)
-
-$lblEnvDesc          = New-Label -Text '先看这台机器缺什么，再一键补齐。补齐后 Server Core 就能运行带界面的程序。' -Size 9.5 -Color SubText
-$lblEnvDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageEnv.Controls.Add($lblEnvDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrEnv = New-PageHeader -Title '环境补全' -Subtitle '先看这台机器缺什么，再一键补齐。补齐后 Server Core 就能运行带界面的程序。' -Icon 'env' -Width 900
+$pageEnv.Controls.Add($hdrEnv)
+$lblEnvHead = $hdrEnv.Tag.Title
+$lblEnvDesc = $hdrEnv.Tag.Sub
 
 $pnlCards           = New-Object System.Windows.Forms.FlowLayoutPanel
 $pnlCards.Location  = New-Object System.Drawing.Point(0, 56)
@@ -1203,13 +1200,11 @@ $pageApp.BackColor = $Pal.Bg
 $script:Pages['app'] = $pageApp
 $pnlContent.Controls.Add($pageApp)
 
-$lblAppHead          = New-Label -Text '软件管理' -Size 14 -Style Bold
-$lblAppHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageApp.Controls.Add($lblAppHead)
-
-$lblAppDesc          = New-Label -Text '把你需要的程序加进来，双击即可启动。加程序时会自动带入实测推荐参数（例如 Electron 类程序会带上禁用 GPU 的参数）。' -Size 9.5 -Color SubText
-$lblAppDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageApp.Controls.Add($lblAppDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrApp = New-PageHeader -Title '软件管理' -Subtitle '把你需要的程序加进来，双击即可启动。加程序时会自动带入实测推荐参数（例如 Electron 类程序会带上禁用 GPU 的参数）。' -Icon 'app' -Width 900
+$pageApp.Controls.Add($hdrApp)
+$lblAppHead = $hdrApp.Tag.Title
+$lblAppDesc = $hdrApp.Tag.Sub
 
 $lstApps           = New-Object System.Windows.Forms.ListView
 $lstApps.Location  = New-Object System.Drawing.Point(0, 56)
@@ -1510,13 +1505,11 @@ $pageTool.Padding   = New-Object System.Windows.Forms.Padding(0, 56, 0, 6)
 $script:Pages['tool'] = $pageTool
 $pnlContent.Controls.Add($pageTool)
 
-$lblToolHead          = New-Label -Text '系统工具' -Size 14 -Style Bold
-$lblToolHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageTool.Controls.Add($lblToolHead)
-
-$lblToolDesc          = New-Label -Text 'Server Core 默认没有这些图形工具，装了官方 App Compatibility FOD 才会出现；标了「（缺失）」的表示当前机器上还没有 —— 点它可以直接开始补。' -Size 9.5 -Color SubText
-$lblToolDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageTool.Controls.Add($lblToolDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrTool = New-PageHeader -Title '系统工具' -Subtitle 'Server Core 默认没有这些图形工具，装了官方 App Compatibility FOD 才会出现；标了「（缺失）」的表示当前机器上还没有 —— 点它可以直接开始补。' -Icon 'tool' -Width 900
+$pageTool.Controls.Add($hdrTool)
+$lblToolHead = $hdrTool.Tag.Title
+$lblToolDesc = $hdrTool.Tag.Sub
 
 $script:ToolButtons = New-Object System.Collections.ArrayList
 $script:ToolRows    = New-Object System.Collections.ArrayList
@@ -1601,13 +1594,11 @@ $pageMore.BackColor = $Pal.Bg
 $script:Pages['more'] = $pageMore
 $pnlContent.Controls.Add($pageMore)
 
-$lblMoreHead          = New-Label -Text '更多功能' -Size 14 -Style Bold
-$lblMoreHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageMore.Controls.Add($lblMoreHead)
-
-$lblMoreDesc          = New-Label -Text '完整能力都在这里（探测/诊断/补给/会话/档案）。日常只用「环境」和「软件」两页就够。' -Size 9.5 -Color SubText
-$lblMoreDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageMore.Controls.Add($lblMoreDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrMore = New-PageHeader -Title '更多功能' -Subtitle '完整能力都在这里（探测/诊断/补给/会话/档案）。日常只用「环境」和「软件」两页就够。' -Icon 'more' -Width 900
+$pageMore.Controls.Add($hdrMore)
+$lblMoreHead = $hdrMore.Tag.Title
+$lblMoreDesc = $hdrMore.Tag.Sub
 
 $tree           = New-Object System.Windows.Forms.TreeView
 $tree.Location  = New-Object System.Drawing.Point(0, 56)
@@ -1672,13 +1663,11 @@ $pageStore.BackColor    = $Pal.Bg
 $script:Pages['store']  = $pageStore
 $pnlContent.Controls.Add($pageStore)
 
-$lblStoreHead          = New-Label -Text '应用商店' -Size 14 -Style Bold
-$lblStoreHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageStore.Controls.Add($lblStoreHead)
-
-$lblStoreDesc          = New-Label -Text '从包管理器装工具。主线是 Chocolatey（搜索 / 安装 / 卸载）；Scoop 可安装与卸载（搜索未接入）；npm / pip 先只做检测。' -Size 9.5 -Color SubText -Width 880
-$lblStoreDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageStore.Controls.Add($lblStoreDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrStore = New-PageHeader -Title '应用商店' -Subtitle '从包管理器装工具。主线是 Chocolatey（搜索 / 安装 / 卸载）；Scoop 可安装与卸载（搜索未接入）；npm / pip 先只做检测。' -Icon 'store' -Width 900
+$pageStore.Controls.Add($hdrStore)
+$lblStoreHead = $hdrStore.Tag.Title
+$lblStoreDesc = $hdrStore.Tag.Sub
 
 # ---- 源状态行（胶囊由 Update-StoreSourceRow 动态生成）----
 $pnlStoreSrc           = New-Object System.Windows.Forms.Panel
@@ -2318,13 +2307,11 @@ $pageRole.BackColor    = $Pal.Bg
 $script:Pages['role']  = $pageRole
 $pnlContent.Controls.Add($pageRole)
 
-$lblRoleHead          = New-Label -Text '角色与功能' -Size 14 -Style Bold
-$lblRoleHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageRole.Controls.Add($lblRoleHead)
-
-$lblRoleDesc          = New-Label -Text '图形化装 Windows Server 角色与功能（等价于 Install-WindowsFeature）。安装需要管理员；装完是否需要重启会写进下方日志。' -Size 9.5 -Color SubText -Width 880
-$lblRoleDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageRole.Controls.Add($lblRoleDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrRole = New-PageHeader -Title '角色与功能' -Subtitle '图形化装 Windows Server 角色与功能（等价于 Install-WindowsFeature）。安装需要管理员；装完是否需要重启会写进下方日志。' -Icon 'role' -Width 900
+$pageRole.Controls.Add($hdrRole)
+$lblRoleHead = $hdrRole.Tag.Title
+$lblRoleDesc = $hdrRole.Tag.Sub
 
 $pnlRoleStatus           = New-Object System.Windows.Forms.Panel
 $pnlRoleStatus.Location  = New-Object System.Drawing.Point(0, 56)
@@ -2704,13 +2691,11 @@ $pageMon.BackColor      = $Pal.Bg
 $script:Pages['monitor'] = $pageMon
 $pnlContent.Controls.Add($pageMon)
 
-$lblMonHead          = New-Label -Text '仪表盘' -Size 14 -Style Bold
-$lblMonHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageMon.Controls.Add($lblMonHead)
-
-$lblMonDesc          = New-Label -Text '本机资源、关键服务、最近的系统错误、占内存最多的进程。全只读；服务按钮走下面的动作机制（子进程执行，日志在下方）。' -Size 9.5 -Color SubText -Width 880
-$lblMonDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageMon.Controls.Add($lblMonDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrMon = New-PageHeader -Title '仪表盘' -Subtitle '本机资源、关键服务、最近的系统错误、占内存最多的进程。全只读；服务按钮走下面的动作机制（子进程执行，日志在下方）。' -Icon 'monitor' -Width 900
+$pageMon.Controls.Add($hdrMon)
+$lblMonHead = $hdrMon.Tag.Title
+$lblMonDesc = $hdrMon.Tag.Sub
 
 $pnlMonCards             = New-Object System.Windows.Forms.FlowLayoutPanel
 $pnlMonCards.Location    = New-Object System.Drawing.Point(0, 56)
@@ -2904,13 +2889,11 @@ $pageSec.BackColor      = $Pal.Bg
 $script:Pages['security'] = $pageSec
 $pnlContent.Controls.Add($pageSec)
 
-$lblSecHead          = New-Label -Text '安全与合规' -Size 14 -Style Bold
-$lblSecHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageSec.Controls.Add($lblSecHead)
-
-$lblSecDesc          = New-Label -Text '本地可验证的安全基线（10 项，每项都带原始证据）。修复只覆盖安全且可逆的项；改 UAC、删管理员这类可能把人锁在门外的操作只给建议。' -Size 9.5 -Color SubText -Width 880
-$lblSecDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageSec.Controls.Add($lblSecDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrSec = New-PageHeader -Title '安全与合规' -Subtitle '本地可验证的安全基线（10 项，每项都带原始证据）。修复只覆盖安全且可逆的项；改 UAC、删管理员这类可能把人锁在门外的操作只给建议。' -Icon 'security' -Width 900
+$pageSec.Controls.Add($hdrSec)
+$lblSecHead = $hdrSec.Tag.Title
+$lblSecDesc = $hdrSec.Tag.Sub
 
 $pnlSecBar           = New-Object System.Windows.Forms.Panel
 $pnlSecBar.Location  = New-Object System.Drawing.Point(0, 56)
@@ -3067,13 +3050,11 @@ $pageBeauty.BackColor    = $Pal.Bg
 $script:Pages['beauty']  = $pageBeauty
 $pnlContent.Controls.Add($pageBeauty)
 
-$lblBeautyHead          = New-Label -Text '美化与个性化' -Size 14 -Style Bold
-$lblBeautyHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageBeauty.Controls.Add($lblBeautyHead)
-
-$lblBeautyDesc          = New-Label -Text '把 Server Core 的 conhost 打扮好看：Nerd Font + Oh My Posh 提示符 + Fastfetch 首屏信息。素材随发布包内置，安装过程不联网。' -Size 9.5 -Color SubText -Width 880
-$lblBeautyDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageBeauty.Controls.Add($lblBeautyDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrBeauty = New-PageHeader -Title '美化与个性化' -Subtitle '把 Server Core 的 conhost 打扮好看：Nerd Font + Oh My Posh 提示符 + Fastfetch 首屏信息。素材随发布包内置，安装过程不联网。' -Icon 'beauty' -Width 900
+$pageBeauty.Controls.Add($hdrBeauty)
+$lblBeautyHead = $hdrBeauty.Tag.Title
+$lblBeautyDesc = $hdrBeauty.Tag.Sub
 
 $pnlBeautyStatus           = New-Object System.Windows.Forms.Panel
 $pnlBeautyStatus.Location  = New-Object System.Drawing.Point(0, 56)
@@ -3238,13 +3219,11 @@ $pageDsh.BackColor      = $Pal.Bg
 $script:Pages['dsh']    = $pageDsh
 $pnlContent.Controls.Add($pageDsh)
 
-$lblDshHead          = New-Label -Text 'AI 辅助（DeepSeek Harness）' -Size 14 -Style Bold
-$lblDshHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageDsh.Controls.Add($lblDshHead)
-
-$lblDshDesc          = New-Label -Text '指定的集成是 ccch1mneyyy/dsh-TUI（npm 包 @deepseek-harness-tui/dsh-tui），依赖 Node.js ≥ 22.19 / pnpm ≥ 10 / 官方 CLI @deepseek-ai/dsh。' -Size 9.5 -Color SubText -Width 880
-$lblDshDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageDsh.Controls.Add($lblDshDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrDsh = New-PageHeader -Title 'AI 辅助（DeepSeek Harness）' -Subtitle '指定的集成是 ccch1mneyyy/dsh-TUI（npm 包 @deepseek-harness-tui/dsh-tui），依赖 Node.js ≥ 22.19 / pnpm ≥ 10 / 官方 CLI @deepseek-ai/dsh。' -Icon 'dsh' -Width 900
+$pageDsh.Controls.Add($hdrDsh)
+$lblDshHead = $hdrDsh.Tag.Title
+$lblDshDesc = $hdrDsh.Tag.Sub
 
 $pnlDshStatus           = New-Object System.Windows.Forms.Panel
 $pnlDshStatus.Location  = New-Object System.Drawing.Point(0, 56)
@@ -3513,6 +3492,20 @@ function Update-PageLayout {
         Update-RayPageLayout -Page $pageSec -Rows $pnlSecRows -Wide @($lblSecDesc, $pnlSecBar, $pnlSecFilter, $hintSec)
         Update-RayPageLayout -Page $pageBeauty -Rows $pnlBeautyRows -Wide @($lblBeautyDesc, $pnlBeautyStatus, $pnlBeautyTheme, $pnlBeautyActions, $hintBeauty)
         Update-RayPageLayout -Page $pageDsh -Rows $pnlDshRows -Wide @($lblDshDesc, $pnlDshStatus, $hintDsh, $pnlDshActions)
+
+        # ---- PageHeader 收尾同步（必须放在最后）----
+        # 上面各页的 -Wide 列表会按"页面宽度"去撑副标题，而副标题现在是页头的子控件，
+        # 撑过头就会画出页头右边界（实测 962 > 900）。这里按页头的实际宽度重算一次：
+        # 页头横贯内容区，副标题在它内部收住（超出部分省略号）。
+        foreach ($h in @($hdrEnv, $hdrApp, $hdrTool, $hdrMore, $hdrStore, $hdrRole,
+                         $hdrMon, $hdrSec, $hdrBeauty, $hdrDsh, $hdrAbout)) {
+            if (-not $h -or -not $h.Parent) { continue }
+            $hw = [Math]::Max(240, $h.Parent.ClientSize.Width)
+            $h.Width = $hw
+            if ($h.Tag -and $h.Tag.Sub) {
+                $h.Tag.Sub.Width = [Math]::Max(80, ($hw - [int]$h.Tag.GapX - 10))
+            }
+        }
     } catch { }
 }
 
@@ -4481,13 +4474,11 @@ $pageAbout.BackColor   = $Pal.Bg
 $script:Pages['about'] = $pageAbout
 $pnlContent.Controls.Add($pageAbout)
 
-$lblAboutHead          = New-Label -Text '关于' -Size 14 -Style Bold
-$lblAboutHead.Location = New-Object System.Drawing.Point(2, 2)
-$pageAbout.Controls.Add($lblAboutHead)
-
-$lblAboutDesc          = New-Label -Text 'Server Core GUI 就绪工具 —— 让带界面的程序在 Windows Server Core 上真正跑起来。' -Size 9.5 -Color SubText
-$lblAboutDesc.Location = New-Object System.Drawing.Point(3, 28)
-$pageAbout.Controls.Add($lblAboutDesc)
+# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+$hdrAbout = New-PageHeader -Title '关于' -Subtitle 'Server Core GUI 就绪工具 —— 让带界面的程序在 Windows Server Core 上真正跑起来。' -Icon 'about' -Width 900
+$pageAbout.Controls.Add($hdrAbout)
+$lblAboutHead = $hdrAbout.Tag.Title
+$lblAboutDesc = $hdrAbout.Tag.Sub
 
 $cardAbout              = New-Card -Width 900 -Height 250 -Radius 12
 $cardAbout.Location     = New-Object System.Drawing.Point(0, 56)
@@ -4911,6 +4902,9 @@ if ($UiAudit) {
                 $skipIt = $false
                 foreach ($s in $skipTexts) { if ($txt -like ('*' + $s + '*')) { $skipIt = $true; break } }
                 if ($skipIt) { $skipped++; continue }
+                # 点之前先打印：审计万一卡在某个按钮弹出的模态框上，
+                # 日志的最后一行就是"最后点的是哪个按钮"（实测卡过一次，当时完全没有线索）。
+                Write-Host ('  [{0}] 点击 "{1}"' -f $k, $txt)
                 try {
                     $c.PerformClick()
                     [System.Windows.Forms.Application]::DoEvents()

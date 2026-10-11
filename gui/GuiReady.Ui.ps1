@@ -74,6 +74,75 @@ function Invoke-UiPaintFrame {
     }
 }
 
+# ============================ 页头（PageHeader）============================
+# HMOL 的 Controls\PageHeader.cs：
+#   38x38 图标块（Radius.Item = 10、底 Accent.Faint、图标 19 用 Accent.Base）
+#   + 标题 18 DIP Bold（≈13.5pt）+ 副标题 12 DIP（≈9pt，上边距 4）
+# 整块高 40：页面内容统一从 y=56 开始，中间正好 16px 间距（HMOL 的行间距）。
+# 右侧那片空白是留给本页操作按钮的（HMOL 模板的第三列），调用方直接
+# $hdr.Controls.Add($btn) 放进去即可。
+function New-PageHeader {
+    param(
+        [Parameter(Mandatory = $true)][string]$Title,
+        [string]$Subtitle = '',
+        [string]$Icon = '',
+        [int]$Width = 900
+    )
+
+    $h = 40
+    $p = New-Object System.Windows.Forms.Panel
+    $p.Size      = New-Object System.Drawing.Size($Width, $h)
+    $p.Location  = New-Object System.Drawing.Point(0, 0)
+    $p.BackColor = $Pal.Bg
+    $p.Tag       = @{ Title = $null; Sub = $null; Icon = $Icon }
+
+    $x = 0
+    if ($Icon) {
+        $tile = New-Object System.Windows.Forms.Panel
+        $tile.Size      = New-Object System.Drawing.Size(38, 38)
+        $tile.Location  = New-Object System.Drawing.Point(0, 1)
+        $tile.BackColor = $Pal.AccentFaint
+        $tile.Tag       = @{ Radius = 10; Icon = $Icon }
+        Enable-UiDoubleBuffer -Control $tile
+        Set-Rounded -Control $tile -Radius 10
+        $tile.Add_Paint({
+            param($s, $e)
+            try {
+                $g = $e.Graphics
+                $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+                $path = New-UiRoundPath -Width $s.Width -Height $s.Height -Radius $s.Tag.Radius
+                $br = New-Object System.Drawing.SolidBrush($s.BackColor)
+                try { $g.FillPath($br, $path) } finally { $br.Dispose(); $path.Dispose() }
+                # 图标 19 居中于 38 的块里（HMOL：38 配 19）
+                Draw-UiIcon -Graphics $g -Name ([string]$s.Tag.Icon) -X 9 -Y 9 -Size 19 -Color $Pal.AccentBase
+            } catch { }
+        })
+        $p.Controls.Add($tile)
+        $x = 50            # 图标块 38 + HMOL 的 Margin 0,0,12,0
+    }
+
+    # 有副标题时标题上移一点，让"标题 + 副标题"整体在 40 里居中
+    $headY = $(if ($Subtitle) { 1 } else { 10 })
+    $lt = New-Label -Text $Title -Size 13.5 -Style Bold
+    $lt.Location = New-Object System.Drawing.Point($x, $headY)
+    $p.Controls.Add($lt)
+    $p.Tag.Title = $lt
+
+    if ($Subtitle) {
+        # 副标题固定宽度 + 省略号：它是单行、不会换行，窄屏（1024）下必须自己收住，
+        # 否则会画出页头右边界、压到操作按钮上（真机实测过 908 > 754）。
+        $ls = New-Label -Text $Subtitle -Size 9 -Color SubText -Width ([Math]::Max(80, ($Width - $x - 10)))
+        $ls.AutoEllipsis = $true
+        $ls.Height = 17
+        $ls.Location = New-Object System.Drawing.Point(($x + 1), 22)
+        $p.Controls.Add($ls)
+        $p.Tag.Sub = $ls
+    }
+    # 页头宽度要跟着内容区走（HMOL 的页头横贯内容区），由 Update-PageLayout 统一同步
+    $p.Tag.GapX = $x + 1
+    return $p
+}
+
 # ============================ 卡片 ============================
 
 function New-Card {
