@@ -292,12 +292,31 @@ function Write-GuiReadyConsoleProfileHook {
 #   1) 无脑提示 scm —— 但 scm 只有跑过「一行命令安装」才有，没装的时候提示等于骗用户
 #      去敲一个不存在的命令（实测被用户抓到）；
 #   2) 反过来「只提示存在的命令」也不行：三个入口一个都没装时一行都不显示，用户会以为
-#      提示功能坏了（实测被抓到）。所以三个入口各自独立判断，有几个提示几个。
+#      提示功能坏了（实测被抓到）。所以三个入口各自独立判断，有几个提示几个；
+#   3) 光看"命令文件在不在"还会漏一种：装了又被删掉/挪走，scm.cmd 残留在 System32 里，
+#      敲它只会报 Tool entry not found。scm 这一项额外验一次目标入口是否存在。
+function Test-ScmCommandUsable {
+    # 只看"命令文件在不在"不够：工具目录被删掉或挪走之后，System32 里的 scm.cmd 会留下来，
+    # 敲它只会打印 [ERROR] Tool entry not found 然后 pause 在那 ——
+    # 真机实测：一台测试机上就是这个状态（scm.cmd 指向已不存在的 C:\ServerCoreManager）。
+    # 我们生成的 scm.cmd 里一定有一行 set "GRROOT=<工具目录>"，把它读出来确认入口脚本还在。
+    $c = Get-Command scm -ErrorAction SilentlyContinue
+    if (-not $c) { return $false }
+    try {
+        $src = [string]$c.Source
+        if (-not $src -or -not (Test-Path -LiteralPath $src)) { return $true }
+        $m = [regex]::Match([System.IO.File]::ReadAllText($src), 'set\s+"GRROOT=(?<p>[^"]+)"')
+        # 不是我们生成的命令（没有 GRROOT 行）就保持原判断，不去猜人家的东西
+        if (-not $m.Success) { return $true }
+        return (Test-Path -LiteralPath (Join-Path ($m.Groups['p'].Value) 'Start-GuiReadyApp.ps1'))
+    } catch { return $true }
+}
+
 function Show-ScmWelcome {
     if (Get-Command Sconfig -ErrorAction SilentlyContinue) {
         Write-Host '  输入 "Sconfig" 返回服务器菜单' -ForegroundColor Yellow
     }
-    if (Get-Command scm -ErrorAction SilentlyContinue) {
+    if (Test-ScmCommandUsable) {
         Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow
     }
     if (Get-Command scm-term -ErrorAction SilentlyContinue) {
