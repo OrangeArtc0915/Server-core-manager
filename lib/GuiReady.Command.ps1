@@ -181,6 +181,31 @@ function Install-GuiReadyCommand {
         return $null
     }
 
+    # ---- 装了 scm 就必须能看到入口提示，不依赖「一键美化终端」 ----
+    # 之前提示只由美化那条链路安装，于是"只跑了一行命令安装"的机器上终端里什么都不显示。
+    # 这里补上：PowerShell 走 profile 的托管块，cmd 走 AutoRun → bin\scm-welcome.cmd。
+    # 元数据与撤销路径都复用 Console 模块（「一键还原」能一并清掉），不另起一套。
+    try {
+        if (-not (Get-Command Write-GuiReadyConsoleProfileHook -ErrorAction SilentlyContinue)) {
+            # Command 模块可能被单独加载（例如 install.ps1 只 dot-source 了 Common + Command），
+            # 所以这里按需把同目录的 Console 模块补进来
+            $consoleLib = Join-Path $PSScriptRoot 'GuiReady.Console.ps1'
+            if (Test-Path -LiteralPath $consoleLib) { . $consoleLib }
+        }
+        if (Get-Command Write-GuiReadyConsoleProfileHook -ErrorAction SilentlyContinue) {
+            Write-GuiReadyConsoleProfileHook -Quiet | Out-Null
+            if (Get-Command Set-GuiReadyConsoleWelcome -ErrorAction SilentlyContinue) {
+                Set-GuiReadyConsoleWelcome -Quiet | Out-Null
+            }
+            Write-Log '已一并装好终端入口提示（新开一个 cmd / PowerShell 窗口就能看到）。' 'OK'
+        } else {
+            Write-Log '未能加载 Console 模块，跳过入口提示（scm 命令本身已可用）。' 'WARN'
+        }
+    } catch {
+        # 提示装不上不能影响 scm 命令本身 —— 它已经写好了
+        Write-Log ('安装终端入口提示失败（不影响 scm 命令本身）: ' + $_.Exception.Message) 'WARN'
+    }
+
     Write-Log ''
     Write-Log '用法（在任意目录、cmd 或 PowerShell 里）:' 'OK'
     Write-Log ('    ' + $Name) 'INFO'
