@@ -2299,6 +2299,16 @@ function Start-StoreAction {
 }
 
 function Show-StorePage {
+    # 首次进商店页时才加载精选库模块（索引 + 搜索）。
+    # 刻意不放进启动的模块列表：商店界面用不到时不该为它付启动成本 ——
+    # 与"按访问付费"那条判断一致（同 Set-Rounded 的延迟 Region、PageHeader 的按需）。
+    # 放在 $SkipPageHooks 之前：自检/审计也要能拿到这批函数来渲染。
+    if (-not (Get-Command Search-GuiReadyStore -ErrorAction SilentlyContinue)) {
+        $storeLib = Join-Path $libDir 'GuiReady.Store.ps1'
+        if (Test-Path -LiteralPath $storeLib) {
+            try { . $storeLib } catch { }
+        }
+    }
     # 进页面：没有源数据就后台检测一次；有数据就直接显示，不重复探测
     if ($SkipPageHooks) { return }
     if ($script:StoreSources.Count -eq 0 -and -not $script:StoreTask) {
