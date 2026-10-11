@@ -1821,6 +1821,7 @@ $script:StoreSources     = @()      # 包管理器检测结果
 $script:StorePills       = @()      # 源状态行的胶囊（重建时一并释放）
 $script:StoreUiFilter    = ''       # 界面类型筛选：'' 全部 | cli | tui | gui
 $script:StoreUiBtns      = @()      # 界面类型筛选按钮（重建时一并释放）
+$script:StoreLocalHits   = @()      # 本次搜索命中的本地精选（与上游结果合并时精选优先）
 $script:StoreLocal       = @()      # 本机已装的包名（用来标「已安装」）
 $script:StoreRows        = @()      # 结果行
 $script:StoreDetailRows  = @()      # 工具详情的行（与结果行共用同一块区域）
@@ -2010,6 +2011,32 @@ function Add-StoreRow {
     $script:StoreRows += [pscustomobject]@{ Panel = $row; Name = $lbName; Meta = $lbMeta; Install = $btnIns; Uninstall = $btnUn; Info = $btnInfo; Pill = $pill }
 }
 
+function ConvertTo-StoreRowItem {
+    # 把 catalog 里的一条精选记录，转成 Add-StoreRow 认识的"结果行"形状。
+    # 只有 install.type = choco 的条目才转：安装按钮把 Source 当作 $script:StoreSourceIndex
+    # 的键，索引里只有 choco=1/scoop=2，npm/pip 会传错源。转不了返回 $null。
+    param($Entry)
+    if (-not $Entry) { return $null }
+    if (([string]$Entry.install.type).ToLower() -ne 'choco') { return $null }
+    $pkg = [string]$Entry.install.id
+    if (-not $pkg) { return $null }
+
+    $mark = '⚠️ 未验证'
+    switch ([string]$Entry.compatibility) {
+        'verified'    { $mark = '✅ 精选 · 实测可用' }
+        'partial'     { $mark = '⚠️ 可用 · 部分功能受限' }
+        'unsupported' { $mark = '❌ 不兼容 · 见替代方案' }
+    }
+    return [pscustomobject]@{
+        Id          = $pkg
+        Version     = ''
+        Source      = 'choco'
+        Label       = '精选'
+        DisplayName = $(if ($Entry.name_zh) { [string]$Entry.name_zh } else { [string]$Entry.name })
+        Marker      = $mark
+    }
+}
+
 function Update-StoreUiFilter {
     # 重建 [全部][CLI][TUI][GUI] 四个筛选按钮，当前选中的那个用 Primary 高亮。
     # 数据来自 catalog 的 ui 字段：它决定这个工具"跑起来要不要图形环境"，
@@ -2067,25 +2094,9 @@ function Add-StoreCatalogRows {
     # -Ui 传 $script:StoreUiFilter（'' 全部 / cli / tui / gui）；无关键词时后端按兼容性+热度排，
     # 所以"全部"= 热门优先，正好是用户要的"自动展示热度较高的工具"。
     foreach ($e in @(Search-GuiReadyStore -Ui $script:StoreUiFilter -Limit 60)) {
-        $itype = ([string]$e.install.type).ToLower()
-        if ($itype -ne 'choco') { continue }
-        $pkg = [string]$e.install.id
-        if (-not $pkg) { continue }
-
-        $mark = '⚠️ 未验证'
-        switch ([string]$e.compatibility) {
-            'verified'    { $mark = '✅ 精选 · 实测可用' }
-            'partial'     { $mark = '⚠️ 可用 · 部分功能受限' }
-            'unsupported' { $mark = '❌ 不兼容 · 见替代方案' }
-        }
-        Add-StoreRow -Item ([pscustomobject]@{
-            Id          = $pkg
-            Version     = ''
-            Source      = 'choco'
-            Label       = '精选'
-            DisplayName = $(if ($e.name_zh) { [string]$e.name_zh } else { [string]$e.name })
-            Marker      = $mark
-        })
+        $item = ConvertTo-StoreRowItem -Entry $e
+        if (-not $item) { continue }
+        Add-StoreRow -Item $item
         $n++
     }
     # 空状态：整个库里没有这个类型，或者被筛没了 —— 要给一句话，不能留一片空白
@@ -2208,7 +2219,23 @@ function Show-StoreDetail {
 function Show-StoreResult {
     param($Items)
     # 只保留「我们真的会装」的源 —— 免得出现一个点下去不知道跑什么命令的结果行
-    $script:StoreLastItems = @($Items | Where-Object { $script:StoreSourceIndex.ContainsKey([string]$_.Source) })
+    $upstream = @($Items | Where-Object { $script:StoreSourceIndex.ContainsKey([string]$_.Source) })
+
+    # 与本地精选库合并，按 install.id 去重、精选优先。
+    # 用户搜 "7zip" 时：本地精选库毫秒级就能给出 7-Zip，choco 的搜索结果要好几秒；
+    # 两边命中同一个包时只留精选那条（它有中文名、兼容性标记，还能点「详情」）。
+    $seen = @{}
+    $merged = New-Object System.Collections.ArrayList
+    foreach ($h in @($script:StoreLocalHits)) {
+        $k = ([string]$h.Id).ToLower()
+        if (-not $seen.ContainsKey($k)) { $seen[$k] = $true; [void]$merged.Add($h) }
+    }
+    foreach ($i in $upstream) {
+        $k = ([string]$i.Id).ToLower()
+        if (-not $seen.ContainsKey($k)) { $seen[$k] = $true; [void]$merged.Add($i) }
+    }
+
+    $script:StoreLastItems = @($merged)
     Clear-StoreRows
     Clear-StoreDetail      # 从详情视图切回列表时，把详情行也收掉
     $lblStoreEmpty.Visible = ($script:StoreLastItems.Count -eq 0)
@@ -2413,6 +2440,7 @@ function Start-StoreAction {
 function Show-StorePage {
     # 进页面：先用本地精选库立刻铺一屏（毫秒级），再后台检测包管理器（要起子进程，秒级）。
     # 顺序很重要：以前是空列表等检测，现在是**立刻有内容**。
+    $script:StoreLocalHits = @()   # 回到"精选浏览"，清掉上次搜索残留的本地命中
     Update-StoreUiFilter
     Add-StoreCatalogRows | Out-Null
     if ($SkipPageHooks) { return }
@@ -2446,6 +2474,11 @@ function Confirm-GuiPackageManager {
 $btnStoreSearch.Add_Click({
     $q = [string]$txtStoreQuery.Box.Text
     if ([string]::IsNullOrWhiteSpace($q)) { Set-Pill -Pill $pillStoreState -Text '先输入关键词' -Kind 'Warn'; return }
+    # 本地精选库先出结果（毫秒级），别让用户盯着空列表等 choco 的网络往返（秒级）。
+    # 上游结果回来后走 Show-StoreResult：与本地按 install.id 合并去重，精选优先。
+    $hits = @(Search-GuiReadyStore -Keyword $q -Limit 40)
+    $script:StoreLocalHits = @($hits | ForEach-Object { ConvertTo-StoreRowItem -Entry $_ } | Where-Object { $_ })
+    if ($script:StoreLocalHits.Count -gt 0) { Show-StoreResult -Items @() }
     if ($cmbStoreSrc.SelectedIndex -lt 0 -or $script:StoreComboMap.Count -eq 0) {
         # 一个源都没有 —— 刚装好的 Server Core 上就是这情况。
         # 先让用户**自己选择**是否下载包管理器；选了之后下载+安装+继续搜索全自动。
@@ -5528,11 +5561,18 @@ if ($SelfTest) {
             $script:StoreSources = @($storeObj.Items)
             $script:StoreLocal   = @('git')
             Update-StoreSourceRow
-            Show-StoreResult -Items @(
-                [pscustomobject]@{ Id = '7zip'; Version = '23.01';  Source = 'choco' }
-                [pscustomobject]@{ Id = 'git';  Version = '2.47.0'; Source = 'choco' }
+            # 合并去重验证：本地精选命中 7zip，上游又回 7zip + curl —— 期望合并后 2 行
+            # （7zip 只留精选那条，curl 是上游补充的），而不是 3 行（同一包出现两次）。
+            $script:StoreLocalHits = @(
+                [pscustomobject]@{ Id = '7zip'; Version = ''; Source = 'choco'; Label = '精选'; DisplayName = '7-Zip'; Marker = '⚠️ 未验证' }
             )
-            $storeRowsN = @($script:StoreRows).Count
+            Show-StoreResult -Items @(
+                [pscustomobject]@{ Id = '7zip'; Version = '26.3.0'; Source = 'choco' }
+                [pscustomobject]@{ Id = 'curl'; Version = '8.10.0'; Source = 'choco' }
+            )
+            $storeRowsN   = @($script:StoreRows).Count
+            $storeMergeOk = ($storeRowsN -eq 2 -and ([string]$script:StoreRows[0].Name.Text) -eq '7-Zip')
+            $script:StoreLocalHits = @()
             # 工具详情：换一份 info 形状的 JSON 再渲染一次
             $infoJson = '{"Mode":"info","Source":"choco","Package":"7zip","Error":"","Items":[{"Id":"7zip","Version":"26.3.0",' +
                 '"Title":"7-Zip","Published":"2026/9/4","Summary":"file archiver","Description":"line1\nline2","Tags":"7zip zip",' +
@@ -5542,6 +5582,8 @@ if ($SelfTest) {
             Render-StoreDetail -Obj $infoObj
             Write-Host ('  商店页: 源胶囊 {0} 个 / 精选行 {1} 行 / 结果行 {2} 行 / 详情行 {3} 行 / 搜索源 {4} 个' -f `
                 $script:StorePills.Count, $storeCatalogN, $storeRowsN, @($script:StoreDetailRows).Count, $script:StoreComboMap.Count) -ForegroundColor Green
+            Write-Host ('  商店合并: {0}（本地精选优先 + 上游补充，按 install.id 去重）' -f `
+                $(if ($storeMergeOk) { 'OK' } else { '异常' })) -ForegroundColor $(if ($storeMergeOk) { 'Green' } else { 'Red' })
             if ($storeCatalogN -le 0) {
                 Write-Host '  !! 商店页自检：本地精选库一行都没铺出来（查 store\catalog.json 是否存在、路径解析是否正确）' -ForegroundColor Red
             }
