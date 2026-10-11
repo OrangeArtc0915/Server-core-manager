@@ -4795,10 +4795,19 @@ $form.Add_Shown({
     try {
         $dirSafe = Test-GuiReadyToolDirSafe -Path $toolRoot
         if ($dirSafe.Known -and $dirSafe.Safe) {
-            # 目录本身安全时，顺手把包含提权 worker 与备份的目录再收紧一层
+            # 目录本身安全时，顺手把包含提权 worker 与备份的目录再收紧一层。
+            # ⚠ 这两步走的是 icacls（文件系统），和"窗口能不能点"毫无关系，却卡在 Shown 里 ——
+            # 实测 Shown 段占 1092ms，"可交互"被它硬生生推迟。改用 BeginInvoke 把它投到消息队列，
+            # Shown 返回、界面可点之后再跑；失败只吞掉（安全加固失败不该影响用户操作）。
             if (Test-IsAdministrator) {
-                [void](Protect-GuiReadyDir -Path (Join-Path $toolRoot 'logs'))
-                [void](Protect-GuiReadyDir -Path (Join-Path $toolRoot 'backup'))
+                try {
+                    $form.BeginInvoke([Action]{
+                        try {
+                            [void](Protect-GuiReadyDir -Path (Join-Path $toolRoot 'logs'))
+                            [void](Protect-GuiReadyDir -Path (Join-Path $toolRoot 'backup'))
+                        } catch { }
+                    }) | Out-Null
+                } catch { }
             }
         } else {
             Append-GuiLog -Line '[WARN] ==== 安全提示：工具目录不是管理员独占 ===='
