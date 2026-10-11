@@ -2002,7 +2002,11 @@ function Add-StoreCatalogRows {
     #   而索引里没有 npm/pip —— 铺出来点了"安装"会往动作里传错源。
     #   npm 那些条目先不铺（要铺得先把 npm 接进索引与动作，属下一步）。
     $c = Import-GuiReadyStoreCatalog
-    if (-not $c.Ok) { return 0 }
+    if (-not $c.Ok) {
+        # 不静默：这里曾经什么都不做也不报错，结果"商店页没铺出精选"查了很久
+        try { Append-GuiLog -Line ('[WARN] 精选库不可用: ' + $c.Error + '  path=' + $c.Path) } catch { }
+        return 0
+    }
 
     $n = 0
     foreach ($e in @(Search-GuiReadyStore -Limit 60)) {
@@ -2038,10 +2042,14 @@ function Update-StoreRowLayout {
             $r.Panel.Width = $rowW
             $r.Name.Width  = $rowW - 300
             $r.Meta.Width  = $rowW - 300
-            $r.Install.Location   = New-Object System.Drawing.Point(($rowW - 256), 13)
-            $r.Uninstall.Location = New-Object System.Drawing.Point(($rowW - 168), 13)
+            # 三个按钮从右往左排、间距统一 8px：
+            #   详情 [rowW-96, rowW-32] · 卸载 [rowW-184, rowW-104] · 安装 [rowW-272, rowW-192]
+            # 上一版是 -256/-168/-96，卸载右边界 rowW-88 压住详情左边界 rowW-96（交叠 8px）。
+            # 之所以一直没暴露：商店页以前没有真实行，重叠扫描扫不到；铺出 12 行精选后就报了 24 处。
+            $r.Install.Location   = New-Object System.Drawing.Point(($rowW - 272), 13)
+            $r.Uninstall.Location = New-Object System.Drawing.Point(($rowW - 184), 13)
             if ($r.Info) { $r.Info.Location = New-Object System.Drawing.Point(($rowW - 96), 13) }
-            if ($r.Pill) { $r.Pill.Location = New-Object System.Drawing.Point(($rowW - 266 - $r.Pill.Width), 17) }
+            if ($r.Pill) { $r.Pill.Location = New-Object System.Drawing.Point(($rowW - 280 - $r.Pill.Width), 17) }
             Set-Rounded -Control $r.Panel -Radius 10
         } catch { }
     }
@@ -5428,6 +5436,9 @@ if ($SelfTest) {
         }
         # 商店页：把「子进程写 JSON → 界面反序列化 → 渲染」这条真实路径跑一遍（自检不联网、不起子进程）
         Show-GuiPage -Key 'store'
+        # 精选行要在 Show-StoreResult 之前数：它内部会 Clear-StoreRows 再只填自检假数据，
+        # 之后数出来的永远是 2 —— 上一版就是拿这个"2"当"精选没铺出来"的证据，口径错了。
+        $storeCatalogN = @($script:StoreRows).Count
         $storeTmp = Join-Path $env:TEMP 'gui-store-selftest.json'
         $storeJson = '{"Mode":"status","Error":"","Items":[' +
             '{"Id":"choco","Name":"Chocolatey","Installed":true,"Version":"2.2.2","Path":"C:\\ProgramData\\chocolatey\\bin\\choco.exe","CanSearch":true,"CanInstall":true,"Note":"自检假数据"},' +
@@ -5452,8 +5463,11 @@ if ($SelfTest) {
             try { [System.IO.File]::WriteAllText($storeTmp, $infoJson, (New-Object System.Text.UTF8Encoding($false))) } catch { }
             $infoObj = Import-GuiJsonFile -Path $storeTmp
             Render-StoreDetail -Obj $infoObj
-            Write-Host ('  商店页: 源胶囊 {0} 个 / 结果行 {1} 行 / 详情行 {2} 行 / 搜索源 {3} 个' -f `
-                $script:StorePills.Count, $storeRowsN, @($script:StoreDetailRows).Count, $script:StoreComboMap.Count) -ForegroundColor Green
+            Write-Host ('  商店页: 源胶囊 {0} 个 / 精选行 {1} 行 / 结果行 {2} 行 / 详情行 {3} 行 / 搜索源 {4} 个' -f `
+                $script:StorePills.Count, $storeCatalogN, $storeRowsN, @($script:StoreDetailRows).Count, $script:StoreComboMap.Count) -ForegroundColor Green
+            if ($storeCatalogN -le 0) {
+                Write-Host '  !! 商店页自检：本地精选库一行都没铺出来（查 store\catalog.json 是否存在、路径解析是否正确）' -ForegroundColor Red
+            }
             # 回到列表视图，别让自检把页面留在详情态
             Show-StoreResult -Items $script:StoreLastItems
         } else {

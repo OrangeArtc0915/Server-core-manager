@@ -13,9 +13,22 @@
 $Global:GuiReadyStoreVersion = 1
 
 function Get-GuiReadyStoreCatalogPath {
-    # 发布包里是 <工具根>\store\catalog.json；开发树上就是仓库里的 store\catalog.json
-    $p = Join-Path $script:GuiReadyRoot 'store\catalog.json'
-    return $p
+    # 按【本模块文件自己所在的位置】定位数据，不依赖调用方作用域的变量。
+    #
+    # 踩过的坑：上一版写的是 Join-Path $script:GuiReadyRoot 'store\catalog.json'。
+    # 本模块被 dot-source 进 GUI 的脚本作用域后，那里定义的是 $toolRoot，
+    # 并没有 $GuiReadyRoot —— 于是路径解析成相对路径、文件不存在、索引静默为空，
+    # 表现就是"商店页一行精选都没铺出来"，而且不报错、查不出来。
+    # 用 $PSScriptRoot（模块文件所在目录）就与调用方无关了。
+    $here = $PSScriptRoot
+    if (-not $here) { $here = Split-Path -Parent $MyInvocation.MyCommand.Path }
+    if ($here) {
+        $p = Join-Path (Split-Path -Parent $here) 'store\catalog.json'
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    # 兜底：控制台侧 / 单测里可能设了 $script:GuiReadyRoot
+    if ($script:GuiReadyRoot) { return (Join-Path $script:GuiReadyRoot 'store\catalog.json') }
+    return (Join-Path $here 'store\catalog.json')
 }
 
 function Get-GuiReadyCompatRank {
