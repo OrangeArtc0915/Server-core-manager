@@ -1160,6 +1160,7 @@ function Draw-UiIcon {
             }
             'chevron-up'   { $g.DrawLines($pen, (& $pts @(@(6, 15), @(12, 9), @(18, 15)))) }
             'chevron-down' { $g.DrawLines($pen, (& $pts @(@(6, 9), @(12, 15), @(18, 9)))) }
+            'chevron-left' { $g.DrawLines($pen, (& $pts @(@(15, 6), @(9, 12), @(15, 18)))) }
             default {
                 $g.DrawRectangle($pen, 3, 3, 18, 18)
             }

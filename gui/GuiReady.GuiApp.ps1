@@ -746,7 +746,15 @@ $pnlNavTop.BackColor = $Pal.NavBg
 $pnlNav.Controls.Add($pnlNavTop)
 
 function New-NavItem {
-    param([string]$Text, [string]$PageKey, [int]$Y, [string]$Icon)
+    param(
+        [string]$Text,
+        [int]$Y,
+        [string]$Icon,
+        [string]$PageKey = '',            # 页面项：点了走 Show-GuiPage
+        [string]$ModuleKey = '',          # 模块项：点了进模块（模块有子页就顶替成分类列）
+        [scriptblock]$OnClick = $null,    # 纯动作项（例如分类列顶部的「返回模块」）
+        [System.Windows.Forms.Control]$Parent = $null
+    )
     # 侧栏 200、左右各留 8（HMOL NavItem Margin=8,2）→ 项宽 184
     $w = 184
     $h = $script:NavItemH
@@ -756,7 +764,7 @@ function New-NavItem {
     $p.BackColor = $Pal.NavBg
     $p.Cursor    = 'Hand'
     # Radius.Item = 10（HMOL）
-    $p.Tag       = @{ Page = $PageKey; Icon = $Icon; Text = $Text; Active = $false; Hover = $false; Radius = 10 }
+    $p.Tag       = @{ Page = $PageKey; Module = $ModuleKey; Act = $OnClick; Icon = $Icon; Text = $Text; Active = $false; Hover = $false; Radius = 10 }
     Enable-UiDoubleBuffer -Control $p
     Set-Rounded -Control $p -Radius 10
 
@@ -810,8 +818,15 @@ function New-NavItem {
     })
     $p.Add_MouseEnter({ $this.Tag.Hover = $true;  $this.Invalidate() })
     $p.Add_MouseLeave({ $this.Tag.Hover = $false; $this.Invalidate() })
-    $p.Add_Click({ Show-GuiPage -Key ([string]$this.Tag.Page) })
-    $pnlNavTop.Controls.Add($p)
+    $p.Add_Click({
+        try {
+            $t = $this.Tag
+            if ($t.Page)       { Show-GuiPage -Key ([string]$t.Page) }
+            elseif ($t.Module) { Enter-GuiModule -Key ([string]$t.Module) }
+            elseif ($t.Act)    { & $t.Act }
+        } catch { }
+    })
+    if ($Parent) { $Parent.Controls.Add($p) } else { $pnlNavTop.Controls.Add($p) }
     return $p
 }
 
@@ -819,18 +834,129 @@ function New-NavItem {
 $script:NavFont     = New-Font -Size 10.1
 $script:NavFontBold = New-Font -Size 10.1 -Style Bold
 
-$navEnv    = New-NavItem -Text '环境'    -PageKey 'env'      -Y 8   -Icon 'env'
-$navApp    = New-NavItem -Text '软件'    -PageKey 'app'      -Y 54  -Icon 'app'
-$navStore  = New-NavItem -Text '商店'    -PageKey 'store'    -Y 100 -Icon 'store'
-$navRole   = New-NavItem -Text '角色'    -PageKey 'role'     -Y 146 -Icon 'role'
-$navMon    = New-NavItem -Text '仪表盘'  -PageKey 'monitor'  -Y 192 -Icon 'monitor'
-$navSec    = New-NavItem -Text '安全'    -PageKey 'security' -Y 238 -Icon 'security'
-$navBeauty = New-NavItem -Text '美化'    -PageKey 'beauty'   -Y 284 -Icon 'beauty'
-$navDsh    = New-NavItem -Text 'AI'      -PageKey 'dsh'      -Y 330 -Icon 'dsh'
-$navTool   = New-NavItem -Text '工具'    -PageKey 'tool'     -Y 376 -Icon 'tool'
-$navMore   = New-NavItem -Text '更多'    -PageKey 'more'     -Y 422 -Icon 'more'
-$navAbout  = New-NavItem -Text '关于'    -PageKey 'about'    -Y 468 -Icon 'about'
-$script:NavButtons = @($navEnv, $navApp, $navStore, $navRole, $navMon, $navSec, $navBeauty, $navDsh, $navTool, $navMore, $navAbout)
+# ---- 5 大模块（路线图第二节：仪表盘 / 应用商店 / 环境管理 / 程序管理 / 设置）----
+# 11 个页面按模块归组；模块有多个子页时，点进去侧栏「顶替」成分类列表
+#（HMOL 的 PanNav ↔ PanSetupNav 那套：只翻 Visibility，不新建第二个侧栏）。
+$script:GuiPageMeta = @{
+    'monitor'  = @{ Text = '总览';       Icon = 'monitor'  }
+    'store'    = @{ Text = '应用商店';   Icon = 'store'    }
+    'env'      = @{ Text = '环境补全';   Icon = 'env'      }
+    'role'     = @{ Text = '角色与功能'; Icon = 'role'     }
+    'security' = @{ Text = '安全基线';   Icon = 'security' }
+    'app'      = @{ Text = '程序档案';   Icon = 'app'      }
+    'tool'     = @{ Text = '系统工具';   Icon = 'tool'     }
+    'beauty'   = @{ Text = '终端美化';   Icon = 'beauty'   }
+    'dsh'      = @{ Text = 'AI 辅助';    Icon = 'dsh'      }
+    'more'     = @{ Text = '全部功能';   Icon = 'more'     }
+    'about'    = @{ Text = '关于';       Icon = 'about'    }
+}
+$script:GuiModules = @(
+    @{ Key = 'dash';  Text = '仪表盘';   Icon = 'monitor'; Pages = @('monitor') }
+    @{ Key = 'store'; Text = '应用商店'; Icon = 'store';   Pages = @('store') }
+    @{ Key = 'env';   Text = '环境管理'; Icon = 'env';     Pages = @('env', 'role', 'security') }
+    @{ Key = 'prog';  Text = '程序管理'; Icon = 'app';     Pages = @('app', 'tool') }
+    @{ Key = 'set';   Text = '设置';     Icon = 'more';    Pages = @('beauty', 'dsh', 'more', 'about') }
+)
+$script:GuiModuleOfPage   = @{}
+$script:GuiModuleLastPage = @{}
+foreach ($__m in $script:GuiModules) { foreach ($__p in $__m.Pages) { $script:GuiModuleOfPage[$__p] = $__m.Key } }
+
+function Get-GuiModule {
+    param([string]$Key)
+    foreach ($m in $script:GuiModules) { if ([string]$m.Key -eq $Key) { return $m } }
+    return $null
+}
+
+function Get-GuiModuleOfPage {
+    param([string]$PageKey)
+    if ($script:GuiModuleOfPage.ContainsKey($PageKey)) { return [string]$script:GuiModuleOfPage[$PageKey] }
+    return ''
+}
+
+function Sync-GuiNav {
+    # 模块项按「当前页属于哪个模块」高亮；分类项按「是不是当前页」高亮。
+    param([string]$PageKey)
+    $modKey = Get-GuiModuleOfPage -PageKey $PageKey
+    foreach ($b in @($script:NavButtons)) {
+        try {
+            $on = ([string]$b.Tag.Module -eq $modKey)
+            if ($b.Tag.Active -ne $on) { $b.Tag.Active = $on; $b.Invalidate() }
+        } catch { }
+    }
+    foreach ($b in @($script:CatButtons)) {
+        try {
+            $on = ([string]$b.Tag.Page -eq $PageKey)
+            if ($b.Tag.Active -ne $on) { $b.Tag.Active = $on; $b.Invalidate() }
+        } catch { }
+    }
+}
+
+function Set-GuiSidebarMode {
+    # 侧栏两种形态二选一：模块列表 / 某模块的分类列表。只翻 Visibility，不新建侧栏。
+    param([string]$Mode, [string]$PageKey = '')
+    try {
+        $mod = $null
+        if ($Mode -eq 'cats') {
+            $mod = Get-GuiModule -Key (Get-GuiModuleOfPage -PageKey $PageKey)
+            # 只有单个子页的模块不值得再点一层，直接留在模块列表
+            if (-not $mod -or @($mod.Pages).Count -le 1) { $Mode = 'modules' }
+        }
+
+        if ($Mode -ne 'cats') {
+            $pnlNavCats.Visible = $false
+            $pnlNavTop.Visible  = $true
+            return
+        }
+
+        # 重建分类项：最多 5 项，代价可忽略；省掉一堆「哪个模块的第几项」索引状态
+        foreach ($c in @($pnlNavCats.Controls)) { try { $c.Dispose() } catch { } }
+        $script:CatButtons = @()
+        $y = 8
+        $back = New-NavItem -Text '返回模块' -Y $y -Icon 'chevron-left' `
+                    -OnClick { Set-GuiSidebarMode -Mode 'modules' -PageKey $script:CurrentPage } `
+                    -Parent $pnlNavCats
+        $y += $script:NavStep
+        foreach ($pg in @($mod.Pages)) {
+            $meta = $script:GuiPageMeta[$pg]
+            if (-not $meta) { continue }
+            $it = New-NavItem -Text ([string]$meta.Text) -Y $y -Icon ([string]$meta.Icon) -PageKey $pg -Parent $pnlNavCats
+            $script:CatButtons += $it
+            $y += $script:NavStep
+        }
+        $pnlNavCats.Height  = $y
+        $pnlNavTop.Visible  = $false
+        $pnlNavCats.Visible = $true
+    } catch { }
+}
+
+function Enter-GuiModule {
+    # 进模块：有子页就顶替成分类列，并回到「上次停留的那个分类」（HMOL 的做法）。
+    param([string]$Key)
+    $mod = Get-GuiModule -Key $Key
+    if (-not $mod) { return }
+    $last = [string]$script:GuiModuleLastPage[$Key]
+    if (-not $last -or (@($mod.Pages) -notcontains $last)) { $last = [string]@($mod.Pages)[0] }
+    Show-GuiPage -Key $last
+}
+
+$script:NavButtons = @()
+$script:CatButtons = @()
+$script:GuiModuleLastPage = @{}
+
+# 侧栏顶部的分类面板：与模块列表同处一格，靠显隐互斥（HMOL 的做法）
+$pnlNavCats           = New-Object System.Windows.Forms.Panel
+$pnlNavCats.Dock      = 'Top'
+$pnlNavCats.Height    = 246
+$pnlNavCats.BackColor = $Pal.NavBg
+$pnlNavCats.Visible   = $false
+$pnlNav.Controls.Add($pnlNavCats)
+
+$__y = 8
+foreach ($__mod in $script:GuiModules) {
+    $script:NavButtons += (New-NavItem -Text ([string]$__mod.Text) -Y $__y -Icon ([string]$__mod.Icon) -ModuleKey ([string]$__mod.Key))
+    $__y += $script:NavStep
+}
+$pnlNavTop.Height = $__y
 
 $lblVer = New-Label -Text ('v2.0  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.25 -Color Hint
 $lblVer.Dock = 'Bottom'
@@ -3535,13 +3661,14 @@ function Show-GuiPage {
     if (-not $script:Pages.ContainsKey($Key)) { return }
     $script:CurrentPage = $Key
     foreach ($k in $script:Pages.Keys) { $script:Pages[$k].Visible = ($k -eq $Key) }
-    # 导航项是自绘面板：只改 Tag 里的状态再重画，不做控件重建
-    foreach ($b in $script:NavButtons) {
-        try {
-            $on = ([string]$b.Tag.Page -eq $Key)
-            if ($b.Tag.Active -ne $on) { $b.Tag.Active = $on; $b.Invalidate() }
-        } catch { }
-    }
+    # 导航：记住模块归属 → 侧栏按需要顶替成分类列 → 同步两边选中态。
+    # 导航项都是自绘面板，只改 Tag 里的状态再重画，不做控件重建。
+    $__modKey = Get-GuiModuleOfPage -PageKey $Key
+    if ($__modKey) { $script:GuiModuleLastPage[$__modKey] = $Key }
+    $__mod = Get-GuiModule -Key $__modKey
+    if ($__mod -and @($__mod.Pages).Count -gt 1) { Set-GuiSidebarMode -Mode 'cats' -PageKey $Key }
+    else { Set-GuiSidebarMode -Mode 'modules' -PageKey $Key }
+    Sync-GuiNav -PageKey $Key
     if ($Key -eq 'env' -and -not $SkipCards) { Refresh-EnvCards }
     if ($Key -eq 'store') { Show-StorePage }
     if ($Key -eq 'role') { Show-RolePage }
