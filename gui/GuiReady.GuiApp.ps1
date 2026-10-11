@@ -853,8 +853,9 @@ $script:GuiModules = @(
     @{ Key = 'dash';  Text = '仪表盘';   Icon = 'monitor'; Pages = @('monitor') }
     @{ Key = 'store'; Text = '应用商店'; Icon = 'store';   Pages = @('store') }
     @{ Key = 'env';   Text = '环境管理'; Icon = 'env';     Pages = @('env', 'role', 'security') }
-    @{ Key = 'prog';  Text = '程序管理'; Icon = 'app';     Pages = @('app', 'tool') }
-    @{ Key = 'set';   Text = '设置';     Icon = 'more';    Pages = @('beauty', 'dsh', 'more', 'about') }
+    # 程序管理：程序档案 / 系统工具 / 终端美化 / AI 辅助（美化与 AI 从「设置」挪过来 —— 它们都是"装东西"）
+    @{ Key = 'prog';  Text = '程序管理'; Icon = 'app';     Pages = @('app', 'tool', 'beauty', 'dsh') }
+    @{ Key = 'set';   Text = '设置';     Icon = 'more';    Pages = @('more', 'about') }
 )
 $script:GuiModuleOfPage   = @{}
 $script:GuiModuleLastPage = @{}
