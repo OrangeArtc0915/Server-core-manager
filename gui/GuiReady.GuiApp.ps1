@@ -262,13 +262,62 @@ function New-Font {
     return New-Object System.Drawing.Font -ArgumentList $Family, $Size, $st
 }
 
+# ---- 圆角 Region：可延迟 ----
+# 这套 UI 里最贵的单次调用不是控件构造，也不是圆角路径计算，而是
+#     $Control.Region = New-Object Region (path)
+# 真机（Server Core 纯软件渲染）实测：启动的"控件创建"段占 15.5s，占"可交互"的 76%；
+# 而本机量出「建控件 0.6ms/个」「圆角路径 0.53ms/个」，量级远不足以解释它 ——
+# 所以大头落在这条 Region 赋值上。
+# 做法：建页面期间只登记(控件,半径)，等该页面第一次真正显示时再统一补上。
+# 这样启动只服务首页，其余页面的成本推迟到各自首次显示（用户不为没看过的页付钱）。
+$script:RoundDefer = $false
+$script:RoundQueue = New-Object System.Collections.ArrayList
+
 function Set-Rounded {
     param([System.Windows.Forms.Control]$Control, [int]$Radius = 10)
     try {
         $w = $Control.Width; $h = $Control.Height
         if ($w -le 0 -or $h -le 0) { return }
+        if ($script:RoundDefer) {
+            # 只登记。注意这里存的是"控件的引用"而不是值，所以控件之后被改尺寸也没关系：
+            # 补 Region 时会用当时的实际宽高重算。
+            [void]$script:RoundQueue.Add([pscustomobject]@{ Ctl = $Control; Radius = $Radius })
+            return
+        }
         # 圆角几何统一在 GuiReady.Ui.ps1 的 New-UiRoundPath 里，自绘描边用的是同一个路径
         $Control.Region = New-Object System.Drawing.Region -ArgumentList (New-UiRoundPath -Width $w -Height $h -Radius $Radius)
+    } catch { }
+}
+
+function Apply-DeferredRounds {
+    # 把一个页面里所有"登记过但还没设 Region"的控件补上。
+    # 先把该页面的后代控件收成一个 HashSet，再单趟扫队列 —— O(n+m)，不做逐控件线性查找。
+    param([System.Windows.Forms.Control]$Root)
+    if (-not $Root -or $script:RoundQueue.Count -eq 0) { return }
+    try {
+        $inPage = New-Object 'System.Collections.Generic.HashSet[System.Windows.Forms.Control]'
+        $stack  = New-Object System.Collections.Stack
+        $stack.Push($Root)
+        while ($stack.Count -gt 0) {
+            $c = $stack.Pop()
+            [void]$inPage.Add($c)
+            try { foreach ($k in $c.Controls) { $stack.Push($k) } } catch { }
+        }
+        $i = 0
+        while ($i -lt $script:RoundQueue.Count) {
+            $rec = $script:RoundQueue[$i]
+            if ($inPage.Contains($rec.Ctl)) {
+                try {
+                    $c = $rec.Ctl
+                    if ($c.Width -gt 0 -and $c.Height -gt 0) {
+                        $c.Region = New-Object System.Drawing.Region -ArgumentList (New-UiRoundPath -Width $c.Width -Height $c.Height -Radius $rec.Radius)
+                    }
+                } catch { }
+                $script:RoundQueue.RemoveAt($i)
+            } else {
+                $i++
+            }
+        }
     } catch { }
 }
 
@@ -1143,6 +1192,10 @@ $pnlRight.BringToFront()
 $pnlTitle.SendToBack()
 
 # ============================ 环境页 ============================
+# ⚠ 从这里开始到最后一页注册完成为止，全部走"延迟设 Region"（见 Set-Rounded 的说明）。
+# 外壳 / 标题栏 / 侧栏 / 日志面板在上一段已经建完，它们必须立即设 Region ——
+# 那些控件不在任何页面里，不会被 Show-GuiPage 的补钩子扫到，延迟了就永远是方角。
+$script:RoundDefer = $true
 
 $pageEnv           = New-Object System.Windows.Forms.Panel
 $pageEnv.Dock      = 'Fill'
@@ -3669,6 +3722,9 @@ function Show-GuiPage {
     if (-not $script:Pages.ContainsKey($Key)) { return }
     $script:CurrentPage = $Key
     foreach ($k in $script:Pages.Keys) { $script:Pages[$k].Visible = ($k -eq $Key) }
+    # 这一页第一次显示时，把它里面登记过的圆角 Region 补上（延迟 Region 的兑现点）。
+    # 必须是"页面已可见"之后：控件的实际宽高要到这时才是最终值。
+    Apply-DeferredRounds -Root $script:Pages[$Key]
     # 导航：记住模块归属 → 侧栏按需要顶替成分类列 → 同步两边选中态。
     # 导航项都是自绘面板，只改 Tag 里的状态再重画，不做控件重建。
     $__modKey = Get-GuiModuleOfPage -PageKey $Key
@@ -4556,6 +4612,8 @@ $pageAbout             = New-Object System.Windows.Forms.Panel
 $pageAbout.Dock        = 'Fill'
 $pageAbout.BackColor   = $Pal.Bg
 $script:Pages['about'] = $pageAbout
+# 页面全部建完，关掉延迟：之后（对话框、动态行、参数面板）一律立即设 Region
+$script:RoundDefer = $false
 $pnlContent.Controls.Add($pageAbout)
 
 # HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
