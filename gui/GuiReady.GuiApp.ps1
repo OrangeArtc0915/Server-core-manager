@@ -44,7 +44,7 @@ foreach ($f in @('GuiReady.Common.ps1', 'GuiReady.Detect.ps1', 'GuiReady.PeInspe
                  'GuiReady.AutoLogon.ps1', 'GuiReady.Command.ps1', 'GuiReady.PhaseB.ps1', 'GuiReady.Wac.ps1',
                  'GuiReady.Console.ps1', 'GuiReady.Package.ps1', 'GuiReady.Role.ps1',
                  'GuiReady.Monitor.ps1', 'GuiReady.Security.ps1', 'GuiReady.Dsh.ps1',
-                 'GuiReady.Integrity.ps1')) {
+                 'GuiReady.Integrity.ps1', 'GuiReady.Store.ps1')) {
     $p = Join-Path $libDir $f
     if (Test-Path -LiteralPath $p) { . $p }
 }
@@ -1937,12 +1937,19 @@ function Add-StoreRow {
     $row  = New-Card -Width $rowW -Height 56 -Radius 10
     $row.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 8)
 
-    $lbName = New-Label -Text ([string]$Item.Id) -Size 10 -Style Bold -Width ($rowW - 220)
+    # 精选条目显示中文名（"7-Zip"），裸条目只有包 id（"7zip"）—— 有 DisplayName 就用它
+    $title = [string]$Item.Id
+    if ($Item.PSObject.Properties['DisplayName'] -and $Item.DisplayName) { $title = [string]$Item.DisplayName }
+    $lbName = New-Label -Text $title -Size 10 -Style Bold -Width ($rowW - 220)
     $lbName.Location = New-Object System.Drawing.Point(14, 9)
     $row.Controls.Add($lbName)
 
     $ver  = [string]$Item.Version
-    $meta = ('{0}   ·   来自 {1}' -f $(if ($ver) { 'v' + $ver } else { '版本未知' }), (Get-StoreSourceName ([string]$Item.Source)))
+    $srcName = Get-StoreSourceName ([string]$Item.Source)
+    if ($Item.PSObject.Properties['Label'] -and $Item.Label) { $srcName = [string]$Item.Label }
+    $meta = ('{0}   ·   来自 {1}' -f $(if ($ver) { 'v' + $ver } else { '版本未知' }), $srcName)
+    # 精选条目带兼容性标记（✅/⚠️/❌），把设计文档里那三档文案显式摆出来
+    if ($Item.PSObject.Properties['Marker'] -and $Item.Marker) { $meta = ([string]$Item.Marker + '   ·   ' + $meta) }
     $lbMeta = New-Label -Text $meta -Size 8.5 -Color Hint -Width ($rowW - 220)
     $lbMeta.Location = New-Object System.Drawing.Point(14, 31)
     $row.Controls.Add($lbMeta)
@@ -1985,6 +1992,42 @@ function Add-StoreRow {
 
     $pnlStoreResults.Controls.Add($row)
     $script:StoreRows += [pscustomobject]@{ Panel = $row; Name = $lbName; Meta = $lbMeta; Install = $btnIns; Uninstall = $btnUn; Info = $btnInfo; Pill = $pill }
+}
+
+function Add-StoreCatalogRows {
+    # 把本地精选库铺成结果行。返回铺了几行。
+    #
+    # 为什么只铺 install.type = choco 的条目：
+    #   安装按钮把 Item.Source 当作 $script:StoreSourceIndex 的键（choco=1 / scoop=2），
+    #   而索引里没有 npm/pip —— 铺出来点了"安装"会往动作里传错源。
+    #   npm 那些条目先不铺（要铺得先把 npm 接进索引与动作，属下一步）。
+    $c = Import-GuiReadyStoreCatalog
+    if (-not $c.Ok) { return 0 }
+
+    $n = 0
+    foreach ($e in @(Search-GuiReadyStore -Limit 60)) {
+        $itype = ([string]$e.install.type).ToLower()
+        if ($itype -ne 'choco') { continue }
+        $pkg = [string]$e.install.id
+        if (-not $pkg) { continue }
+
+        $mark = '⚠️ 未验证'
+        switch ([string]$e.compatibility) {
+            'verified'    { $mark = '✅ 精选 · 实测可用' }
+            'partial'     { $mark = '⚠️ 可用 · 部分功能受限' }
+            'unsupported' { $mark = '❌ 不兼容 · 见替代方案' }
+        }
+        Add-StoreRow -Item ([pscustomobject]@{
+            Id          = $pkg
+            Version     = ''
+            Source      = 'choco'
+            Label       = '精选'
+            DisplayName = $(if ($e.name_zh) { [string]$e.name_zh } else { [string]$e.name })
+            Marker      = $mark
+        })
+        $n++
+    }
+    return $n
 }
 
 function Update-StoreRowLayout {
@@ -2299,17 +2342,9 @@ function Start-StoreAction {
 }
 
 function Show-StorePage {
-    # 首次进商店页时才加载精选库模块（索引 + 搜索）。
-    # 刻意不放进启动的模块列表：商店界面用不到时不该为它付启动成本 ——
-    # 与"按访问付费"那条判断一致（同 Set-Rounded 的延迟 Region、PageHeader 的按需）。
-    # 放在 $SkipPageHooks 之前：自检/审计也要能拿到这批函数来渲染。
-    if (-not (Get-Command Search-GuiReadyStore -ErrorAction SilentlyContinue)) {
-        $storeLib = Join-Path $libDir 'GuiReady.Store.ps1'
-        if (Test-Path -LiteralPath $storeLib) {
-            try { . $storeLib } catch { }
-        }
-    }
-    # 进页面：没有源数据就后台检测一次；有数据就直接显示，不重复探测
+    # 进页面：先用本地精选库立刻铺一屏（毫秒级），再后台检测包管理器（要起子进程，秒级）。
+    # 顺序很重要：以前是空列表等检测，现在是**立刻有内容**。
+    Add-StoreCatalogRows | Out-Null
     if ($SkipPageHooks) { return }
     if ($script:StoreSources.Count -eq 0 -and -not $script:StoreTask) {
         Start-StoreQuery -Mode 'status'
