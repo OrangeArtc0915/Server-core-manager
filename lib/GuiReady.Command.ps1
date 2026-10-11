@@ -6,6 +6,92 @@
 
 $Global:GuiReadyCommandMarker = 'GuiReady-Command:'
 
+# ============================ 给自定义程序绑终端命令 ============================
+# 需求：在程序档案里给某个程序绑一个词（例如微信绑 "wx"），终端里敲 wx 就能打开它。
+#
+# 为什么用「往 System32 写 <别名>.cmd 垫片」而不是改 profile / AutoRun：
+#   1. cmd 与 PowerShell 都认 PATH 里的 .cmd，一次写好两边通用；
+#   2. 不动 profile —— 改 profile 要连带处理执行策略，之前踩过"禁止运行脚本"那个坑；
+#   3. 与 scm / scm-term 是同一套做法，行为一致，卸载路径也一致。
+
+function Get-GuiReadyProgramCommandPath {
+    param([string]$Alias)
+    return (Join-Path (Join-Path $env:windir 'System32') ([string]$Alias + '.cmd'))
+}
+
+function Test-GuiReadyCommandAlias {
+    # 这个值最终会变成"一个文件名 + .cmd 正文里的一段"，所以字符集必须收紧：
+    # 只允许 A-Za-z0-9._+-（与包名校验同一条规则），长度 <= 32。
+    # 另外挡掉系统命令与工具自己的入口，免得把 cmd / powershell / scm 盖掉。
+    param([string]$Alias)
+    if ([string]::IsNullOrWhiteSpace($Alias)) { return 'AliasEmpty' }
+    $a = ([string]$Alias).Trim()
+    if ($a.Length -gt 32) { return 'AliasTooLong' }
+    if ($a -notmatch '^[A-Za-z0-9._+-]+$') { return 'AliasBadChar' }
+    $reserved = @('scm', 'scm-term', 'sconfig', 'cmd', 'powershell', 'pwsh', 'exit', 'start',
+                  'call', 'echo', 'set', 'rem', 'type', 'copy', 'del', 'dir', 'cd', 'md', 'rd',
+                  'path', 'title', 'pause', 'cls', 'ver', 'vol')
+    if ($reserved -contains $a.ToLower()) { return 'AliasReserved' }
+    return 'OK'
+}
+
+function Install-GuiReadyProgramCommand {
+    # 写一个 <别名>.cmd 垫片。返回 [pscustomobject]@{ Ok; Code; Target }。
+    param(
+        [Parameter(Mandatory = $true)][string]$Alias,
+        [Parameter(Mandatory = $true)][string]$ExePath,
+        [string]$Arguments = ''
+    )
+    $code = Test-GuiReadyCommandAlias -Alias $Alias
+    if ($code -ne 'OK') { return [pscustomobject]@{ Ok = $false; Code = $code; Target = '' } }
+    if (-not (Test-Path -LiteralPath $ExePath)) { return [pscustomobject]@{ Ok = $false; Code = 'ExeMissing'; Target = '' } }
+
+    $name   = ([string]$Alias).Trim()
+    $target = Get-GuiReadyProgramCommandPath -Alias $name
+
+    # 同名文件存在、且不是本工具写的 → 不覆盖（可能是用户自己的命令）
+    if (Test-Path -LiteralPath $target) {
+        $cur = ''
+        try { $cur = [System.IO.File]::ReadAllText($target) } catch { }
+        if ($cur -notmatch 'ServerCoreManager: program command') {
+            return [pscustomobject]@{ Ok = $false; Code = 'Occupied'; Target = $target }
+        }
+    }
+
+    # start 的第一个参数必须是空标题 ""，否则 start 会把带引号的路径当成窗口标题
+    $cmd = 'start "" "' + $ExePath + '"'
+    if ($Arguments) { $cmd = $cmd + ' ' + $Arguments }
+    $lines = @(
+        '@echo off',
+        'rem ServerCoreManager: program command (managed by ServerCoreManager)',
+        ('rem bound-to: ' + $ExePath),
+        $cmd
+    )
+    # 与 scm.cmd 一样用 ANSI 写：cmd 按进程代码页解析批处理，中文路径必须落在系统 ANSI 页里
+    $content = ($lines -join "`r`n") + "`r`n"
+    try {
+        [System.IO.File]::WriteAllText($target, $content, [System.Text.Encoding]::Default)
+        return [pscustomobject]@{ Ok = $true; Code = 'OK'; Target = $target }
+    } catch {
+        return [pscustomobject]@{ Ok = $false; Code = 'WriteFailed'; Target = $target }
+    }
+}
+
+function Remove-GuiReadyProgramCommand {
+    # 只删本工具写的垫片；不是我们的（没有标记行）一律不碰。
+    param([Parameter(Mandatory = $true)][string]$Alias)
+    $name = ([string]$Alias).Trim()
+    if (-not $name) { return $true }
+    $target = Get-GuiReadyProgramCommandPath -Alias $name
+    if (-not (Test-Path -LiteralPath $target)) { return $true }
+    try {
+        $cur = [System.IO.File]::ReadAllText($target)
+        if ($cur -notmatch 'ServerCoreManager: program command') { return $false }
+        Remove-Item -LiteralPath $target -Force -ErrorAction Stop
+        return $true
+    } catch { return $false }
+}
+
 function Get-GuiReadyCommandTemplate {
     param([Parameter(Mandatory = $true)][string]$ToolRoot, [string]$Name = 'scm')
 

@@ -1222,6 +1222,7 @@ $lstApps.ForeColor = $Pal.Text
 [void]$lstApps.Columns.Add('路径', 400)
 [void]$lstApps.Columns.Add('启动参数', 190)
 [void]$lstApps.Columns.Add('兼容结论', 120)
+[void]$lstApps.Columns.Add('命令', 90)
 $pageApp.Controls.Add($lstApps)
 
 $pnlAppActions           = New-Object System.Windows.Forms.FlowLayoutPanel
@@ -1242,6 +1243,11 @@ $pnlAppActions.Controls.Add($btnAppRun)
 $btnAppArgs = New-FlatButton -Text '设置参数…' -Width 110 -Height 38
 $btnAppArgs.Margin = New-Object System.Windows.Forms.Padding(0, 0, 10, 8)
 $pnlAppActions.Controls.Add($btnAppArgs)
+
+# 给这个程序绑一个终端命令（例如微信绑 wx，敲 wx 就打开它）
+$btnAppCmd = New-FlatButton -Text '绑定命令…' -Width 110 -Height 38
+$btnAppCmd.Margin = New-Object System.Windows.Forms.Padding(0, 0, 10, 8)
+$pnlAppActions.Controls.Add($btnAppCmd)
 
 $btnAppPersist = New-FlatButton -Text '后台常驻' -Width 110 -Height 38
 $btnAppPersist.Margin = New-Object System.Windows.Forms.Padding(0, 0, 10, 8)
@@ -4288,6 +4294,13 @@ function Get-ProgramArg {
     return ''
 }
 
+function Get-ProgramCmd {
+    # 绑定的终端命令（别名）。没绑过就返回空串。
+    param($Item)
+    if ($Item -and $Item.PSObject.Properties['Cmd'] -and $Item.Cmd) { return [string]$Item.Cmd }
+    return ''
+}
+
 function Refresh-ProgramList {
     $lstApps.BeginUpdate()
     $lstApps.Items.Clear()
@@ -4306,6 +4319,7 @@ function Refresh-ProgramList {
         [void]$it.SubItems.Add([string]$p.Path)
         [void]$it.SubItems.Add((Get-ProgramArg -Item $p))
         [void]$it.SubItems.Add($verdict)
+        [void]$it.SubItems.Add((Get-ProgramCmd -Item $p))
         if ($verdict -match '不支持') { $it.ForeColor = $Pal.Err }
         elseif ($verdict -match '建议参数' -or $verdict -match '不存在') { $it.ForeColor = $Pal.Warn }
         $it.Tag = $p
@@ -4414,6 +4428,67 @@ $btnAppArgs.Add_Click({
     Save-Programs
     Refresh-ProgramList
     Append-GuiLog -Line ('[OK] 已保存启动参数: {0} -> "{1}"' -f $it.Name, $it.Args)
+})
+
+$btnAppCmd.Add_Click({
+    # 绑/解绑终端命令：往 System32 写（或删）一个 <别名>.cmd 垫片。
+    # 实现见 lib\GuiReady.Command.ps1 的 Install/Remove-GuiReadyProgramCommand。
+    $it = Get-SelectedProgram
+    if (-not $it) { return }
+    try { Add-Type -AssemblyName Microsoft.VisualBasic -ErrorAction Stop } catch { }
+    $cur = Get-ProgramCmd -Item $it
+
+    $tip = '在终端里输入什么就能打开它？' + [Environment]::NewLine +
+           '只允许字母、数字、点、下划线、加号、减号（例如 wx、ps、notepad2）；留空表示解除绑定。' + [Environment]::NewLine + [Environment]::NewLine +
+           ('程序：' + $it.Path)
+    try {
+        $new = [Microsoft.VisualBasic.Interaction]::InputBox($tip, ('绑定终端命令 - ' + $it.Name), $cur)
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show('无法弹出输入框。', '提示', 'OK', 'Warning') | Out-Null
+        return
+    }
+    $new = ([string]$new).Trim()
+
+    # 别名换了 → 先把旧的解除掉，免得留一个指向本程序的僵尸命令
+    if ($cur -and $cur -ne $new) { [void](Remove-GuiReadyProgramCommand -Alias $cur) }
+
+    if (-not $new) {
+        $it.Cmd = ''
+        Save-Programs
+        Refresh-ProgramList
+        Append-GuiLog -Line ('[OK] 已解除终端命令绑定: ' + $it.Name)
+        return
+    }
+
+    $r = Install-GuiReadyProgramCommand -Alias $new -ExePath ([string]$it.Path) -Arguments (Get-ProgramArg -Item $it)
+    if (-not $r.Ok) {
+        $msg = '绑定失败。'
+        switch ([string]$r.Code) {
+            'AliasEmpty'    { $msg = '命令名不能为空。' }
+            'AliasTooLong'  { $msg = '命令名太长（上限 32 个字符）。' }
+            'AliasBadChar'  { $msg = '命令名只能包含字母、数字、点、下划线、加号、减号。' }
+            'AliasReserved' { $msg = '这是系统/工具的保留命令名（如 cmd、powershell、scm、sconfig），换一个。' }
+            'ExeMissing'    { $msg = '程序文件不存在，先确认路径。' }
+            'Occupied'      { $msg = ('System32 里已经有同名的 ' + $new + '.cmd，而且不是本工具写的，不覆盖。') }
+            default         { $msg = ('写入失败：' + $r.Code) }
+        }
+        [System.Windows.Forms.MessageBox]::Show($msg, '绑定失败', 'OK', 'Warning') | Out-Null
+        Append-GuiLog -Line ('[WARN] 绑定终端命令失败(' + $r.Code + '): ' + $new)
+        return
+    }
+
+    $it.Cmd = $new
+    Save-Programs
+    Refresh-ProgramList
+    Append-GuiLog -Line ('[OK] 已绑定终端命令: 输入 "' + $new + '" 即可打开 ' + $it.Name)
+    Append-GuiLog -Line ('     命令文件: ' + $r.Target)
+    try {
+        [System.Windows.Forms.MessageBox]::Show(
+            ('绑好了：在 cmd 或 PowerShell 里输入 ' + $new + ' 回车就会打开它。' + [Environment]::NewLine + [Environment]::NewLine +
+             ('命令文件：' + $r.Target) + [Environment]::NewLine +
+             '（刚绑的命令要新开一个终端窗口才生效；同一个窗口里刷新 PATH 不会重新扫命令表。）'),
+            '绑定成功', 'OK', 'Information') | Out-Null
+    } catch { }
 })
 
 $btnAppPersist.Add_Click({
