@@ -1315,7 +1315,9 @@ function Initialize-UiFadeTimer {
     if ($script:UiFadeTimer) { return }
     try {
         $t = New-Object System.Windows.Forms.Timer
-        $t.Interval = 16          # ≈60fps
+        # 40ms 一帧够用了：入场只是"由底色渐亮到本色"，60fps 换来的视觉收益很小，
+        # 但在 Server Core 的软件渲染下每次 ForeColor 都是一次重绘 —— 实测这是切页卡的一条来源。
+        $t.Interval = 40
         $t.Add_Tick({
             try {
                 $items = @($script:UiFadeItems)

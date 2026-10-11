@@ -907,6 +907,13 @@ function Set-GuiSidebarMode {
             return
         }
 
+        # 同一个模块内部切页时不要重建分类列。
+        # 每次重建都要 Dispose/新建一批自绘 Panel 并重设 Region，而 Region 走的是 GDI+
+        # 路径计算 —— 在 Server Core 的软件渲染下这一下很明显（实测"切页卡"的一条来源）。
+        $__want = [string]$mod.Key
+        if ($pnlNavCats.Visible -and ([string]$script:CatsModule) -eq $__want) { return }
+        $script:CatsModule = $__want
+
         # 重建分类项：最多 5 项，代价可忽略；省掉一堆「哪个模块的第几项」索引状态
         foreach ($c in @($pnlNavCats.Controls)) { try { $c.Dispose() } catch { } }
         $script:CatButtons = @()
@@ -941,6 +948,7 @@ function Enter-GuiModule {
 $script:NavButtons = @()
 $script:CatButtons = @()
 $script:GuiModuleLastPage = @{}
+$script:CatsModule = ''      # 分类侧栏当前正在显示哪个模块（用来避免同模块内切页时重建）
 
 # 侧栏顶部的分类面板：与模块列表同处一格，靠显隐互斥（HMOL 的做法）
 $pnlNavCats           = New-Object System.Windows.Forms.Panel
