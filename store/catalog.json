@@ -412,7 +412,7 @@
         "免安装 ZIP 版会 APPCRASH，没有窗口",
         "本工具 v1.1.0 起已把 Windows Terminal 相关功能全部移除"
       ],
-      "alternatives": ["windowsterminal-alternative-note"],
+      "alternatives": [],
       "tested_on": ["Server 2025 Core"],
       "popularity": 60,
       "contributor": "",
