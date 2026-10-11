@@ -1779,17 +1779,31 @@ $pillStoreState          = New-Pill -Text '就绪' -Kind 'Neutral'
 $pillStoreState.Location = New-Object System.Drawing.Point(618, 8)
 $pnlStoreSearch.Controls.Add($pillStoreState)
 
+# ---- 界面类型筛选行（按钮由 Update-StoreUiFilter 动态生成）----
+# 用户要求：商店里的工具再按"跑起来要不要图形环境"分一次类（CLI / TUI / GUI）。
+# cli/tui 在 Server Core 上本来就能跑，gui 才需要 FOD —— 这一维比场景分类更贴近"能不能用"。
+$pnlStoreFilter           = New-Object System.Windows.Forms.Panel
+$pnlStoreFilter.Location  = New-Object System.Drawing.Point(0, 144)
+$pnlStoreFilter.Size      = New-Object System.Drawing.Size(900, 32)
+$pnlStoreFilter.Anchor    = 'Top,Left,Right'
+$pnlStoreFilter.BackColor = $Pal.Bg
+$pageStore.Controls.Add($pnlStoreFilter)
+
+$lblStoreFilter          = New-Label -Text '界面类型' -Size 9.5 -Color Hint
+$lblStoreFilter.Location = New-Object System.Drawing.Point(4, 6)
+$pnlStoreFilter.Controls.Add($lblStoreFilter)
+
 $hintStore = New-HintBar -Text '目标场景是刚装好的 Server Core（机上什么都没有），所以本机没有包管理器时**工具会自动先装 Chocolatey**（点搜索就会触发，装完接着搜）。所有安装动作都会写进下方日志；不确定就先按「仅预览」看要执行什么命令。' -Kind 'Blue' -Width 900
-$hintStore.Location = New-Object System.Drawing.Point(0, 144)
+$hintStore.Location = New-Object System.Drawing.Point(0, 180)
 $pageStore.Controls.Add($hintStore)
 
 $barStore           = New-ProgressBar -Width 420 -Height 6 -Indeterminate
-$barStore.Location  = New-Object System.Drawing.Point(0, 182)
+$barStore.Location  = New-Object System.Drawing.Point(0, 218)
 $barStore.Visible   = $false
 $pageStore.Controls.Add($barStore)
 
 $pnlStoreResults             = New-Object System.Windows.Forms.FlowLayoutPanel
-$pnlStoreResults.Location    = New-Object System.Drawing.Point(0, 196)
+$pnlStoreResults.Location    = New-Object System.Drawing.Point(0, 232)
 $pnlStoreResults.Size        = New-Object System.Drawing.Size(896, 248)
 $pnlStoreResults.Anchor      = 'Top,Left,Right,Bottom'
 $pnlStoreResults.FlowDirection = 'TopDown'
@@ -1805,6 +1819,8 @@ $pnlStoreResults.Controls.Add($lblStoreEmpty)
 # ---- 商店页状态 ----
 $script:StoreSources     = @()      # 包管理器检测结果
 $script:StorePills       = @()      # 源状态行的胶囊（重建时一并释放）
+$script:StoreUiFilter    = ''       # 界面类型筛选：'' 全部 | cli | tui | gui
+$script:StoreUiBtns      = @()      # 界面类型筛选按钮（重建时一并释放）
 $script:StoreLocal       = @()      # 本机已装的包名（用来标「已安装」）
 $script:StoreRows        = @()      # 结果行
 $script:StoreDetailRows  = @()      # 工具详情的行（与结果行共用同一块区域）
@@ -1994,22 +2010,63 @@ function Add-StoreRow {
     $script:StoreRows += [pscustomobject]@{ Panel = $row; Name = $lbName; Meta = $lbMeta; Install = $btnIns; Uninstall = $btnUn; Info = $btnInfo; Pill = $pill }
 }
 
+function Update-StoreUiFilter {
+    # 重建 [全部][CLI][TUI][GUI] 四个筛选按钮，当前选中的那个用 Primary 高亮。
+    # 数据来自 catalog 的 ui 字段：它决定这个工具"跑起来要不要图形环境"，
+    # 是本项目在 Server Core 上最该让用户先看到的一维（比场景分类更贴近"能不能用"）。
+    # 注意：按钮上的值先存进 $btn.Tag，点击时读 $this.Tag —— 直接在脚本块里用循环变量 $d
+    # 会被最后一个值覆盖（PowerShell 脚本块按引用捕获变量）。
+    try {
+        foreach ($b in @($script:StoreUiBtns)) { try { $b.Dispose() } catch { } }
+        $script:StoreUiBtns = @()
+        $defs = @(
+            @{ T = '全部'; V = '' },
+            @{ T = 'CLI';  V = 'cli' },
+            @{ T = 'TUI';  V = 'tui' },
+            @{ T = 'GUI';  V = 'gui' }
+        )
+        $x = 76
+        foreach ($d in $defs) {
+            $sel = ($script:StoreUiFilter -eq [string]$d.V)
+            $btn = New-FlatButton -Text $d.T -Kind $(if ($sel) { 'Primary' } else { 'Normal' }) -Width 66 -Height 30
+            $btn.Location = New-Object System.Drawing.Point($x, 1)
+            $btn.Tag      = [string]$d.V
+            $btn.Add_Click({
+                $script:StoreUiFilter = [string]$this.Tag
+                Update-StoreUiFilter
+                Add-StoreCatalogRows | Out-Null
+            })
+            $pnlStoreFilter.Controls.Add($btn)
+            $script:StoreUiBtns += $btn
+            $x += 74
+        }
+    } catch { }
+}
+
 function Add-StoreCatalogRows {
-    # 把本地精选库铺成结果行。返回铺了几行。
+    # 把本地精选库铺成结果行（按当前"界面类型"筛选 + 热度排序）。返回铺了几行。
     #
     # 为什么只铺 install.type = choco 的条目：
     #   安装按钮把 Item.Source 当作 $script:StoreSourceIndex 的键（choco=1 / scoop=2），
     #   而索引里没有 npm/pip —— 铺出来点了"安装"会往动作里传错源。
     #   npm 那些条目先不铺（要铺得先把 npm 接进索引与动作，属下一步）。
+    #
+    # 每次先清空：这个函数会被那排"界面类型"筛选按钮反复调用，不清就会一行行叠上去。
+    Clear-StoreRows
+    Clear-StoreDetail
     $c = Import-GuiReadyStoreCatalog
     if (-not $c.Ok) {
         # 不静默：这里曾经什么都不做也不报错，结果"商店页没铺出精选"查了很久
         try { Append-GuiLog -Line ('[WARN] 精选库不可用: ' + $c.Error + '  path=' + $c.Path) } catch { }
+        $lblStoreEmpty.Visible = $true
+        $lblStoreEmpty.Text    = '精选库不可用（见下方日志）。'
         return 0
     }
 
     $n = 0
-    foreach ($e in @(Search-GuiReadyStore -Limit 60)) {
+    # -Ui 传 $script:StoreUiFilter（'' 全部 / cli / tui / gui）；无关键词时后端按兼容性+热度排，
+    # 所以"全部"= 热门优先，正好是用户要的"自动展示热度较高的工具"。
+    foreach ($e in @(Search-GuiReadyStore -Ui $script:StoreUiFilter -Limit 60)) {
         $itype = ([string]$e.install.type).ToLower()
         if ($itype -ne 'choco') { continue }
         $pkg = [string]$e.install.id
@@ -2031,6 +2088,10 @@ function Add-StoreCatalogRows {
         })
         $n++
     }
+    # 空状态：整个库里没有这个类型，或者被筛没了 —— 要给一句话，不能留一片空白
+    $lblStoreEmpty.Visible = ($n -eq 0)
+    if ($n -eq 0) { $lblStoreEmpty.Text = '这个界面类型下暂时没有精选条目，换个筛选看看。' }
+    Update-StoreRowLayout
     return $n
 }
 
@@ -2352,6 +2413,7 @@ function Start-StoreAction {
 function Show-StorePage {
     # 进页面：先用本地精选库立刻铺一屏（毫秒级），再后台检测包管理器（要起子进程，秒级）。
     # 顺序很重要：以前是空列表等检测，现在是**立刻有内容**。
+    Update-StoreUiFilter
     Add-StoreCatalogRows | Out-Null
     if ($SkipPageHooks) { return }
     if ($script:StoreSources.Count -eq 0 -and -not $script:StoreTask) {
@@ -3712,6 +3774,7 @@ function Update-StoreLayout {
         $lblStoreDesc.Width = $w - 12
         $pnlStoreSrc.Width  = $w
         $pnlStoreSearch.Width = $w
+        $pnlStoreFilter.Width = $w
         $hintStore.Width = $w - 8
         if ($hintStore.Tag) { $hintStore.Tag.Width = $w - 28 }
 
@@ -5439,6 +5502,20 @@ if ($SelfTest) {
         # 精选行要在 Show-StoreResult 之前数：它内部会 Clear-StoreRows 再只填自检假数据，
         # 之后数出来的永远是 2 —— 上一版就是拿这个"2"当"精选没铺出来"的证据，口径错了。
         $storeCatalogN = @($script:StoreRows).Count
+        # 界面类型筛选：把 CLI / TUI / GUI 逐个"点"一遍，验证铺行数按 catalog 的 ui 字段收缩。
+        # 全部 = 12（13 条里 Windows Terminal 不是 choco，铺不出来）；cli/gui 各占一半；tui 目前为 0。
+        $storeUiCounts = @{}
+        foreach ($uv in @('cli', 'tui', 'gui')) {
+            $script:StoreUiFilter = $uv
+            $storeUiCounts[$uv] = [int](Add-StoreCatalogRows)
+        }
+        $script:StoreUiFilter = ''
+        $storeCatalogN = [int](Add-StoreCatalogRows)
+        Write-Host ('  商店筛选: 全部 {0} / CLI {1} / TUI {2} / GUI {3}' -f `
+            $storeCatalogN, $storeUiCounts['cli'], $storeUiCounts['tui'], $storeUiCounts['gui']) -ForegroundColor Green
+        if (($storeUiCounts['cli'] + $storeUiCounts['tui'] + $storeUiCounts['gui']) -ne $storeCatalogN) {
+            Write-Host '  !! 商店筛选自检：三个类型之和 ≠ 全部（ui 过滤把条目丢了或重复了）' -ForegroundColor Red
+        }
         $storeTmp = Join-Path $env:TEMP 'gui-store-selftest.json'
         $storeJson = '{"Mode":"status","Error":"","Items":[' +
             '{"Id":"choco","Name":"Chocolatey","Installed":true,"Version":"2.2.2","Path":"C:\\ProgramData\\chocolatey\\bin\\choco.exe","CanSearch":true,"CanInstall":true,"Note":"自检假数据"},' +

@@ -123,12 +123,17 @@ function Get-GuiReadyStoreScore {
 }
 
 function Search-GuiReadyStore {
-    # 关键词 + 分类 + 兼容性三重过滤。Keyword 为空表示"浏览"（按兼容性 + 热度排）。
+    # 关键词 + 场景分类 + 界面类型 + 兼容性 多重过滤。
+    # Keyword 为空表示"浏览"（按兼容性 + 热度排）。
     # 返回对象数组（已按"相关度 -> 兼容性 -> 热度"排好）。
     param(
         [string]$Keyword = '',
         [string]$Category = '',
         [string]$Compatibility = '',
+        # 界面类型：'' 全部 | cli | tui | gui。这是商店页那排筛选按钮传进来的值。
+        # 之所以单独开一维、而不是塞进 Category：Category 是"场景"（系统/开发/网络…），
+        # Ui 是"跑起来要不要图形环境"，两者是正交的，用户在商店里更常按后者筛。
+        [string]$Ui = '',
         [int]$Limit = 200
     )
 
@@ -138,11 +143,13 @@ function Search-GuiReadyStore {
     $kw = ([string]$Keyword).Trim().ToLower()
     $cat = ([string]$Category).Trim().ToLower()
     $cmp = ([string]$Compatibility).Trim().ToLower()
+    $ui = ([string]$Ui).Trim().ToLower()
 
     $hits = New-Object System.Collections.ArrayList
     foreach ($a in $c.Apps) {
         if ($cat -and ([string]$a.category).ToLower() -ne $cat) { continue }
         if ($cmp -and ([string]$a.compatibility).ToLower() -ne $cmp) { continue }
+        if ($ui -and ([string]$a.ui).ToLower() -ne $ui) { continue }
         $s = Get-GuiReadyStoreScore -Entry $a -Kw $kw
         if ($s -le 0) { continue }
         $pop = 0
@@ -177,15 +184,17 @@ function Resolve-GuiReadyStoreAlternatives {
 }
 
 function Get-GuiReadyStoreStats {
-    # 给界面用的统计：总数 / 各兼容性档数量 / 各分类数量。
+    # 给界面用的统计：总数 / 各兼容性档数量 / 各分类数量 / 各界面类型数量。
     $c = Import-GuiReadyStoreCatalog
-    if (-not $c.Ok) { return [pscustomobject]@{ Total = 0; ByCompat = @{}; ByCategory = @{}; Source = $c.Error } }
-    $bc = @{}; $bcat = @{}
+    if (-not $c.Ok) { return [pscustomobject]@{ Total = 0; ByCompat = @{}; ByCategory = @{}; ByUi = @{}; Source = $c.Error } }
+    $bc = @{}; $bcat = @{}; $bui = @{}
     foreach ($a in $c.Apps) {
         $k = [string]$a.compatibility
         if ($bc.ContainsKey($k)) { $bc[$k]++ } else { $bc[$k] = 1 }
         $k2 = [string]$a.category
         if ($bcat.ContainsKey($k2)) { $bcat[$k2]++ } else { $bcat[$k2] = 1 }
+        $k3 = [string]$a.ui
+        if ($bui.ContainsKey($k3)) { $bui[$k3]++ } else { $bui[$k3] = 1 }
     }
-    return [pscustomobject]@{ Total = @($c.Apps).Count; ByCompat = $bc; ByCategory = $bcat; Source = '' }
+    return [pscustomobject]@{ Total = @($c.Apps).Count; ByCompat = $bc; ByCategory = $bcat; ByUi = $bui; Source = '' }
 }
