@@ -168,65 +168,87 @@ function Convert-HslToColor {
         [int][Math]::Round($r * 255), [int][Math]::Round($g * 255), [int][Math]::Round($b * 255))
 }
 
+# HMOL 深色变体（唯一主题）
+#
+# 色值来源（照抄，不自己发挥）：
+#   D:\F\MO\HMOL\src\HMOL.App\Resources\Colors.xaml        浅色基准令牌
+#   D:\F\MO\HMOL\src\HMOL.App\Theme\ThemeService.cs        深色推导公式（BuildBrushes / DerivePalette）
+# 深色推导公式：
+#   Deep   = Mix(preset.Deep, black, 0.15)   Base = Lighten(preset.Base, 0.18)
+#   Bright = preset.Bright                   Hover = Lighten(preset.Bright, 0.08)
+#   Soft   = Mix(preset.Base, #20262F, 0.42) Faint = Mix(preset.Base, #20262F, 0.20)
+#   Mix(c,t,p)      = c*(1-p) + t*p
+#   Lighten(c,t)    = Mix(c, white, t)
+# 强调色预设取 Default（Deep #2A3A6B / Base #3B55A0 / Bright #4F6FD8）。
+#
+# 字号对照（WPF 用 DIP＝1/96 英寸，WinForms 用 pt＝1/72 英寸，pt = DIP × 0.75）：
+#   HMOL 18 Bold ≈ 13.5pt ｜ 13.5 Bold ≈ 10pt ｜ 12.5 SemiBold ≈ 9.4pt
+#   12 ≈ 9pt ｜ 11.5 ≈ 8.6pt ｜ 11 ≈ 8.25pt ｜ 10.5 SemiBold ≈ 7.9pt
+#
+# 改色只改这里；组件一律走 Token（键名保持不变，页面代码不用动）。
+function Convert-HexToColor {
+    param([string]$Hex)
+    $h = $Hex.TrimStart('#')
+    return [System.Drawing.Color]::FromArgb(
+        [Convert]::ToInt32($h.Substring(0, 2), 16),
+        [Convert]::ToInt32($h.Substring(2, 2), 16),
+        [Convert]::ToInt32($h.Substring(4, 2), 16))
+}
+
 $Pal = @{
-    # ============================== 深色主题（唯一主题）==============================
-    # 为什么只做深色：
-    #   1. 目标场景是 Server Core —— 运维就在深色终端里干活，界面跟终端同调不刺眼；
-    #   2. Server Core 常年缺主题服务/显示个性化组件，浅色界面在远桌面里更晃眼；
-    #   3. 这就是 想法.md 里最早定的那套深色 Token（Base/Surface/Elevated/Overlay + 靛紫主色）。
-    # 取值与 想法.md 4.3 的对应关系写在每行注释里；改色请只改这里，组件一律走 Token。
+    # ---- 强调色（Default 预设的深色推导）----
+    Accent1   = Convert-HexToColor '#24315B'   # Deep   按下 / 深描边
+    Accent2   = Convert-HexToColor '#4F6FD8'   # Bright 主色（主按钮底）
+    Accent3   = Convert-HexToColor '#5D7BDB'   # Hover  提亮（悬停）
+    Accent4   = Convert-HexToColor '#2C3648'   # Nav.ItemActive 选中项底
+    Accent5   = Convert-HexToColor '#242B37'   # Nav.ItemHover  悬停底
 
-    # 主色（靛紫系，往下越亮）
-    Accent1   = Convert-HslToColor 243 0.75 0.59   # 按下 / 描边        ≈ #4F46E5
-    Accent2   = Convert-HslToColor 239 0.84 0.67   # 主色（主按钮底）   ≈ #6366F1
-    Accent3   = Convert-HslToColor 230 0.94 0.82   # 提亮（悬停/选中文字）≈ #A5B4FC
-    Accent4   = Convert-HslToColor 244 0.47 0.20   # 选中项底（深靛）   ≈ #1E1B4B
-    Accent5   = Convert-HslToColor 240 0.30 0.15   # 悬停底 / 更浅的底  ≈ #1B1B33
+    # ---- 语义状态（HMOL 深色：Warn #E0A94A / Danger #E8735F / Success #6FAF63）----
+    Ok        = Convert-HexToColor '#6FAF63'   # Status.Success
+    Warn      = Convert-HexToColor '#E0A94A'
+    Err       = Convert-HexToColor '#E8735F'
+    OkBg      = Convert-HexToColor '#314439'   # Mix(Success, #20262F, 0.78)
+    WarnBg    = Convert-HexToColor '#33291A'   # Status.WarnSoft（HMOL 原值）
+    ErrBg     = Convert-HexToColor '#33211E'   # Status.DangerSoft（HMOL 原值）
 
-    # 语义色（深色背景上要比浅色主题更亮才够对比）
-    Ok        = Convert-HslToColor 160 0.64 0.52   # ≈ #34D399
-    Warn      = Convert-HslToColor 43  0.96 0.56   # ≈ #FBBF24
-    Err       = Convert-HslToColor 0   0.91 0.71   # ≈ #F87171
-    OkBg      = Convert-HslToColor 160 0.40 0.11   # 胶囊/提示条的深色底
-    WarnBg    = Convert-HslToColor 43  0.45 0.12
-    ErrBg     = Convert-HslToColor 0   0.40 0.13
+    # ---- 承载面（HMOL 深色：Window #161A22 / Panel #1D222C / Card #212833 / Sunken #1A1F28）----
+    Bg        = Convert-HexToColor '#161A22'   # Surface.Window
+    Sunken    = Convert-HexToColor '#1A1F28'   # Surface.Sunken：输入框底、进度条轨道
+    Card      = Convert-HexToColor '#212833'   # Surface.Card
+    CardHover = Convert-HexToColor '#283040'   # Surface.CardHover
+    Border    = Convert-HexToColor '#2E3745'   # Border.Default
+    BorderStrong = Convert-HexToColor '#414C5E'  # Border.Strong
+    NavBg     = Convert-HexToColor '#1D222C'   # Surface.Panel（侧栏）
 
-    # 背景层次：Base → Surface → Elevated → Overlay
-    Bg        = Convert-HslToColor 240 0.24 0.05   # Base     ≈ #0A0A0F
-    Sunken    = Convert-HslToColor 240 0.26 0.03   # 凹陷面：输入框底、进度条轨道
-    Card      = Convert-HslToColor 240 0.20 0.08   # Surface  ≈ #12121A
-    CardHover = Convert-HslToColor 240 0.18 0.12   # Elevated ≈ #1A1A24（hover 提亮）
-    Border    = Convert-HslToColor 240 0.16 0.16   # 常规描边
-    BorderStrong = Convert-HslToColor 240 0.15 0.27
-    NavBg     = Convert-HslToColor 240 0.22 0.06   # 侧栏（比 Base 略亮，分出面）
-    Text      = Convert-HslToColor 240 0.20 0.92   # 正文
-    SubText   = Convert-HslToColor 240 0.12 0.65   # 次要文字
-    Hint      = Convert-HslToColor 240 0.10 0.46   # 提示/占位
+    # ---- 文字（HMOL 深色）----
+    Text      = Convert-HexToColor '#E9ECF2'   # Text.Primary
+    SubText   = Convert-HexToColor '#AEB6C6'   # Text.Secondary
+    Hint      = Convert-HexToColor '#7C8496'   # Text.Tertiary
 
-    # 日志面板（比页面更深，读起来是一块独立的"终端区域"）
-    LogBg     = Convert-HslToColor 240 0.24 0.04
-    LogBarBg  = Convert-HslToColor 240 0.20 0.09
-    LogText   = Convert-HslToColor 240 0.15 0.87
+    # ---- 日志面板：比页面更深，读起来是一块独立的"终端区域" ----
+    LogBg     = Convert-HexToColor '#12161D'
+    LogBarBg  = Convert-HexToColor '#1D222C'
+    LogText   = Convert-HexToColor '#D5DCE8'
 
-    # ============================== 外壳与导航（对齐 技术架构与UI实现.md §5.1 / §5.4）==============================
-    # 这一组是"窗口外壳 + 侧栏"专用：圆角浮动卡片之外是更暗的一圈留白（Frame），
-    # 留白里叠投影；卡片里再分标题栏 / 侧栏 / 内容三层。
-    Frame     = Convert-HslToColor 240 0.20 0.075  # 卡片外的留白（比卡片略亮，投影才看得出来）≈ #0F0F17
-    ShellBg   = Convert-HslToColor 240 0.24 0.05   # 圆角卡片本体（= Bg）
-    ShellLine = Convert-HslToColor 240 0.16 0.20   # 卡片 1px 描边
-    TitleBg   = Convert-HslToColor 240 0.22 0.07   # 标题栏
-    TitleLine = Convert-HslToColor 240 0.16 0.15   # 标题栏下沿 1px
+    # ---- 外壳与导航 ----
+    # 留白（Frame）刻意比卡片亮一档：GDI+ 没有模糊阴影，只能叠一层层半透明黑，
+    # 黑叠在黑上什么都看不见 —— 必须让留白比卡片亮，那一圈投影才读得出来。
+    Frame     = Convert-HexToColor '#1B212B'
+    ShellBg   = Convert-HexToColor '#161A22'   # 圆角卡片本体（= Bg）
+    ShellLine = Convert-HexToColor '#2E3745'   # 卡片 1px 描边（Border.Default）
+    TitleBg   = Convert-HexToColor '#1D222C'   # 标题栏（Surface.Panel）
+    TitleLine = Convert-HexToColor '#2E3745'   # 标题栏下沿 1px
 
-    # 导航项三态 + 左侧选中竖条（原来的 New-NavItem 用系统按钮画不出这套观感）
-    NavActiveBg = Convert-HslToColor 244 0.47 0.20   # 选中底（= Accent4）
-    NavHoverBg  = Convert-HslToColor 240 0.30 0.15   # 悬停底（= Accent5）
-    NavText     = Convert-HslToColor 240 0.14 0.76   # 未选中文字（侧栏要看得清，往亮里给）
-    NavTextHi   = Convert-HslToColor 230 0.94 0.82   # 选中文字（= Accent3）
-    NavBar      = Convert-HslToColor 230 0.94 0.82   # 选中竖条
+    # 导航项三态 + 左侧选中竖条（HMOL Nav.* 深色值）
+    NavActiveBg = Convert-HexToColor '#2C3648'   # Nav.ItemActive
+    NavHoverBg  = Convert-HexToColor '#242B37'   # Nav.ItemHover
+    NavText     = Convert-HexToColor '#9AA4B6'   # Nav.Text
+    NavTextHi   = Convert-HexToColor '#8DA1E5'   # Nav.TextActive = Lighten(#4F6FD8, 0.35)
+    NavBar      = Convert-HexToColor '#4F6FD8'   # Nav.Indicator
 
     # 兼容旧命名
-    Accent    = Convert-HslToColor 239 0.84 0.67
-    AccentHi  = Convert-HslToColor 230 0.94 0.82
+    Accent    = Convert-HexToColor '#4F6FD8'
+    AccentHi  = Convert-HexToColor '#5D7BDB'
 }
 
 function New-Font {
@@ -268,6 +290,7 @@ function New-FlatButton {
         $b.Radius = $Radius
         switch ($Kind) {
             'Primary' {
+                # Solid（HMOL OutlineButton）：底 Accent.Bright、悬停 Accent.Hover、白字
                 $b.BackNormal   = $Pal.Accent2
                 $b.BackHover    = $Pal.Accent3
                 $b.BackPress    = $Pal.Accent1
@@ -279,14 +302,18 @@ function New-FlatButton {
                 $b.ForeIdle     = $Pal.Hint
             }
             'Danger' {
-                $b.BackNormal   = $Pal.Card
-                $b.BackHover    = $Pal.ErrBg
+                # Danger（HMOL）：实心红底白字，悬停 DangerHover = (R+24, G-14, B-14)
+                $b.BackNormal   = $Pal.Err
+                $b.BackHover    = [System.Drawing.Color]::FromArgb(
+                                      [Math]::Min(255, [int]$Pal.Err.R + 24),
+                                      [Math]::Max(0,   [int]$Pal.Err.G - 14),
+                                      [Math]::Max(0,   [int]$Pal.Err.B - 14))
                 $b.BackPress    = $Pal.ErrBg
-                $b.BackIdle     = $Pal.Card
-                $b.BorderColor  = $Pal.ErrBg
-                $b.BorderIdle   = $Pal.Border
-                $b.ForeNormal   = $Pal.Err
-                $b.ForeHover    = $Pal.Err
+                $b.BackIdle     = $Pal.ErrBg
+                $b.BorderColor  = $Pal.Err
+                $b.BorderIdle   = $Pal.ErrBg
+                $b.ForeNormal   = [System.Drawing.Color]::White
+                $b.ForeHover    = [System.Drawing.Color]::White
                 $b.ForeIdle     = $Pal.Hint
             }
             'Plain' {
@@ -303,6 +330,8 @@ function New-FlatButton {
                 $b.ForeIdle     = $Pal.Hint
             }
             default {
+                # Outline（HMOL OutlineButton）：底 Surface.Card、描边 Border.Strong；
+                # 悬停 底 Surface.CardHover、文字转 Accent.Base
                 $b.BackNormal   = $Pal.Card
                 $b.BackHover    = $Pal.CardHover
                 $b.BackPress    = $Pal.Accent4
@@ -310,7 +339,7 @@ function New-FlatButton {
                 $b.BorderColor  = $Pal.BorderStrong
                 $b.BorderIdle   = $Pal.Border
                 $b.ForeNormal   = $Pal.Text
-                $b.ForeHover    = $Pal.Text
+                $b.ForeHover    = $Pal.Accent2
                 $b.ForeIdle     = $Pal.Hint
             }
         }
@@ -327,7 +356,8 @@ function New-FlatButton {
 
     $b.Text   = $Text
     $b.Size   = New-Object System.Drawing.Size($Width, $Height)
-    $b.Font   = New-Font -Size 9.5
+    # HMOL OutlineButton 文字 13 DIP ≈ 9.75pt；按下缩到 0.975（HMOL 80ms OutFluent，这里直接到位）
+    $b.Font   = New-Font -Size 9.75
     $b.Cursor = 'Hand'
     Set-Rounded -Control $b -Radius $Radius
     if ($OnClick) { $b.Add_Click($OnClick) }
@@ -356,7 +386,7 @@ function New-IconButton {
     $p.BackColor = $bg
     $p.Cursor    = 'Hand'
     $p.Tag       = @{
-        Radius = $Radius; Base = $bg; Hover = $false
+        Radius = $Radius; Base = $bg; Hover = $false; Press = $false
         Fore = $Pal.SubText; HoverBack = $Pal.Accent5; HoverFore = $Pal.Text
         Icon = $Icon; IconSize = [int]($Size * 0.52)
     }
@@ -369,6 +399,12 @@ function New-IconButton {
             $t = $s.Tag
             $g = $e.Graphics
             $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            # 按下缩到 0.85（HMOL RoundIconButton），只缩放绘制、不动控件尺寸
+            if ($t.Press) {
+                $g.TranslateTransform(($s.Width / 2), ($s.Height / 2))
+                $g.ScaleTransform(0.85, 0.85)
+                $g.TranslateTransform(-($s.Width / 2), -($s.Height / 2))
+            }
             $base = $t.Base
             $fore = $t.Fore
             if ($t.Hover) { $base = $t.HoverBack; $fore = $t.HoverFore }
@@ -382,7 +418,9 @@ function New-IconButton {
         } catch { }
     })
     $p.Add_MouseEnter({ $this.Tag.Hover = $true;  $this.Invalidate() })
-    $p.Add_MouseLeave({ $this.Tag.Hover = $false; $this.Invalidate() })
+    $p.Add_MouseLeave({ $this.Tag.Hover = $false; $this.Tag.Press = $false; $this.Invalidate() })
+    $p.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { $this.Tag.Press = $true;  $this.Invalidate() } })
+    $p.Add_MouseUp({   $this.Tag.Press = $false; $this.Invalidate() })
     if ($OnClick) { $p.Add_Click($OnClick) }
     if ($Tip) {
         try {
@@ -545,7 +583,8 @@ function Get-FlowWrappedHeight {
 # 只用到 user32 的拖动消息与 dwmapi 的圆角偏好 —— 不依赖 WPF、不依赖任何第三方库，
 # Server Core（只有 GDI+）上可用；就算 Add-Type 被策略挡掉，也会自动退回有边框窗口。
 
-$script:ShellMargin = 12
+# 留白 8px（HMOL PanBack.Margin=8）、圆角 12px（HMOL RectForm RadiusX/Y=12）
+$script:ShellMargin = 8
 $script:ShellRadius = 12
 
 if ($script:UiTypesReady) {
@@ -636,12 +675,14 @@ $form.Controls.Add($pnlShell)
 # ---- 标题栏（自绘：图标 + 标题 + 副标题 + 右侧动作 / 窗口按钮）----
 $pnlTitle           = New-Object System.Windows.Forms.Panel
 $pnlTitle.Dock      = 'Top'
-$pnlTitle.Height    = 54
+# 标题栏 44px（HMOL MainWindow 的 Row0 Height=44）
+$pnlTitle.Height    = 44
 $pnlTitle.BackColor = $Pal.TitleBg
 Enable-UiDoubleBuffer -Control $pnlTitle
 $pnlTitle.Add_Paint({
     param($s, $e)
-    try { Draw-UiIcon -Graphics $e.Graphics -Name 'env' -X 18 -Y 17 -Size 21 -Color $Pal.Accent3 } catch { }
+    # 左侧图标：24x24 块内放 20x20（HMOL Margin=16,0,12,0）
+    try { Draw-UiIcon -Graphics $e.Graphics -Name 'env' -X 16 -Y 12 -Size 20 -Color $Pal.Accent2 } catch { }
 })
 $pnlTitle.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Start-ShellDrag } })
 $pnlTitle.Add_MouseMove({ Update-ShellDrag })
@@ -649,27 +690,30 @@ $pnlTitle.Add_MouseUp({ Stop-ShellDrag })
 $pnlTitle.Add_DoubleClick({ Toggle-ShellMax })
 $pnlShell.Controls.Add($pnlTitle)
 
-$lblTitle          = New-Label -Text 'Server Core GUI 就绪工具' -Size 12.5 -Style Bold
-$lblTitle.Location = New-Object System.Drawing.Point(50, 9)
+# 标题：应用名（HMOL 14 SemiBold ≈ 10.5pt），右侧跟版本号（11.5 ≈ 8.6pt，Text.Tertiary）
+$lblTitle          = New-Label -Text 'Server Core GUI 就绪工具' -Size 10.5 -Style Bold
+$lblTitle.Location = New-Object System.Drawing.Point(50, 12)
 $lblTitle.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Start-ShellDrag } })
 $lblTitle.Add_DoubleClick({ Toggle-ShellMax })
 $pnlTitle.Controls.Add($lblTitle)
 
-$lblSub          = New-Label -Text '给 Windows Server Core 补上图形化管理能力' -Size 8.5 -Color Hint
-$lblSub.Location = New-Object System.Drawing.Point(52, 30)
-$lblSub.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Start-ShellDrag } })
-$pnlTitle.Controls.Add($lblSub)
+$lblTitleVer          = New-Label -Text 'v2.0' -Size 8.6 -Color Hint
+$lblTitleVer.Location = New-Object System.Drawing.Point(220, 16)
+$lblTitleVer.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Start-ShellDrag } })
+$pnlTitle.Controls.Add($lblTitleVer)
 
 # 退出（会打开终端）：原来那个大块红色按钮太抢眼，收成标题栏右侧的轻量按钮
 $btnExitBack           = New-FlatButton -Text '打开终端并退出' -Width 120 -Height 30 -Kind Plain
 $pnlTitle.Controls.Add($btnExitBack)
 
 # 窗口按钮：最小化 / 最大化 / 关闭 —— 位置在 Layout-Shell 里按标题栏宽度右对齐
-$btnWinClose = New-IconButton -Icon 'window-close' -Size 32 -Radius 7 -Tip '关闭（会自动打开终端）' -OnClick { Exit-ToCommandLine }
+# 窗口按钮：32x32 + Radius.Pill + 图标 15（HMOL TitleBar 右侧 RoundIconButton Tone=Plain）
+$btnWinClose = New-IconButton -Icon 'window-close' -Size 32 -Radius 16 -Tip '关闭（会自动打开终端）' -OnClick { Exit-ToCommandLine }
 $btnWinClose.Tag.HoverBack = $Pal.ErrBg
 $btnWinClose.Tag.HoverFore = $Pal.Err
-$btnWinMax   = New-IconButton -Icon 'window-max' -Size 32 -Radius 7 -Tip '最大化 / 还原' -OnClick { Toggle-ShellMax }
-$btnWinMin   = New-IconButton -Icon 'window-min' -Size 32 -Radius 7 -Tip '最小化' -OnClick { $form.WindowState = 'Minimized' }
+$btnWinMax   = New-IconButton -Icon 'window-max' -Size 32 -Radius 16 -Tip '最大化 / 还原' -OnClick { Toggle-ShellMax }
+$btnWinMin   = New-IconButton -Icon 'window-min' -Size 32 -Radius 16 -Tip '最小化' -OnClick { $form.WindowState = 'Minimized' }
+foreach ($b in @($btnWinClose, $btnWinMax, $btnWinMin)) { $b.Tag.IconSize = 15 }
 $pnlTitle.Controls.Add($btnWinClose)
 $pnlTitle.Controls.Add($btnWinMax)
 $pnlTitle.Controls.Add($btnWinMin)
@@ -684,34 +728,37 @@ $pnlTitle.Controls.Add($pnlTitleLine)
 # 导航项不是系统按钮，而是一块自绘的面板：圆角底 + 左侧 3px 竖条 + 线性图标 + 文字。
 # 选中态由三样共同表达（底 / 图标与文字颜色 / 左侧竖条），这是参考文档 §5.2 NavItem 的做法；
 # 用系统 Button 画不出这套观感（系统按钮的默认渲染不受 FlatAppearance 完全控制）。
+# 侧栏宽 200（HMOL 内容区 Col0 Width=200）
 $pnlNav           = New-Object System.Windows.Forms.Panel
 $pnlNav.Dock      = 'Left'
-$pnlNav.Width     = 208
+$pnlNav.Width     = 200
 $pnlNav.BackColor = $Pal.NavBg
 $pnlShell.Controls.Add($pnlNav)
 
-$script:NavItemH = 40
-$script:NavStep  = 44
+# 导航项：行高 42、上下 Margin 2 → 步进 46（HMOL NavItem 模板高 42 / Margin=8,2）
+$script:NavItemH = 42
+$script:NavStep  = 46
 $pnlNavTop           = New-Object System.Windows.Forms.Panel
 $pnlNavTop.Dock      = 'Top'
-# 11 个导航项，每项 40 高、步进 44：最后一项 Y=448 + 40 = 488，面板留 496。
-# （页面多，项就得压缩 —— 再高的那套在最小窗口高度下会放不下。）
-$pnlNavTop.Height    = 496
+# 11 项 × 46 + 首项上边距 8 = 514，面板留 520
+$pnlNavTop.Height    = 520
 $pnlNavTop.BackColor = $Pal.NavBg
 $pnlNav.Controls.Add($pnlNavTop)
 
 function New-NavItem {
     param([string]$Text, [string]$PageKey, [int]$Y, [string]$Icon)
+    # 侧栏 200、左右各留 8（HMOL NavItem Margin=8,2）→ 项宽 184
     $w = 184
     $h = $script:NavItemH
     $p = New-Object System.Windows.Forms.Panel
     $p.Size      = New-Object System.Drawing.Size($w, $h)
-    $p.Location  = New-Object System.Drawing.Point(12, $Y)
+    $p.Location  = New-Object System.Drawing.Point(8, $Y)
     $p.BackColor = $Pal.NavBg
     $p.Cursor    = 'Hand'
-    $p.Tag       = @{ Page = $PageKey; Icon = $Icon; Text = $Text; Active = $false; Hover = $false; Radius = 9 }
+    # Radius.Item = 10（HMOL）
+    $p.Tag       = @{ Page = $PageKey; Icon = $Icon; Text = $Text; Active = $false; Hover = $false; Radius = 10 }
     Enable-UiDoubleBuffer -Control $p
-    Set-Rounded -Control $p -Radius 9
+    Set-Rounded -Control $p -Radius 10
 
     $p.Add_Paint({
         param($s, $e)
@@ -728,20 +775,21 @@ function New-NavItem {
                 $brush = New-Object System.Drawing.SolidBrush($bg)
                 try { $g.FillPath($brush, $path) } finally { $brush.Dispose(); $path.Dispose() }
             }
-            # 选中竖条：3px 圆角小条，贴左内边
+            # 选中指示条：3x18 圆角小条，贴项的左内边（HMOL 模板第 0 列就是这 3px）
             if ($t.Active) {
                 $bp = New-UiRoundPath -Width 3 -Height 18 -Radius 2
                 $bb = New-Object System.Drawing.SolidBrush($Pal.NavBar)
                 try {
-                    $g.TranslateTransform(6, [int](($s.Height - 18) / 2))
+                    $g.TranslateTransform(1, [int](($s.Height - 18) / 2))
                     $g.FillPath($bb, $bp)
-                    $g.TranslateTransform(-6, -[int](($s.Height - 18) / 2))
+                    $g.TranslateTransform(-1, -[int](($s.Height - 18) / 2))
                 } finally { $bb.Dispose(); $bp.Dispose() }
             }
 
             $fore = $(if ($t.Active) { $Pal.NavTextHi } else { $Pal.NavText })
+            # 图标 18、左边距 12（HMOL IconSize=18 / Margin=12,0,0,0；前面是 3px 指示条列）
             $isz  = 18
-            Draw-UiIcon -Graphics $g -Name ([string]$t.Icon) -X 18 -Y ([int](($s.Height - $isz) / 2)) -Size $isz -Color $fore
+            Draw-UiIcon -Graphics $g -Name ([string]$t.Icon) -X 15 -Y ([int](($s.Height - $isz) / 2)) -Size $isz -Color $fore
 
             # ⚠ 这里必须先把每个实参算进变量，再调用 DrawText。
             # 直接写 `DrawText($g, $txt, $font, $rect, (FLAGS -bor FLAGS), $color)` 是不行的：
@@ -749,8 +797,10 @@ function New-NavItem {
             # 于是实参整体错位、foreColor 收到的是 TextFormatFlags → 抛类型转换异常，
             # 而异常被 catch 吞掉的表现就是"图标画出来了、文字一个字都没有"（实测踩到）。
             $txt   = [string]$t.Text
-            $font  = $(if ($t.Active) { $script:NavFontBold } else { $script:NavFont })
-            $rect  = New-Object System.Drawing.Rectangle(46, 0, ($s.Width - 54), $s.Height)
+            # HMOL 的 NavItem 选中态只换颜色与指示条，文字不加粗
+            $font  = $script:NavFont
+            # 文字起点 43 = 指示条 3 + 图标左距 12 + 图标 18 + 文字左距 10（HMOL 模板三列）
+            $rect  = New-Object System.Drawing.Rectangle(43, 0, ($s.Width - 55), $s.Height)
             $flags = [System.Windows.Forms.TextFormatFlags]::Left -bor `
                      [System.Windows.Forms.TextFormatFlags]::VerticalCenter -bor `
                      [System.Windows.Forms.TextFormatFlags]::SingleLine -bor `
@@ -765,27 +815,28 @@ function New-NavItem {
     return $p
 }
 
-$script:NavFont     = New-Font -Size 10.5
-$script:NavFontBold = New-Font -Size 10.5 -Style Bold
+# HMOL NavItem 文字 13.5 DIP ≈ 10.1pt
+$script:NavFont     = New-Font -Size 10.1
+$script:NavFontBold = New-Font -Size 10.1 -Style Bold
 
 $navEnv    = New-NavItem -Text '环境'    -PageKey 'env'      -Y 8   -Icon 'env'
-$navApp    = New-NavItem -Text '软件'    -PageKey 'app'      -Y 52  -Icon 'app'
-$navStore  = New-NavItem -Text '商店'    -PageKey 'store'    -Y 96  -Icon 'store'
-$navRole   = New-NavItem -Text '角色'    -PageKey 'role'     -Y 140 -Icon 'role'
-$navMon    = New-NavItem -Text '仪表盘'  -PageKey 'monitor'  -Y 184 -Icon 'monitor'
-$navSec    = New-NavItem -Text '安全'    -PageKey 'security' -Y 228 -Icon 'security'
-$navBeauty = New-NavItem -Text '美化'    -PageKey 'beauty'   -Y 272 -Icon 'beauty'
-$navDsh    = New-NavItem -Text 'AI'      -PageKey 'dsh'      -Y 316 -Icon 'dsh'
-$navTool   = New-NavItem -Text '工具'    -PageKey 'tool'     -Y 360 -Icon 'tool'
-$navMore   = New-NavItem -Text '更多'    -PageKey 'more'     -Y 404 -Icon 'more'
-$navAbout  = New-NavItem -Text '关于'    -PageKey 'about'    -Y 448 -Icon 'about'
+$navApp    = New-NavItem -Text '软件'    -PageKey 'app'      -Y 54  -Icon 'app'
+$navStore  = New-NavItem -Text '商店'    -PageKey 'store'    -Y 100 -Icon 'store'
+$navRole   = New-NavItem -Text '角色'    -PageKey 'role'     -Y 146 -Icon 'role'
+$navMon    = New-NavItem -Text '仪表盘'  -PageKey 'monitor'  -Y 192 -Icon 'monitor'
+$navSec    = New-NavItem -Text '安全'    -PageKey 'security' -Y 238 -Icon 'security'
+$navBeauty = New-NavItem -Text '美化'    -PageKey 'beauty'   -Y 284 -Icon 'beauty'
+$navDsh    = New-NavItem -Text 'AI'      -PageKey 'dsh'      -Y 330 -Icon 'dsh'
+$navTool   = New-NavItem -Text '工具'    -PageKey 'tool'     -Y 376 -Icon 'tool'
+$navMore   = New-NavItem -Text '更多'    -PageKey 'more'     -Y 422 -Icon 'more'
+$navAbout  = New-NavItem -Text '关于'    -PageKey 'about'    -Y 468 -Icon 'about'
 $script:NavButtons = @($navEnv, $navApp, $navStore, $navRole, $navMon, $navSec, $navBeauty, $navDsh, $navTool, $navMore, $navAbout)
 
-$lblVer = New-Label -Text ('v2.0  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.5 -Color Hint
+$lblVer = New-Label -Text ('v2.0  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.25 -Color Hint
 $lblVer.Dock = 'Bottom'
 $lblVer.Height = 30
 $lblVer.TextAlign = 'MiddleLeft'
-$lblVer.Padding = New-Object System.Windows.Forms.Padding(20, 0, 0, 0)
+$lblVer.Padding = New-Object System.Windows.Forms.Padding(16, 0, 0, 0)
 $pnlNav.Controls.Add($lblVer)
 
 # 侧栏右侧的 1px 分隔线：必须在 lblVer 之后加 —— 后加的先停靠，
@@ -797,11 +848,11 @@ $pnlNavLine.BackColor = $Pal.TitleLine
 $pnlNav.Controls.Add($pnlNavLine)
 
 # ---- 右侧内容 + 日志 ----
-# 内容区与日志都在同一个内边距里（18/14），日志默认 190 高、可折叠到只剩标题栏。
+# 内容区与日志都在同一个内边距里（24/16，对齐 HMOL 页面的 24,20,24,16），日志默认 190 高、可折叠到只剩标题栏。
 $pnlRight = New-Object System.Windows.Forms.Panel
 $pnlRight.Dock      = 'Fill'
 $pnlRight.BackColor = $Pal.Bg
-$pnlRight.Padding   = New-Object System.Windows.Forms.Padding(18, 14, 18, 14)
+$pnlRight.Padding   = New-Object System.Windows.Forms.Padding(24, 16, 24, 16)
 $pnlShell.Controls.Add($pnlRight)
 
 # 日志面板（自绘圆角 + 描边；区域靠 Region 裁）
@@ -3499,17 +3550,17 @@ function Show-GuiPage {
     if ($Key -eq 'beauty') { Show-BeautyPage }
     if ($Key -eq 'dsh') { Show-DshPage }
     if ($Key -eq 'tool') { Update-ToolButtons; Update-WacToolGroup }
-    # 页头淡入（对齐参考文档 §5.5 的"进入页面有过渡"；RDP 下只做 5 帧，不费帧）
+    # 页头错峰淡入（HMOL：单块 280ms、步长 22ms、OutFluent）
     if (-not $SkipPageHooks) {
         $hdrs = @()
         try {
             $pg = $script:Pages[$Key]
             foreach ($c in @($pg.Controls)) {
                 if ($c -is [System.Windows.Forms.Label]) { $hdrs += $c }
-                if ($hdrs.Count -ge 2) { break }
+                if ($hdrs.Count -ge 4) { break }
             }
         } catch { }
-        if ($hdrs.Count -gt 0) { Invoke-UiPageFadeIn -Controls $hdrs -Frames 5 }
+        if ($hdrs.Count -gt 0) { Invoke-UiPageFadeIn -Controls $hdrs }
     }
     Update-PageLayout
 }
@@ -4487,17 +4538,21 @@ function Layout-Shell {
         Set-Rounded -Control $pnlShell -Radius $rad
         $pnlShell.Invalidate()
 
-        # 标题栏右侧：窗口按钮从右往左排，退出按钮在它们左边
-        $right = $pnlTitle.ClientSize.Width - 10
+        # 标题栏右侧：窗口按钮从右往左排（HMOL 右侧 Margin=0,0,12,0、按钮间距 4）
+        $right = $pnlTitle.ClientSize.Width - 12
         $top   = [int](($pnlTitle.ClientSize.Height - 32) / 2)
         foreach ($b in @($btnWinClose, $btnWinMax, $btnWinMin)) {
             if (-not $b) { continue }
-            $right -= ($b.Width + 2)
+            $right -= ($b.Width + 4)
             $b.Location = New-Object System.Drawing.Point($right, $top)
         }
-        $right -= 14
+        $right -= 10
         if ($btnExitBack) {
-            $btnExitBack.Location = New-Object System.Drawing.Point(($right - $btnExitBack.Width), ($top + 1))
+            $btnExitBack.Location = New-Object System.Drawing.Point(($right - $btnExitBack.Width), ($top + 2))
+        }
+        # 版本号跟在应用名后面（HMOL：应用名与版本号同一行，间距 8）
+        if ($lblTitleVer -and $lblTitle) {
+            $lblTitleVer.Location = New-Object System.Drawing.Point(($lblTitle.Right + 8), 16)
         }
     } catch { }
 }
@@ -4588,7 +4643,10 @@ $form.Add_Shown({
     # 安全提示弹窗放在最后：界面已经初始化完、也不会挡着初始化。
     # 带 owner（$form）才会显示在主窗口上面；同一个原因只在第一次提示（状态存 state\dir-warning.txt），
     # 免得每次启动都弹一次把人烦到、或者被误当成"卡住了"。
-    if ($script:PendingDirWarning) {
+    # 诊断模式（-SelfTest / -LayoutDump / -UiAudit / -UiShot）一律不弹：
+    # 这些都是无人值守跑一遍就退出的，弹一个模态框会把进程永久卡在那里
+    #（-UiShot 走 $form.Show()，实测就是被这个框卡住的）。
+    if ($script:PendingDirWarning -and -not $SkipPageHooks) {
         $warnFile = Join-Path (Join-Path $toolRoot 'state') 'dir-warning.txt'
         $lastWarn = ''
         try { if (Test-Path -LiteralPath $warnFile) { $lastWarn = [string](Get-Content -LiteralPath $warnFile -Raw -ErrorAction SilentlyContinue) } } catch { }

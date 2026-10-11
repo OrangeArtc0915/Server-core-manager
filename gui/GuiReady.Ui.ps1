@@ -115,13 +115,14 @@ function New-Card {
     }
 
     if ($Title) {
+        # 卡片标题：HMOL SurfaceCard 模板 —— Margin=16,14,16,0、FontSize 13.5 Bold（≈10.1pt）
         $lbl = New-Object System.Windows.Forms.Label
         $lbl.Text      = $Title
-        $lbl.Font      = New-Font -Size 11 -Style Bold
+        $lbl.Font      = New-Font -Size 10.1 -Style Bold
         $lbl.ForeColor = $Pal.Text
         $lbl.BackColor = [System.Drawing.Color]::Transparent
         $lbl.AutoSize  = $true
-        $lbl.Location  = New-Object System.Drawing.Point(14, 13)
+        $lbl.Location  = New-Object System.Drawing.Point(16, 14)
         $card.Controls.Add($lbl)
         $card.Tag.Title = $lbl
     }
@@ -147,14 +148,15 @@ function New-Pill {
     param(
         [string]$Text,
         [string]$Kind = 'Info',      # Info | Success | Warn | Danger | Neutral
-        [int]$Height = 22
+        [int]$Height = 20
     )
 
     $c = Get-UiPillColors -Kind $Kind
     $fg = $c.Fore; $bg = $c.Back
 
-    $font = New-Font -Size 8.5
-    $w    = [int]([System.Windows.Forms.TextRenderer]::MeasureText($Text, $font).Width) + 20
+    # HMOL 胶囊：文字 10.5 DIP SemiBold（≈7.9pt）、内边距 8,2 → 文字两侧各 8
+    $font = New-Font -Size 7.9 -Style Bold
+    $w    = [int]([System.Windows.Forms.TextRenderer]::MeasureText($Text, $font).Width) + 16
     $r    = [int]($Height / 2)
 
     $pill = New-Object System.Windows.Forms.Panel
@@ -208,7 +210,7 @@ function Set-Pill {
             $Pill.Tag.Fore  = $c.Fore
         }
         $Pill.Tag.Text = [string]$Text
-        $w = [int]([System.Windows.Forms.TextRenderer]::MeasureText([string]$Text, $Pill.Font).Width) + 20
+        $w = [int]([System.Windows.Forms.TextRenderer]::MeasureText([string]$Text, $Pill.Font).Width) + 16
         $Pill.Size = New-Object System.Drawing.Size($w, $Pill.Height)
         Set-Rounded -Control $Pill -Radius ([int]($Pill.Height / 2))
         $Pill.Invalidate()
@@ -230,7 +232,8 @@ function New-TextBox {
 
     $host_ = New-Object System.Windows.Forms.Panel
     $host_.Size      = New-Object System.Drawing.Size($Width, $Height)
-    $host_.BackColor = $Pal.Card
+    # HMOL 输入框：底 Surface.Sunken、圆角 Radius.Button=8、聚焦描边转 Accent.Base
+    $host_.BackColor = $Pal.Sunken
     $host_.Tag       = @{ Radius = 8; Focused = $false }
     Enable-UiDoubleBuffer -Control $host_
     Set-Rounded -Control $host_ -Radius 8
@@ -247,9 +250,10 @@ function New-TextBox {
 
     $tb = New-Object System.Windows.Forms.TextBox
     $tb.BorderStyle = 'None'
-    $tb.Font        = New-Font -Size 9.5
+    # HMOL 输入文字 13 DIP ≈ 9.75pt
+    $tb.Font        = New-Font -Size 9.75
     $tb.ForeColor   = $Pal.Text
-    $tb.BackColor   = $Pal.Card
+    $tb.BackColor   = $Pal.Sunken
     $tb.Width       = $Width - 24
     $tb.Location    = New-Object System.Drawing.Point(12, [int](($Height - 20) / 2))
     if ($Text) { $tb.Text = $Text }
@@ -802,6 +806,9 @@ namespace GrGui
         private bool hover;
         private bool pressed;
 
+        // 按下时把绘制缩一点（HMOL OutlineButton 的 0.975）。只缩放绘制，不动 Size / 布局。
+        public double PressScale = 0.975;
+
         public UiButton()
         {
             this.SetStyle(System.Windows.Forms.ControlStyles.UserPaint
@@ -851,6 +858,12 @@ namespace GrGui
         {
             var g = e.Graphics;
             g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            if (pressed && PressScale > 0 && PressScale < 1.0)
+            {
+                g.TranslateTransform(Width / 2f, Height / 2f);
+                g.ScaleTransform((float)PressScale, (float)PressScale);
+                g.TranslateTransform(-Width / 2f, -Height / 2f);
+            }
             System.Drawing.Color back, fore, border;
             if (!Enabled) { back = BackIdle; fore = ForeIdle; border = BorderIdle; }
             else if (pressed) { back = BackPress; fore = ForeHover; border = BorderColor; }
@@ -1169,7 +1182,9 @@ function Invoke-UiShellShadow {
         [int]$Height,
         [int]$Band,
         [int]$Radius = 12,
-        [int]$MaxAlpha = 26
+        # HMOL 的窗口投影是 BlurRadius 22 / Opacity 0.22；GDI+ 只能靠叠同心圆角层近似。
+        # 留白从 12 收到 8 之后层数变少，每层给得更实一点才顶得住同样的观感。
+        [int]$MaxAlpha = 42
     )
     if (-not $Graphics -or $Band -le 0 -or $Width -le 2 -or $Height -le 2) { return }
     try {
@@ -1209,24 +1224,27 @@ function Initialize-UiFadeTimer {
     if ($script:UiFadeTimer) { return }
     try {
         $t = New-Object System.Windows.Forms.Timer
-        $t.Interval = 22
+        $t.Interval = 16          # ≈60fps
         $t.Add_Tick({
             try {
                 $items = @($script:UiFadeItems)
                 if ($items.Count -eq 0) { $script:UiFadeTimer.Stop(); return }
-                $frames = [int]$script:UiFadeFrames
-                if ($frames -lt 1) { $frames = 5 }
-                $script:UiFadeStep++
-                $p = [Math]::Min(1.0, $script:UiFadeStep / [double]$frames)
+                $elapsed = [Environment]::TickCount - [int]$script:UiFadeT0
+                $done = $true
                 foreach ($it in $items) {
-                    $a = $it.Ctl.ForeColor
-                    $b = $it.Target
+                    # 每个控件有自己的延迟（错峰），过了延迟才开始自己那一段
+                    $lt = ($elapsed - $it.Delay) / [double]$it.Duration
+                    if ($lt -lt 0) { $lt = 0 }
+                    if ($lt -lt 1) { $done = $false } else { $lt = 1 }
+                    # Ease.OutFluent：1-(1-t)^3（HMOL）
+                    $p = 1 - [Math]::Pow(1 - $lt, 3)
+                    $a = $it.From; $b = $it.Target
                     $it.Ctl.ForeColor = [System.Drawing.Color]::FromArgb(
                         [int]($a.R + ($b.R - $a.R) * $p),
                         [int]($a.G + ($b.G - $a.G) * $p),
                         [int]($a.B + ($b.B - $a.B) * $p))
                 }
-                if ($p -ge 1.0) {
+                if ($done) {
                     $script:UiFadeTimer.Stop()
                     foreach ($it in $items) { $it.Ctl.ForeColor = $it.Target }
                 }
@@ -1237,23 +1255,33 @@ function Initialize-UiFadeTimer {
 }
 
 function Invoke-UiPageFadeIn {
+    # HMOL 的页面入场：错峰淡入（单块 280ms、同组步长 22ms、延迟上限 220ms，缓动 OutFluent）。
+    # WinForms 的普通控件没有 Opacity，所以这里用"前景色从页面底色渐变到本色"来等效淡入 ——
+    # 动的是颜色不是位置，不会和自适应布局打架，RDP 下也不费帧。
     param(
         [System.Windows.Forms.Control[]]$Controls,
-        [int]$Frames = 5
+        [int]$DurationMs = 280,
+        [int]$StaggerMs = 22
     )
     try {
         if (-not $Controls -or $Controls.Count -eq 0) { return }
         $items = @()
+        $i = 0
         foreach ($c in $Controls) {
-            if ($c -and $c.Parent) { $items += [pscustomobject]@{ Ctl = $c; Target = $c.ForeColor } }
+            if ($c -and $c.Parent) {
+                $items += [pscustomobject]@{
+                    Ctl = $c; Target = $c.ForeColor; From = $Pal.Bg
+                    Delay = [Math]::Min($i * $StaggerMs, 220); Duration = $DurationMs
+                }
+                $i++
+            }
         }
         if ($items.Count -eq 0) { return }
         Initialize-UiFadeTimer
         if (-not $script:UiFadeTimer) { return }
-        $script:UiFadeItems  = $items
-        $script:UiFadeFrames = [Math]::Max(1, $Frames)
-        $script:UiFadeStep   = 0
-        foreach ($it in $items) { $it.Ctl.ForeColor = $Pal.Bg }
+        $script:UiFadeItems = $items
+        $script:UiFadeT0    = [Environment]::TickCount
+        foreach ($it in $items) { $it.Ctl.ForeColor = $it.From }
         $script:UiFadeTimer.Stop()
         $script:UiFadeTimer.Start()
     } catch { }
