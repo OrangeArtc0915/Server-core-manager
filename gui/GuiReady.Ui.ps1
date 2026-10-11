@@ -683,6 +683,10 @@ function Update-UiRowLayout {
 function Add-UiRow {
     # 造一行：标题 + 可选副行 + 可选胶囊 + 可选按钮。返回记录对象，页面把它收进数组，
     # 窗口尺寸变化时整批传给 Update-UiRowLayout 重排。
+    #
+    # 样式照 HMOL 的列表行：**独立的凹陷条**（底 Surface.Sunken、圆角 Radius.Item=10、
+    # Padding 10,8、行间距 6），不描边；标题 12.5 DIP≈9.4pt SemiBold、
+    # 副行 11 DIP≈8.25pt Tertiary 且上边距 3。
     param(
         [Parameter(Mandatory = $true)][System.Windows.Forms.Control]$Container,
         [Parameter(Mandatory = $true)][string]$Title,
@@ -690,24 +694,41 @@ function Add-UiRow {
         [string]$PillText = '', [string]$PillKind = 'Neutral',
         [string]$BtnText = '', [string]$BtnKind = 'Normal',
         [hashtable]$BtnTag = $null, [scriptblock]$BtnClick = $null,
-        [int]$Height = 52,
-        [double]$TitleSize = 9.5,
+        [int]$Height = 56,
+        [double]$TitleSize = 9.4,
         [int]$MarginBottom = 6
     )
 
     $rowW = Get-UiRowWidth -Container $Container
-    $row  = New-Card -Width $rowW -Height $Height -Radius 10
-    $row.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, $MarginBottom)
+    $row  = New-Object System.Windows.Forms.Panel
+    $row.Size      = New-Object System.Drawing.Size($rowW, $Height)
+    $row.BackColor = $Pal.Sunken
+    $row.Margin    = New-Object System.Windows.Forms.Padding(0, 0, 0, $MarginBottom)
+    $row.Tag       = @{ Radius = 10; Fill = $Pal.Sunken; HoverBg = $Pal.Sunken }
+    Enable-UiDoubleBuffer -Control $row
+    Set-Rounded -Control $row -Radius 10
+    $row.Add_Paint({
+        param($s, $e)
+        try {
+            $g = $e.Graphics
+            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $path = New-UiRoundPath -Width $s.Width -Height $s.Height -Radius $s.Tag.Radius
+            $br = New-Object System.Drawing.SolidBrush($s.BackColor)
+            try { $g.FillPath($br, $path) } finally { $br.Dispose(); $path.Dispose() }
+        } catch { }
+    })
 
+    # 单行行高时标题垂直居中；双行（有 Meta）时标题贴顶一点
+    $titleY = $(if ($Meta) { 10 } else { [int][Math]::Max(6, (($Height - 19) / 2)) })
     $lb = New-Label -Text $Title -Size $TitleSize -Style Bold -Width ($rowW - 240)
-    $lb.Location = New-Object System.Drawing.Point(12, [int][Math]::Max(6, (($Height - 34) / 2)))
+    $lb.Location = New-Object System.Drawing.Point(10, $titleY)
     $row.Controls.Add($lb)
 
     $lm = $null
     if ($Meta) {
-        $lm = New-Label -Text $Meta -Size 8.5 -Color Hint -Width ($rowW - 240)
-        $lm.Height = 34
-        $lm.Location = New-Object System.Drawing.Point(12, ($lb.Top + 20))
+        $lm = New-Label -Text $Meta -Size 8.25 -Color Hint -Width ($rowW - 240)
+        $lm.Height = 17
+        $lm.Location = New-Object System.Drawing.Point(10, ($titleY + 19 + 3))
         $row.Controls.Add($lm)
     }
 
