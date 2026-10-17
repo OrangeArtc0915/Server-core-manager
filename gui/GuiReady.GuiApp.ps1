@@ -3961,7 +3961,7 @@ function Clear-EnvCache {
 }
 
 function Get-EnvCardData {
-    param([switch]$Force)
+    param([switch]$Force, [switch]$Fast)
 
     if (-not $Force -and $script:EnvCacheData -and ((Get-Date) - $script:EnvCacheTime).TotalSeconds -lt $script:EnvCacheTtlSec) {
         return $script:EnvCacheData
@@ -3973,8 +3973,26 @@ function Get-EnvCardData {
     }
     try { $d.Static    = Get-GuiReadyStatic } catch { }
     try { $d.Profile   = Get-GuiReadyOsProfile -Static $d.Static } catch { }
-    try { $d.Cap       = Get-GuiReadyCapability } catch { }
-    try { $d.DllScan   = Get-GuiReadyDllScan } catch { }          # 只扫一次，两张卡片共用
+    try { $d.DllScan   = Get-GuiReadyDllScan } catch { }
+    if ($Fast) {
+        # 快速路径（自检 / 布局诊断）：DISM 的 Get-WindowsCapability 首次查询在这台
+        # Server Core 上实测 >90s（通配符更久），会把自检拖到超时。这里用已经拿到的
+        # 组件扫描结果推断 FOD 状态，并标 Inferred=true —— 与后台探测 fast 阶段同一套规则。
+        $has = @{}
+        foreach ($x in @($d.DllScan)) { if ($x) { $has[[string]$x.Name] = [bool]$x.Exists } }
+        $coreOk = [bool]($has['dwm.exe'] -and $has['dcomp.dll'] -and $has['dwrite.dll'])
+        $d.Cap = [pscustomobject]@{
+            Queried  = $true
+            Inferred = $true
+            Error    = ''
+            Items    = @([pscustomobject]@{
+                Name  = 'ServerCore.AppCompatibility'
+                State = $(if ($coreOk) { 'Installed' } else { 'NotPresent' })
+            })
+        }
+    } else {
+        try { $d.Cap = Get-GuiReadyCapability } catch { }
+    }
     try { $d.DotNet    = Get-GuiReadyDotNetStatus -Fast } catch { }
     try { $d.Sessions  = Get-GuiReadySessionInfo } catch { }
     try { $d.AutoLogon = Get-GuiReadyAutoLogon } catch { }
@@ -3987,11 +4005,11 @@ function Get-EnvCardData {
 }
 
 function Update-EnvCards {
-    param([switch]$Force, $Data)
+    param([switch]$Force, [switch]$Fast, $Data)
     Initialize-EnvCards
     # $Data 是后台探测（或磁盘缓存）的结果；没传就同步查一次（自检 / 布局诊断用这条路）
     if ($null -eq $Data) {
-        $Data = Get-EnvCardData -Force:$Force
+        $Data = Get-EnvCardData -Force:$Force -Fast:$Fast
     } else {
         # 让其它读缓存的地方（例如工具页判断 WAC 是否在跑）也拿到同一份数据
         $script:EnvCacheData = $Data
@@ -4197,8 +4215,10 @@ function Update-EnvCardsFromProbe {
 }
 
 function Refresh-EnvCards {
-    # 自检 / 布局诊断要的是同步、真实的数据，不能起后台进程
-    if ($SelfTest -or $LayoutDump) { Update-EnvCards -Force; return }
+    # 自检 / 布局诊断要的是同步、真实的数据，不能起后台进程。
+    # 但 DISM 的 FOD 精确查询在 Server Core 上首次可能 >90s（实测），会把自检拖到超时；
+    # 这里走快速推断（与后台探测 fast 阶段同规则），精确结果留给正常进入页面时的后台 full 阶段。
+    if ($SelfTest -or $LayoutDump) { Update-EnvCards -Fast; return }
     # 切到「环境」页：先用后台/缓存里的数据渲染，绝不在这里做同步探测
     $obj = Read-EnvProbeResult
     if (-not $obj) { $obj = Read-EnvProbeResult -FromCache }
