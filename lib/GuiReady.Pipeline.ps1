@@ -45,7 +45,7 @@ function Save-GuiReadyPipelineState {
 }
 
 function New-GuiReadyPipelineState {
-    param([string[]]$AppPaths = @(), [switch]$AutoReboot, [int]$MaxReboots = 3)
+    param([string[]]$AppPaths = @(), [switch]$AutoReboot, [int]$MaxReboots = 3, [switch]$SkipGuiTest)
 
     $steps = @()
     foreach ($s in (Get-GuiReadyPipelineSteps)) {
@@ -61,6 +61,7 @@ function New-GuiReadyPipelineState {
         RebootCount = 0
         MaxReboots  = $MaxReboots
         AutoReboot  = [bool]$AutoReboot
+        SkipGuiTest = [bool]$SkipGuiTest
         AppPaths    = @($AppPaths)
         Finished    = $false
         Result      = ''
@@ -163,6 +164,7 @@ function Invoke-GuiReadyPipeline {
         [switch]$AutoReboot,
         [switch]$Resume,
         [switch]$SkipReboot,
+        [switch]$SkipGuiTest,
         [int]$MaxReboots = 3
     )
 
@@ -177,9 +179,12 @@ function Invoke-GuiReadyPipeline {
         }
     }
     if (-not $state) {
-        $state = New-GuiReadyPipelineState -AppPaths $AppPaths -AutoReboot:([bool]$AutoReboot) -MaxReboots $MaxReboots
+        $state = New-GuiReadyPipelineState -AppPaths $AppPaths -AutoReboot:([bool]$AutoReboot) -MaxReboots $MaxReboots -SkipGuiTest:([bool]$SkipGuiTest)
         Save-GuiReadyPipelineState -State $state | Out-Null
     }
+    # 续跑时沿用当初的选择；老 state 没有这个字段时按"跑"处理，保持旧行为
+    $skipGui = [bool]$SkipGuiTest
+    if ($Resume -and $state.PSObject.Properties['SkipGuiTest']) { $skipGui = [bool]$state.SkipGuiTest }
 
     $modeText = '新建'
     if ($Resume) { $modeText = '续跑' }
@@ -312,7 +317,12 @@ function Invoke-GuiReadyPipeline {
                     }
                 }
                 'GuiTest' {
-                    if (Get-Command Start-GuiReadyGuiSelfTest -ErrorAction SilentlyContinue) {
+                    if ($skipGui) {
+                        # GUI 自检会真的建窗口 + 抓图，在 Server Core / 无交互桌面上既慢又容易失败；
+                        # 它不属于"补环境"，需要时到「仪表盘 → 高级设置」里单独跑。
+                        Write-Log '按设置跳过 GUI 能力自检（需要时在「仪表盘 → 高级设置」里单独跑）。' 'INFO'
+                        Set-GuiReadyPipelineStep -State $state -Name $step.Name -Status 'skipped' -Note '按设置跳过'
+                    } elseif (Get-Command Start-GuiReadyGuiSelfTest -ErrorAction SilentlyContinue) {
                         Start-GuiReadyGuiSelfTest -IncludeApps | Out-Null
                         Set-GuiReadyPipelineStep -State $state -Name $step.Name -Status 'done' -Note '已自检'
                     } else {

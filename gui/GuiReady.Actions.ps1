@@ -9,32 +9,34 @@ function Get-GuiReadyActions {
             Id    = 'pipeline-auto'
             Group = '一键流程'
             Name  = '一键就绪（按需装 FOD + 自动重启 + 续跑）'
-            Desc  = '探测 → 按需装 App Compatibility FOD → 自动重启 → 重启后自动续跑 → 复核 → 补 .NET → 查档案 → 诊断 → GUI 自检 → 汇总。全程无需干预。'
+            Desc  = '探测 → 按需装 App Compatibility FOD → 自动重启 → 重启后自动续跑 → 复核 → 补 .NET → 查档案 → 诊断 → 汇总。全程无需干预（GUI 自检默认跳过，需要时在参数里勾选）。'
             Params = @(
                 @{ Name = 'Apps'; Label = '关注程序路径（可空，多个用分号分隔）'; Type = 'Text'; Width = 520 }
+                @{ Name = 'GuiTest'; Label = '包含 GUI 能力自检（会建窗口、明显更慢）'; Type = 'Check'; Default = $false }
             )
             DryRun = $false
             Script = {
                 param($P)
                 $apps = @()
                 if ($P['Apps']) { foreach ($x in ([string]$P['Apps'] -split ';')) { $t = $x.Trim().Trim('"'); if ($t) { $apps += $t } } }
-                Invoke-GuiReadyPipeline -AppPaths $apps -AutoReboot | Out-Null
+                Invoke-GuiReadyPipeline -AppPaths $apps -AutoReboot -SkipGuiTest:(-not [bool]$P['GuiTest']) | Out-Null
             }
         }
         [pscustomobject]@{
             Id    = 'pipeline-noReboot'
             Group = '一键流程'
             Name  = '一键就绪（需要重启时暂停，不自动重启）'
-            Desc  = '与上面相同，但遇到需要重启的步骤会停下来，等你自己重启后到本页点“续跑”。'
+            Desc  = '与上面相同，但遇到需要重启的步骤会停下来，等你自己重启后到本页点“续跑”（GUI 自检默认跳过）。'
             Params = @(
                 @{ Name = 'Apps'; Label = '关注程序路径（可空，多个用分号分隔）'; Type = 'Text'; Width = 520 }
+                @{ Name = 'GuiTest'; Label = '包含 GUI 能力自检（会建窗口、明显更慢）'; Type = 'Check'; Default = $false }
             )
             DryRun = $false
             Script = {
                 param($P)
                 $apps = @()
                 if ($P['Apps']) { foreach ($x in ([string]$P['Apps'] -split ';')) { $t = $x.Trim().Trim('"'); if ($t) { $apps += $t } } }
-                Invoke-GuiReadyPipeline -AppPaths $apps -SkipReboot | Out-Null
+                Invoke-GuiReadyPipeline -AppPaths $apps -SkipReboot -SkipGuiTest:(-not [bool]$P['GuiTest']) | Out-Null
             }
         }
         [pscustomobject]@{
