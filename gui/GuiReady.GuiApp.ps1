@@ -5530,8 +5530,9 @@ if ($UiAudit) {
             $script:SkipPageHooks = $false
             Show-GuiPage -Key $k -SkipCards:$true
             # 等后台查询回来并回填（轮询把消息泵转起来，否则定时器根本不触发）
-            # 上限给足：Server Core 上安全审计要跑十几秒（真机实测 12 秒不够，会误报"没跑完"）
-            $until = (Get-Date).AddSeconds(45)
+            # 上限给足：Server Core 上安全审计要跑十几秒；dsh 状态查询实测 41.6s
+            #（node / pnpm / dsh 三个 npm 命令各自启动都要几秒）。原来给 45s 会误报"没跑完"。
+            $until = (Get-Date).AddSeconds(90)
             while ((Get-Date) -lt $until) {
                 [System.Windows.Forms.Application]::DoEvents()
                 Start-Sleep -Milliseconds 120
