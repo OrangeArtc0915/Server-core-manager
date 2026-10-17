@@ -284,53 +284,18 @@ function Write-GuiReadyConsoleProfileHook {
     # 生成的 PowerShell 代码里可以有 $ompInit / $_ 这种变量而不会被这里提前展开
     # （之前用双引号 here-string + 反引号转义，实测把 $_.Exception.Message 的 $_ 吃掉了，
     #   写出来的 profile 直接语法错误，PowerShell 一启动就报错）
+    $ompCache = Join-Path $bin 'omp-init.ps1'
     $block = @'
 
 # --- __TAG__ (managed block) ---
-# 入口提示：只在真终端里显示（输出被重定向时保持安静，免得污染脚本抓取的输出）
-# 规则是「有什么提示什么」，两头都踩过坑：
-#   1) 无脑提示 scm —— 但 scm 只有跑过「一行命令安装」才有，没装的时候提示等于骗用户
-#      去敲一个不存在的命令（实测被用户抓到）；
-#   2) 反过来「只提示存在的命令」也不行：三个入口一个都没装时一行都不显示，用户会以为
-#      提示功能坏了（实测被抓到）。所以三个入口各自独立判断，有几个提示几个；
-#   3) 光看"命令文件在不在"还会漏一种：装了又被删掉/挪走，scm.cmd 残留在 System32 里，
-#      敲它只会报 Tool entry not found。scm 这一项额外验一次目标入口是否存在。
-function Test-ScmCommandUsable {
-    # 只看"命令文件在不在"不够：工具目录被删掉或挪走之后，System32 里的 scm.cmd 会留下来，
-    # 敲它只会打印 [ERROR] Tool entry not found 然后 pause 在那 ——
-    # 真机实测：一台测试机上就是这个状态（scm.cmd 指向已不存在的 C:\ServerCoreManager）。
-    # 我们生成的 scm.cmd 里一定有一行 set "GRROOT=<工具目录>"，把它读出来确认入口脚本还在。
-    $c = Get-Command scm -ErrorAction SilentlyContinue
-    if (-not $c) { return $false }
-    try {
-        $src = [string]$c.Source
-        if (-not $src -or -not (Test-Path -LiteralPath $src)) { return $true }
-        $m = [regex]::Match([System.IO.File]::ReadAllText($src), 'set\s+"GRROOT=(?<p>[^"]+)"')
-        # 不是我们生成的命令（没有 GRROOT 行）就保持原判断，不去猜人家的东西
-        if (-not $m.Success) { return $true }
-        return (Test-Path -LiteralPath (Join-Path ($m.Groups['p'].Value) 'Start-GuiReadyApp.ps1'))
-    } catch { return $true }
-}
-
-function Show-ScmWelcome {
-    if (Get-Command Sconfig -ErrorAction SilentlyContinue) {
-        Write-Host '  输入 "Sconfig" 返回服务器菜单' -ForegroundColor Yellow
+# 入口提示统一由 AllUsersAllHosts profile 显示（见 Set-GuiReadyConsoleAllUsersWelcome）。
+# 这里只放 oh-my-posh 初始化 —— 两个 profile 各显示一遍会造成提示重复（实测被用户抓到）。
+# 优先用安装时缓存好的 omp-init.ps1：省掉每次启动都调一次 oh-my-posh.exe（实测 0.3~0.6s）。
+if (Test-Path '__OMPINIT__') {
+    try { . '__OMPINIT__' } catch {
+        Write-Host ('[scm] oh-my-posh 初始化失败，已回退默认提示符: ' + $_.Exception.Message) -ForegroundColor Yellow
     }
-    if (Test-ScmCommandUsable) {
-        Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow
-    }
-}
-# 清屏后把提示重新打到最上面（cls / clear 都是 Clear-Host 的别名）
-function global:Clear-Host {
-    # 别用“模块限定名”去调 Clear-Host 兜底：实测 PowerShell 5.1 里那个模块没有这个命令，
-    # 会抛 CouldNotAutoLoadModule 并刷一屏错误。直接用 .NET 的 [Console]::Clear()，
-    # 无模块依赖、也不会递归回到本函数。
-    try { [Console]::Clear() } catch { }
-    if (-not [Console]::IsOutputRedirected) { Show-ScmWelcome }
-}
-if (-not [Console]::IsOutputRedirected) { Show-ScmWelcome }
-if (Test-Path '__POSH__') {
-    # 初始化失败绝不能让 PowerShell 变得不可用（否则会看到“窗口里什么都没有”）
+} elseif (Test-Path '__POSH__') {
     try {
         $ompInit = & '__POSH__' init pwsh --config '__THEME__' 2>$null
         if ($ompInit) { $ompInit | Invoke-Expression }
@@ -341,7 +306,7 @@ if (Test-Path '__POSH__') {
 # --- end managed block ---
 
 '@
-    $block = $block.Replace('__TAG__', $tag).Replace('__POSH__', $posh).Replace('__THEME__', $theme)
+    $block = $block.Replace('__TAG__', $tag).Replace('__OMPINIT__', $ompCache).Replace('__POSH__', $posh).Replace('__THEME__', $theme)
 
     $done = New-Object System.Collections.ArrayList
     foreach ($p in (Get-GuiReadyConsoleProfilePaths)) {
@@ -558,6 +523,13 @@ function global:Show-ScmWelcomeAllUsers {
 }
 if (-not [Console]::IsOutputRedirected) { Show-ScmWelcomeAllUsers }
 
+# 清屏后把提示重新打到最上面（cls / clear 都是 Clear-Host 的别名）。
+# 这条原来在用户级 profile 里，现在统一挪到这里，避免两个 profile 各定义一次。
+function global:Clear-Host {
+    try { [Console]::Clear() } catch { }
+    if (-not [Console]::IsOutputRedirected) { try { Show-ScmWelcomeAllUsers } catch { } }
+}
+
 # Sconfig 是一个全屏 PowerShell 菜单（sconfig.cmd 执行 powershell -Command Invoke-Sconfig），
 # 它自己会 cls，把提示盖住。这里给 Invoke-Sconfig 包一层：菜单退出（例如选 15）后重新打印提示。
 # 只在 Sconfig 自己的会话里做，不影响其它 PowerShell 的启动。
@@ -628,9 +600,12 @@ function Test-GuiReadyConsoleWelcome {
     } catch { }
     try { $o.ScriptExists = (Test-Path -LiteralPath (Join-Path (Get-GuiReadyConsoleRoot) 'scm-welcome.cmd')) } catch { }
     try {
-        $h = Test-GuiReadyConsoleProfileHook
-        if ($h.Hooked -and $h.Path -and (Test-Path -LiteralPath $h.Path)) {
-            $o.ProfileNote = ([System.IO.File]::ReadAllText($h.Path) -match 'Sconfig')
+        # 提示现在写在 AllUsersAllHosts profile 里（用户级 profile 只放 oh-my-posh）
+        foreach ($p in (Get-GuiReadyAllUsersProfilePaths)) {
+            if ((Test-Path -LiteralPath $p) -and ([System.IO.File]::ReadAllText($p) -match 'Sconfig')) {
+                $o.ProfileNote = $true
+                break
+            }
         }
     } catch { }
     return [pscustomobject]$o
@@ -985,6 +960,19 @@ function Install-GuiReadyConsoleTheme {
             Copy-Item -LiteralPath $m.Src -Destination (Join-Path $bin $m.Name) -Force -ErrorAction Stop
             Write-Log ('已复制: ' + $m.Name) 'OK'
         } catch { Write-Log ('复制失败 ' + $m.Name + ': ' + $_.Exception.Message) 'ERROR' }
+    }
+
+    # 5.5) 缓存 oh-my-posh 初始化脚本：profile 直接 dot-source 它，
+    #      省掉每次新开终端都调一次 oh-my-posh.exe（实测 0.3~0.6s）。
+    if (-not $SkipPosh -and $assets.Posh -and $themeSrc) {
+        try {
+            $ompCache = Join-Path $bin 'omp-init.ps1'
+            $init = & $assets.Posh init pwsh --config $themeSrc 2>$null
+            if ($init) {
+                [System.IO.File]::WriteAllText($ompCache, (($init -join "`r`n") + "`r`n"), (New-Object System.Text.UTF8Encoding($true)))
+                Write-Log '已缓存 oh-my-posh 初始化脚本（下次启动更快）' 'OK'
+            }
+        } catch { Write-Log ('缓存 oh-my-posh 初始化失败（不影响使用）: ' + $_.Exception.Message) 'WARN' }
     }
 
     # 内置主题集合也一起带上（bin\themes\*.omp.json）：想换风格时改 profile 里的 --config 即可

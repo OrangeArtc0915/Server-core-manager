@@ -10,19 +10,12 @@ rem process no longer owns a console handle and GetCurrentConsoleFontEx fails.
 rem 1) switch this console to UTF-8; conhost refuses non-CJK fonts while the console code page is 936
 chcp 65001 >nul
 
-rem 2) apply the nerd font to THIS console window (silent, console-attached)
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%BIN%Set-ScmConsoleFont.ps1" -Face "%FONT%" -Size 18 -Quiet
-
 if /I "%~1"=="--probe" goto :probe
 
-rem 3) fastfetch banner (only when present). NOTE: fastfetch uses --key-width, not --key-length
-if exist "%BIN%fastfetch.exe" (
-    "%BIN%fastfetch.exe" --logo windows --key-width 14
-)
-
-rem 4) interactive shell; the PowerShell profile loads oh-my-posh
+rem 2) single PowerShell launch (startup speed): apply the font, show fastfetch, then stay interactive.
+rem    Previously this started PowerShell twice (font helper + interactive shell), costing ~1s extra.
 title SCM Terminal (UTF-8 + Nerd Font)
-powershell.exe -NoExit -NoLogo
+powershell.exe -NoLogo -ExecutionPolicy Bypass -NoExit -Command "& '%BIN%Set-ScmConsoleFont.ps1' -Face '%FONT%' -Size 18 -Quiet; if (Test-Path '%BIN%fastfetch.exe') { & '%BIN%fastfetch.exe' --logo windows --key-width 14 }"
 goto :eof
 
 :probe
