@@ -319,9 +319,6 @@ function Show-ScmWelcome {
     if (Test-ScmCommandUsable) {
         Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow
     }
-    if (Get-Command scm-term -ErrorAction SilentlyContinue) {
-        Write-Host '  输入 "scm-term" 打开美化终端' -ForegroundColor Yellow
-    }
 }
 # 清屏后把提示重新打到最上面（cls / clear 都是 Clear-Host 的别名）
 function global:Clear-Host {
@@ -476,13 +473,12 @@ rem (must stay freestanding - no pipe, no external command, or AutoRun recursion
 doskey cls=cls `$T "%~f0" --force >nul 2>&1
 :show
 echo.
-rem 三个入口各自独立判断，有几个提示几个 —— 与 PowerShell 侧的 profile 用的是同一套规则。
+rem 两个入口各自独立判断，有几个提示几个 —— 与 PowerShell 侧的 profile 用的是同一套规则。
 rem 一律用 if exist 这个 cmd 内建判断 —— 不能用 where/find 之类的**外部命令或管道**，
 rem 否则 AutoRun 会拉起子进程（历史上踩过 cmd 递归把机器拖死）。
 if exist "%SystemRoot%\System32\sconfig.cmd"  echo   __ESC__[93m输入 "Sconfig" 返回服务器菜单__ESC__[0m
-rem "scm" 与 "scm-term" 默认都装在 System32（分别由「一行命令安装」与「一键美化终端」写入）。
+rem "scm" 默认装在 System32（由「一行命令安装」写入）。
 if exist "%SystemRoot%\System32\scm.cmd"      echo   __ESC__[93m输入 "scm" 打开 GUI 工具__ESC__[0m
-if exist "%SystemRoot%\System32\scm-term.cmd" echo   __ESC__[93m输入 "scm-term" 打开美化终端__ESC__[0m
 echo.
 "@
         # ANSI 亮黄（93）需要 VT 支持 —— 「一键美化终端」会设置 HKCU\Console\VirtualTerminalLevel=1
@@ -559,7 +555,6 @@ function global:Show-ScmWelcomeAllUsers {
     if ([Console]::IsOutputRedirected) { return }
     if (Test-Path "$env:SystemRoot\System32\sconfig.cmd")  { Write-Host '  输入 "Sconfig" 返回服务器菜单' -ForegroundColor Yellow }
     if (Test-Path "$env:SystemRoot\System32\scm.cmd")      { Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow }
-    if (Test-Path "$env:SystemRoot\System32\scm-term.cmd") { Write-Host '  输入 "scm-term" 打开美化终端' -ForegroundColor Yellow }
 }
 if (-not [Console]::IsOutputRedirected) { Show-ScmWelcomeAllUsers }
 
