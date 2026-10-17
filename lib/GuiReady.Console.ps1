@@ -555,11 +555,30 @@ function Set-GuiReadyConsoleAllUsersWelcome {
 
 # --- __TAG__ (managed block) ---
 # 入口提示：所有用户生效；只在真终端里显示，输出被重定向时保持安静。
-if (-not [Console]::IsOutputRedirected) {
+function global:Show-ScmWelcomeAllUsers {
+    if ([Console]::IsOutputRedirected) { return }
     if (Test-Path "$env:SystemRoot\System32\sconfig.cmd")  { Write-Host '  输入 "Sconfig" 返回服务器菜单' -ForegroundColor Yellow }
     if (Test-Path "$env:SystemRoot\System32\scm.cmd")      { Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow }
     if (Test-Path "$env:SystemRoot\System32\scm-term.cmd") { Write-Host '  输入 "scm-term" 打开美化终端' -ForegroundColor Yellow }
 }
+if (-not [Console]::IsOutputRedirected) { Show-ScmWelcomeAllUsers }
+
+# Sconfig 是一个全屏 PowerShell 菜单（sconfig.cmd 执行 powershell -Command Invoke-Sconfig），
+# 它自己会 cls，把提示盖住。这里给 Invoke-Sconfig 包一层：菜单退出（例如选 15）后重新打印提示。
+# 只在 Sconfig 自己的会话里做，不影响其它 PowerShell 的启动。
+try {
+    $__scmCmdLine = ([Environment]::GetCommandLineArgs() -join ' ')
+    if ($__scmCmdLine -match 'Invoke-Sconfig') {
+        Import-Module Microsoft.ServerCore.SConfig -ErrorAction SilentlyContinue
+        $global:__scmOrigInvokeSconfig = ${function:Invoke-Sconfig}
+        if ($global:__scmOrigInvokeSconfig) {
+            function global:Invoke-Sconfig {
+                try { & $global:__scmOrigInvokeSconfig @args }
+                finally { try { Show-ScmWelcomeAllUsers } catch { } }
+            }
+        }
+    }
+} catch { }
 # --- end managed block ---
 
 '@
