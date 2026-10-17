@@ -261,7 +261,10 @@ function Install-GuiReadyDesktopDlls {
         $dst = Join-Path $dstDir $n
         if (Test-Path -LiteralPath $dst) {
             $dv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dst)
-            if (-not $Force -and $dv.FileVersion -eq $sv.FileVersion) {
+            # 版本一致就跳过 —— 即使 -Force 也不覆盖：
+            # DispBroker.dll 这类文件可能正被系统（DWM/桌面组件）加载，覆盖会 Access denied，
+            # 而且同版本覆盖没有任何意义。
+            if ($dv.FileVersion -eq $sv.FileVersion) {
                 Write-Log ('已存在且版本一致: ' + $n) 'OK'
                 continue
             }
@@ -281,7 +284,7 @@ function Install-GuiReadyDesktopDlls {
             Write-Log ('已补齐: {0}  {1}' -f $n, $sv.FileVersion) 'OK'
             $copied++
         } catch {
-            Write-Log ('复制失败 {0}: {1}' -f $n, $_.Exception.Message) 'ERROR'
+            Write-Log ('复制失败 {0}: {1}（若文件正被系统占用，请重启后再运行本动作）' -f $n, $_.Exception.Message) 'ERROR'
             $ok = $false
         }
     }
