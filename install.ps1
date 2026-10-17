@@ -23,7 +23,6 @@
   因为 iex 没法传参数，需要改默认值时用环境变量：
       $env:SCM_DEST       = 'D:\SCM'    指定安装目录（默认 C:\Program Files\ServerCoreManager）
       $env:SCM_NO_COMMAND = '1'         不安装 scm 一行命令
-      $env:SCM_DEFENDER_EXCLUSION = '1' 把安装目录加进 Defender 排除（能显著加快冷启动，见下）
       $env:SCM_BRANCH     = 'main'      指定分支（仅下载分支压缩包时用到）
       $env:SCM_MIRROR_GITHUB = 'http://内网镜像'   把 https://github.com 换成你的镜像/内网源
       $env:SCM_MIRROR_GITEE  = 'https://gitee.com/你的账号/你的仓库'  换一个 Gitee 基址镜像
@@ -351,33 +350,21 @@ if (-not $NoCommand) {
     Write-Host ''
 }
 
-# ---------------------------------------------------------------- Defender 排除（可选）
+# ---------------------------------------------------------------- 安全说明：不添加 Defender 排除
 
-# 真机实测（Server Core 2025 / build 26100，全新路径首启动对照实验）：
-#   不加排除 62.1 s  →  加排除 20.4 s，快 67%。冷启动的绝大部分是 Defender
-#   逐个扫描工具目录下的近百个 .ps1 —— 这是环境成本，代码侧优化不掉。
+# 本工具【不会】把安装目录加进 Windows Defender 的排除列表，也不提供这样的开关。
 #
-# 为什么做成"显式选项"而不是安装时自动加：
-#   排除一个目录 = 放行它下面的所有脚本，而这个工具恰恰是"以管理员/SYSTEM 身份
-#   执行工具目录里一切"的（README 有一节专门讲这条安全约束）。替用户静默放开不合适。
-if ($env:SCM_DEFENDER_EXCLUSION -eq '1') {
-    Write-Step '添加 Defender 排除（你显式要求了）...'
-    try {
-        [void](Get-Command Add-MpPreference -ErrorAction Stop)
-        Add-MpPreference -ExclusionPath $Dest -ErrorAction Stop
-        Write-Ok ('已排除: ' + $Dest + '（实测冷启动约快 2/3）')
-        Write-Warn '注意：排除目录等于放行该目录下所有脚本，请确认只有管理员能写这个目录。'
-    } catch {
-        Write-Warn ('添加排除失败（不影响安装）: ' + $_.Exception.Message)
-    }
-    Write-Host ''
-} else {
-    Write-Host '    提示：冷启动慢主要是 Defender 在逐个扫描工具目录（实测约占冷启动的 2/3）。' -ForegroundColor DarkGray
-    Write-Host ('          想加速就在管理员 PowerShell 里执行：') -ForegroundColor DarkGray
-    Write-Host ('            Add-MpPreference -ExclusionPath ''' + $Dest + '''') -ForegroundColor DarkGray
-    Write-Host '          或在安装前设 $env:SCM_DEFENDER_EXCLUSION = ''1''' -ForegroundColor DarkGray
-    Write-Host ''
-}
+# 实测（Server Core 2025 / build 26100）：加排除能把首次启动从 62.1 s 降到 20.4 s，
+# 但排除一个目录 = 让 Defender 不再扫描该目录下的所有脚本，而本工具恰恰是以管理员/
+# SYSTEM 身份执行工具目录里的脚本。服务器上安全与稳定优先，这点启动时间不值得用
+# 一个"永久扫描盲区"去换。
+#
+# 启动慢时的正常处理方式（都不削弱防护）：
+#   1) 首次启动完成后保持工具常驻，后续启动会快很多（系统文件缓存生效）；
+#   2) 确认服务器没有同时跑全盘扫描等重负载任务。
+Write-Host '    安全说明：本工具不会把安装目录加入 Defender 排除（服务器安全优先）。' -ForegroundColor DarkGray
+Write-Host '              首次启动稍慢属于 Defender 的正常扫描，之后会明显变快。' -ForegroundColor DarkGray
+Write-Host ''
 
 # ---------------------------------------------------------------- 收尾
 
