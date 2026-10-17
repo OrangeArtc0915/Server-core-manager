@@ -220,9 +220,22 @@ function Install-GuiReadyDesktopDlls {
     param([switch]$WhatIf, [switch]$Force)
 
     $names   = @('twinui.dll', 'themeui.dll', 'themeservice.dll', 'DispBroker.dll')
-    $srcDir  = Join-Path $script:GuiReadyRoot 'setup\dll\amd64'
-    $dstDir  = Join-Path $env:SystemRoot 'System32'
     $osBuild = [Environment]::OSVersion.Version.Build
+    $dstDir  = Join-Path $env:SystemRoot 'System32'
+    # 多版本目录：Server 2019 / 2022 / 2025 的 DLL 版本不同，必须用同 build 的文件。
+    # 约定：setup\dll\<build>\amd64 放该版本专用；setup\dll\amd64 是默认（当前为 26100）。
+    $cands = @(
+        (Join-Path $script:GuiReadyRoot ('setup\dll\' + $osBuild + '\amd64')),
+        (Join-Path $script:GuiReadyRoot 'setup\dll\amd64')
+    )
+    $srcDir = ''
+    foreach ($c in $cands) {
+        if (Test-Path -LiteralPath $c) { $srcDir = $c; break }
+    }
+    if (-not $srcDir) {
+        Write-Log ('找不到 DLL 源目录（试过 setup\dll\' + $osBuild + '\amd64 与 setup\dll\amd64）。') 'ERROR'
+        return $false
+    }
     $ok = $true
     $copied = 0
     $backup = Join-Path $script:BackupDir ('dll-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
@@ -239,7 +252,8 @@ function Install-GuiReadyDesktopDlls {
         }
         $sv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($src)
         if ([int]$sv.FileBuildPart -ne [int]$osBuild) {
-            Write-Log ('版本不匹配，拒绝复制 {0}: 文件={1}，系统 build={2}' -f $n, $sv.FileVersion, $osBuild) 'ERROR'
+            Write-Log ('版本不匹配，拒绝复制 {0}: 文件 build={1}，系统 build={2}' -f $n, $sv.FileBuildPart, $osBuild) 'ERROR'
+            Write-Log ('  请把 build {0} 的同版本 DLL 放到: setup\dll\{0}\amd64' -f $osBuild) 'INFO'
             $ok = $false
             continue
         }

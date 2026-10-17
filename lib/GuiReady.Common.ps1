@@ -5,6 +5,16 @@ $script:LogDir       = Join-Path $script:GuiReadyRoot 'logs'
 $script:ReportDir    = Join-Path $script:GuiReadyRoot 'reports'
 $script:BackupDir    = Join-Path $script:GuiReadyRoot 'backup'
 
+# TLS 1.2：Server 2019 上 .NET 的默认安全协议可能不包含 TLS 1.2，
+# 会让 Invoke-RestMethod / Invoke-WebRequest 访问 GitHub 等 HTTPS 站点直接失败。
+# 只在缺失时补上，不覆盖用户/组策略已配置的其它协议。
+try {
+    $__sp = [Net.ServicePointManager]::SecurityProtocol
+    if (-not ($__sp -band [Net.SecurityProtocolType]::Tls12)) {
+        [Net.ServicePointManager]::SecurityProtocol = $__sp -bor [Net.SecurityProtocolType]::Tls12
+    }
+} catch { }
+
 foreach ($d in @($script:LogDir, $script:ReportDir, $script:BackupDir)) {
     if (-not (Test-Path -LiteralPath $d)) {
         New-Item -ItemType Directory -Path $d -Force | Out-Null

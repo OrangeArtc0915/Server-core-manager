@@ -130,7 +130,7 @@ function Save-RemoteFile {
         $prevEap = $ErrorActionPreference
         $ErrorActionPreference = 'Continue'
         try {
-            & $curl -L --fail --connect-timeout 15 --retry 3 --retry-delay 3 --retry-all-errors --ssl-no-revoke -s -S -o $Path $Url 2>$null
+            & $curl -L --fail --connect-timeout 15 --retry 3 --retry-delay 3 --ssl-no-revoke -s -S -o $Path $Url 2>$null
         } finally {
             $ErrorActionPreference = $prevEap
         }

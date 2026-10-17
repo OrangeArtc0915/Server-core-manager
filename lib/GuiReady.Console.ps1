@@ -672,10 +672,10 @@ function Install-GuiReadyPowerShell7 {
         } else {
             $useUrl = Get-GuiReadyDownloadUrl -Url $info.Url
             Write-Log ('下载: ' + $useUrl) 'STEP'
-            & (Get-GuiReadyCurlPath) -L --ssl-no-revoke --retry 4 --retry-delay 3 --retry-all-errors -s -S -o $dl $useUrl 2>$null
+            & (Get-GuiReadyCurlPath) -L --ssl-no-revoke --retry 4 --retry-delay 3 -s -S -o $dl $useUrl 2>$null
             if (-not (Test-Path -LiteralPath $dl) -or (Get-Item -LiteralPath $dl).Length -lt 20MB) {
                 Write-Log '镜像没下下来，回退官方地址再试一次...' 'WARN'
-                & (Get-GuiReadyCurlPath) -L --ssl-no-revoke --retry 3 --retry-delay 3 --retry-all-errors -s -S -o $dl $info.Url 2>$null
+                & (Get-GuiReadyCurlPath) -L --ssl-no-revoke --retry 3 --retry-delay 3 -s -S -o $dl $info.Url 2>$null
             }
             if (-not (Test-Path -LiteralPath $dl) -or (Get-Item -LiteralPath $dl).Length -lt 20MB) {
                 Write-Log '下载失败（网络或镜像不可用）。' 'ERROR'
