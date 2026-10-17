@@ -49,7 +49,9 @@ function New-GuiReadyPipelineState {
 
     $steps = @()
     foreach ($s in (Get-GuiReadyPipelineSteps)) {
-        $steps += [pscustomobject]@{ Name = $s.Name; Title = $s.Title; Status = 'pending'; Note = ''; At = '' }
+        # DurationMs：本步耗时（毫秒）。0 表示还没跑过。
+        # 存进 state 而不是只打日志：重启续跑后，前面已跑的步骤耗时仍然保留。
+        $steps += [pscustomobject]@{ Name = $s.Name; Title = $s.Title; Status = 'pending'; Note = ''; At = ''; DurationMs = 0 }
     }
     return [pscustomobject]@{
         StartedAt   = (Get-Date).ToString('s')
@@ -138,7 +140,9 @@ function Show-GuiReadyPipelineState {
             'running'    { '[进行]' }
             default      { '[待做]' }
         }
-        Write-Log ('  {0} {1,-10} {2}  {3}' -f $mark, $s.Title, $s.At, $s.Note) 'INFO'
+        Write-Log ('  {0} {1,-10} {2}  {3}  {4}' -f $mark, $s.Title,
+            $(if ($s.DurationMs -gt 0) { '{0:N1}s' -f ($s.DurationMs / 1000) } else { '-' }),
+            $s.At, $s.Note) 'INFO'
     }
     $task = Get-ScheduledTask -TaskName $Global:GuiReadyPipelineResumeTask -ErrorAction SilentlyContinue
     if ($task) { Write-Log ('续跑任务: 已注册（状态 {0}）' -f $task.State) 'WARN' } else { Write-Log '续跑任务: 未注册' 'INFO' }
@@ -198,6 +202,7 @@ function Invoke-GuiReadyPipeline {
         Write-Log ''
         Write-Log ('===== 步骤 {0}/{1}: {2} =====' -f ($state.StepIndex + 1), $state.Steps.Count, $step.Title) 'HEAD'
         Set-GuiReadyPipelineStep -State $state -Name $step.Name -Status 'running'
+        $stepStart = Get-Date
 
         try {
             switch ($step.Name) {
@@ -318,7 +323,15 @@ function Invoke-GuiReadyPipeline {
                     if (-not $detect) { $detect = Invoke-GuiReadyDetect -Quiet }
                     Write-Head '流程汇总'
                     foreach ($s in $state.Steps) {
-                        Write-Log ('  {0,-10} {1}  {2}' -f $s.Status, $s.Title, $s.Note) 'INFO'
+                        $dur = $(if ($s.DurationMs -gt 0) { '{0,6:N1}s' -f ($s.DurationMs / 1000) } else { '     -' })
+                        Write-Log ('  {0,-9} {1}  {2}  {3}' -f $s.Status, $dur, $s.Title, $s.Note) 'INFO'
+                    }
+                    # 只列真正跑过的步骤，按耗时倒序取前 3 —— 想在"补环境慢"上提速，
+                    # 先得看清时间到底花在哪一段（通常是 FOD 联网下载）。
+                    $slow = @($state.Steps | Where-Object { $_.DurationMs -gt 0 } |
+                              Sort-Object DurationMs -Descending | Select-Object -First 3)
+                    if ($slow.Count -gt 0) {
+                        Write-Log ('  最慢步骤: ' + (($slow | ForEach-Object { '{0} {1:N1}s' -f $_.Title, ($_.DurationMs / 1000) }) -join ' · ')) 'INFO'
                     }
                     Write-Log ''
                     Write-Log $detect.Assessment.Conclusion $(if ($detect.Assessment.RenderStackReady) { 'OK' } else { 'WARN' })
@@ -334,6 +347,15 @@ function Invoke-GuiReadyPipeline {
             Set-GuiReadyPipelineStep -State $state -Name $step.Name -Status 'failed' -Note $_.Exception.Message
         }
 
+        # 每步耗时：慢的时候要能一眼看出卡在哪一段（例如 FOD 下载 vs 环境探测），
+        # 而不是只有一句"补环境很慢"。小于 50ms 的不打日志，免得刷屏。
+        try {
+            $sec = ((Get-Date) - $stepStart).TotalSeconds
+            $step.DurationMs = [int]($sec * 1000)
+            if ($sec -ge 0.05) { Write-Log ('  ↳ 本步耗时 {0:N1}s' -f $sec) 'INFO' }
+            Save-GuiReadyPipelineState -State $state | Out-Null
+        } catch { }
+
         $state.StepIndex++
         Save-GuiReadyPipelineState -State $state | Out-Null
     }
@@ -343,7 +365,9 @@ function Invoke-GuiReadyPipeline {
     $state.Result = if ($failed.Count -eq 0) { '全部完成' } else { ('有 {0} 步失败' -f $failed.Count) }
     Save-GuiReadyPipelineState -State $state | Out-Null
     Unregister-GuiReadyPipelineResumeTask
-    Write-Log ('流程结束: {0}' -f $state.Result) $(if ($failed.Count -eq 0) { 'OK' } else { 'WARN' })
+    $totalSec = 0
+    try { $totalSec = [double]((($state.Steps | Measure-Object -Property DurationMs -Sum).Sum) / 1000) } catch { }
+    Write-Log ('流程结束: {0}（各步合计 {1:N1}s，不含重启等待）' -f $state.Result, $totalSec) $(if ($failed.Count -eq 0) { 'OK' } else { 'WARN' })
     return $state
 }
 
