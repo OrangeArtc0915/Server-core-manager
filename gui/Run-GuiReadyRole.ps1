@@ -46,6 +46,16 @@ function Write-RoleResult {
         $tmp  = $OutFile + '.tmp'
         [System.IO.File]::WriteAllText($tmp, $json, $utf8NoBom)
         Move-Item -LiteralPath $tmp -Destination $OutFile -Force
+        # Also keep a copy in state\role-cache.json: the GUI paints the last known list
+        # immediately on the next visit, then this subprocess refreshes it in background.
+        if (-not $ErrorText -and $Mode -eq 'list') {
+            try {
+                $cache = Join-Path $toolRoot 'state\role-cache.json'
+                $cd = Split-Path -Parent $cache
+                if (-not (Test-Path -LiteralPath $cd)) { New-Item -ItemType Directory -Path $cd -Force | Out-Null }
+                [System.IO.File]::WriteAllText($cache, $json, $utf8NoBom)
+            } catch { }
+        }
     } catch { }
 }
 

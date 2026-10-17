@@ -2881,8 +2881,7 @@ function Update-RoleTick {
 
     $script:RoleSupport = $obj.Support
     $script:RoleItems   = @($obj.Items)
-    Update-RoleStatusRow
-    Show-RoleResult
+    Apply-RoleResult -Obj $obj
     if ($task -eq 'list' -and $script:RoleItems.Count -gt 0) {
         Append-GuiLog -Line ('[INFO] 角色与功能共 {0} 项，已装 {1} 项。' -f $script:RoleItems.Count, @($script:RoleItems | Where-Object { $_.Installed }).Count)
     }
@@ -2908,9 +2907,37 @@ function Start-RoleAction {
     }
 }
 
+function Read-RoleCache {
+    # 读 state\role-cache.json（Run-GuiReadyRole.ps1 每次成功查询后写入）。
+    # 目的：进入角色页先秒显上次结果，不用每次都等子进程（启动 + 查询实测约 2~4 秒）。
+    try {
+        $p = Join-Path (Join-Path $toolRoot 'state') 'role-cache.json'
+        if (-not (Test-Path -LiteralPath $p)) { return $null }
+        $raw = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8)
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+        return ($raw | ConvertFrom-Json)
+    } catch { return $null }
+}
+
+function Apply-RoleResult {
+    # 把一份查询结果（子进程返回 / 磁盘缓存）应用到界面
+    param($Obj)
+    if (-not $Obj) { return }
+    $script:RoleSupport = $Obj.Support
+    $script:RoleItems   = @($Obj.Items)
+    Update-RoleStatusRow
+    Show-RoleResult
+}
+
 function Show-RolePage {
     if ($SkipPageHooks) { return }
     if (-not $script:RoleSupport -and -not $script:RoleTask) {
+        # 先用磁盘缓存秒显，再后台刷新 —— 用户反馈"读取角色列表好慢"。
+        $cache = Read-RoleCache
+        if ($cache -and @($cache.Items).Count -gt 0) {
+            Apply-RoleResult -Obj $cache
+            Append-GuiLog -Line ('[INFO] 角色列表先用上次结果（{0} 项），正在后台刷新…' -f @($cache.Items).Count)
+        }
         Start-RoleQuery -Mode 'list'
     } else {
         Update-RoleStatusRow
