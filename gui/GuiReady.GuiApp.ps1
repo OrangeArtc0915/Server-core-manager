@@ -71,6 +71,7 @@ $script:Actions       = @(Get-GuiReadyActions)
 Add-BootTrace 'lib 模块与动作清单加载完成'
 $script:CurrentAction = $null
 $script:ParamControls = @{}
+$script:ActiveParamMap = $null   # 非空 = 当前动作来自「高级设置」对话框自己的控件表
 $script:Proc          = $null
 $script:OutFile       = ''
 $script:ErrFile       = ''
@@ -878,6 +879,29 @@ function New-NavItem {
     return $p
 }
 
+function Add-PageAdvancedButton {
+    # 在 PageHeader 右侧挂一个「高级设置」入口。
+    # 点击后由 Show-ActionsDialog 按页面传入的分组过滤动作 —— 这样「更多」页就不再是
+    # 一个装着全部 45 个动作的大杂烩，各功能回到各自页面（用户第 37 条的要求）。
+    param(
+        [System.Windows.Forms.Control]$Header,
+        [string]$Title = '高级设置',
+        [string[]]$Groups = @()
+    )
+    if (-not $Header) { return $null }
+    $b = New-FlatButton -Text '高级设置' -Width 92 -Height 28
+    $b.Location = New-Object System.Drawing.Point([Math]::Max(0, ($Header.Width - 94)), 6)
+    $b.Anchor   = 'Top,Right'
+    # 动作分组存进 Tag：点击时读 $this.Tag，不依赖函数局部变量（回调在函数返回后执行）
+    $b.Tag      = @{ Title = $Title; Groups = $Groups }
+    $b.Add_Click({
+        Show-ActionsDialog -Title ([string]$this.Tag.Title) -Groups @($this.Tag.Groups)
+    })
+    $Header.Controls.Add($b)
+    $Header.Tag.Advanced = $b
+    return $b
+}
+
 # HMOL NavItem 文字 13.5 DIP ≈ 10.1pt
 $script:NavFont     = New-Font -Size 10.1
 $script:NavFontBold = New-Font -Size 10.1 -Style Bold
@@ -1209,6 +1233,7 @@ $hdrEnv = New-PageHeader -Title '环境补全' -Subtitle '先看这台机器缺�
 $pageEnv.Controls.Add($hdrEnv)
 $lblEnvHead = $hdrEnv.Tag.Title
 $lblEnvDesc = $hdrEnv.Tag.Sub
+[void](Add-PageAdvancedButton -Header $hdrEnv -Title '环境补全' -Groups @('一键流程', '补给'))
 
 $pnlCards           = New-Object System.Windows.Forms.FlowLayoutPanel
 $pnlCards.Location  = New-Object System.Drawing.Point(0, 56)
@@ -1267,6 +1292,7 @@ $hdrApp = New-PageHeader -Title '软件管理' -Subtitle '把你需要的程序�
 $pageApp.Controls.Add($hdrApp)
 $lblAppHead = $hdrApp.Tag.Title
 $lblAppDesc = $hdrApp.Tag.Sub
+[void](Add-PageAdvancedButton -Header $hdrApp -Title '程序档案' -Groups @('程序档案'))
 
 $lstApps           = New-Object System.Windows.Forms.ListView
 $lstApps.Location  = New-Object System.Drawing.Point(0, 56)
@@ -1578,6 +1604,7 @@ $hdrTool = New-PageHeader -Title '系统工具' -Subtitle 'Server Core 默认没
 $pageTool.Controls.Add($hdrTool)
 $lblToolHead = $hdrTool.Tag.Title
 $lblToolDesc = $hdrTool.Tag.Sub
+[void](Add-PageAdvancedButton -Header $hdrTool -Title '系统工具' -Groups @('Windows Admin Center'))
 
 $script:ToolButtons = New-Object System.Collections.ArrayList
 $script:ToolRows    = New-Object System.Collections.ArrayList
@@ -1663,7 +1690,7 @@ $script:Pages['more'] = $pageMore
 $pnlContent.Controls.Add($pageMore)
 
 # HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
-$hdrMore = New-PageHeader -Title '更多功能' -Subtitle '完整能力都在这里（探测/诊断/补给/会话/档案）。日常只用「环境」和「软件」两页就够。' -Icon 'more' -Width 900
+$hdrMore = New-PageHeader -Title '设置' -Subtitle '开机与登录、持久化启动、登录 Shell。其它高级功能已按功能域放到各自页面的「高级设置」里。' -Icon 'more' -Width 900
 $pageMore.Controls.Add($hdrMore)
 $lblMoreHead = $hdrMore.Tag.Title
 $lblMoreDesc = $hdrMore.Tag.Sub
@@ -2528,6 +2555,7 @@ $hdrRole = New-PageHeader -Title '角色与功能' -Subtitle '图形化装 Windo
 $pageRole.Controls.Add($hdrRole)
 $lblRoleHead = $hdrRole.Tag.Title
 $lblRoleDesc = $hdrRole.Tag.Sub
+[void](Add-PageAdvancedButton -Header $hdrRole -Title '角色与功能' -Groups @('角色与功能'))
 
 $pnlRoleStatus           = New-Object System.Windows.Forms.Panel
 $pnlRoleStatus.Location  = New-Object System.Drawing.Point(0, 56)
@@ -2912,6 +2940,7 @@ $hdrMon = New-PageHeader -Title '仪表盘' -Subtitle '本机资源、关键服�
 $pageMon.Controls.Add($hdrMon)
 $lblMonHead = $hdrMon.Tag.Title
 $lblMonDesc = $hdrMon.Tag.Sub
+[void](Add-PageAdvancedButton -Header $hdrMon -Title '仪表盘' -Groups @('监控与诊断', '探测与诊断'))
 
 $pnlMonCards             = New-Object System.Windows.Forms.FlowLayoutPanel
 $pnlMonCards.Location    = New-Object System.Drawing.Point(0, 56)
@@ -3110,6 +3139,7 @@ $hdrSec = New-PageHeader -Title '安全与合规' -Subtitle '本地可验证的�
 $pageSec.Controls.Add($hdrSec)
 $lblSecHead = $hdrSec.Tag.Title
 $lblSecDesc = $hdrSec.Tag.Sub
+[void](Add-PageAdvancedButton -Header $hdrSec -Title '安全基线' -Groups @('安全与合规'))
 
 $pnlSecBar           = New-Object System.Windows.Forms.Panel
 $pnlSecBar.Location  = New-Object System.Drawing.Point(0, 56)
@@ -3271,6 +3301,7 @@ $hdrBeauty = New-PageHeader -Title '美化与个性化' -Subtitle '把 Server Co
 $pageBeauty.Controls.Add($hdrBeauty)
 $lblBeautyHead = $hdrBeauty.Tag.Title
 $lblBeautyDesc = $hdrBeauty.Tag.Sub
+[void](Add-PageAdvancedButton -Header $hdrBeauty -Title '终端美化' -Groups @('终端美化'))
 
 $pnlBeautyStatus           = New-Object System.Windows.Forms.Panel
 $pnlBeautyStatus.Location  = New-Object System.Drawing.Point(0, 56)
@@ -3440,6 +3471,7 @@ $hdrDsh = New-PageHeader -Title 'AI 辅助（DeepSeek Harness）' -Subtitle '指
 $pageDsh.Controls.Add($hdrDsh)
 $lblDshHead = $hdrDsh.Tag.Title
 $lblDshDesc = $hdrDsh.Tag.Sub
+[void](Add-PageAdvancedButton -Header $hdrDsh -Title 'AI 辅助' -Groups @('AI 辅助'))
 
 $pnlDshStatus           = New-Object System.Windows.Forms.Panel
 $pnlDshStatus.Location  = New-Object System.Drawing.Point(0, 56)
@@ -3718,7 +3750,15 @@ function Update-PageLayout {
             if (-not $h -or -not $h.Parent) { continue }
             $hw = [Math]::Max(240, $h.Parent.ClientSize.Width)
             $h.Width = $hw
-            if ($h.Tag -and $h.Tag.Sub) {
+            if ($h.Tag -and $h.Tag.Advanced) {
+                # 右侧挂了「高级设置」按钮：副标题要让出按钮宽度，
+                # 否则窄屏下长句子会压到按钮上（和之前压出页头边界是同一类问题）。
+                $adv = $h.Tag.Advanced
+                $adv.Left = [Math]::Max(0, ($hw - $adv.Width - 2))
+                if ($h.Tag.Sub) {
+                    $h.Tag.Sub.Width = [Math]::Max(80, ($hw - [int]$h.Tag.GapX - $adv.Width - 14))
+                }
+            } elseif ($h.Tag -and $h.Tag.Sub) {
                 $h.Tag.Sub.Width = [Math]::Max(80, ($hw - [int]$h.Tag.GapX - 10))
             }
         }
@@ -4171,17 +4211,37 @@ $script:ProbeTimer.Interval = 500
 $script:ProbeTimer.Add_Tick({ Update-EnvCardsFromProbe })
 
 function Clear-ParamControls {
-    foreach ($ctl in @($pnlParams.Controls)) { $ctl.Dispose() }
-    $pnlParams.Controls.Clear()
-    $script:ParamControls = @{}
+    param($Panel = $null, $Map = $null)
+    if (-not $Panel) { $Panel = $pnlParams }
+    if (-not $Map)   { $Map   = $script:ParamControls }
+    foreach ($ctl in @($Panel.Controls)) { $ctl.Dispose() }
+    $Panel.Controls.Clear()
+    # 用 Clear() 而不是换新实例：外部（Start-GuiAction）持有的是同一个 hashtable 引用
+    if ($Map -is [hashtable]) { $Map.Clear() }
 }
 
 function Select-GuiAction {
-    param($Action)
-    $script:CurrentAction = $Action
-    $lblActTitle.Text = $Action.Name
-    $lblActDesc.Text  = $Action.Desc
-    Clear-ParamControls
+    # 参数容器可外部传入：设置页用默认（$lblActTitle/$pnlParams/...），
+    # 「高级设置」对话框传自己的一套 —— 同一套渲染逻辑服务两处，不复制参数控件代码。
+    param(
+        $Action,
+        $TitleLabel = $null,
+        $DescLabel  = $null,
+        $ParamPanel = $null,
+        $DryButton  = $null,
+        $ParamMap   = $null
+    )
+    if (-not $TitleLabel) { $TitleLabel = $lblActTitle }
+    if (-not $DescLabel)  { $DescLabel  = $lblActDesc }
+    if (-not $ParamPanel) { $ParamPanel = $pnlParams }
+    if (-not $DryButton)  { $DryButton  = $btnDry }
+    if (-not $ParamMap)   { $ParamMap   = $script:ParamControls }
+
+    $script:CurrentAction  = $Action
+    $script:ActiveParamMap = $ParamMap
+    $TitleLabel.Text = $Action.Name
+    $DescLabel.Text  = $Action.Desc
+    Clear-ParamControls -Panel $ParamPanel -Map $ParamMap
 
     $y = 6
     foreach ($pd in @($Action.Params)) {
@@ -4191,11 +4251,11 @@ function Select-GuiAction {
         if ($req) { $lbText = $lbText + '  *' }
         $lb = New-Label -Text $lbText -Size 9 -Color $(if ($req) { 'Accent3' } else { 'SubText' })
         $lb.Location = New-Object System.Drawing.Point(8, ($y + 4))
-        $pnlParams.Controls.Add($lb)
+        $ParamPanel.Controls.Add($lb)
 
         $w = 320
         if ($pd.ContainsKey('Width')) { $w = [int]$pd.Width }
-        $x = [Math]::Max(230, ($pnlParams.Width - $w - 60))
+        $x = [Math]::Max(230, ($ParamPanel.Width - $w - 60))
         $ctl = $null
         switch ([string]$pd.Type) {
             'Check' {
@@ -4236,8 +4296,8 @@ function Select-GuiAction {
         } catch { }
         $ctl.Location = New-Object System.Drawing.Point($x, $y)
         $ctl.Tag      = $w      # 记住期望宽度，自适应布局时用它右对齐
-        $pnlParams.Controls.Add($ctl)
-        $script:ParamControls[[string]$pd.Name] = $ctl
+        $ParamPanel.Controls.Add($ctl)
+        $ParamMap[[string]$pd.Name] = $ctl
 
         if ($pd.ContainsKey('Browse')) {
             $kind = [string]$pd.Browse
@@ -4258,19 +4318,25 @@ function Select-GuiAction {
                     if ($dlg.ShowDialog() -eq 'OK') { $target.Text = $dlg.FileName }
                 }
             }.GetNewClosure())
-            $pnlParams.Controls.Add($bb)
+            $ParamPanel.Controls.Add($bb)
         }
         $y += 30
     }
-    $btnDry.Enabled = [bool]$Action.DryRun
+    $DryButton.Enabled = [bool]$Action.DryRun
 }
 
 function Get-ParamValues {
+    param($Map = $null)
+    # 没指定就用"当前动作来自哪套控件"：设置页 = $script:ParamControls，
+    # 「高级设置」对话框 = 它自己的 hashtable（Select-GuiAction 时记进 ActiveParamMap）。
+    if (-not $Map) {
+        $Map = $(if ($script:ActiveParamMap) { $script:ActiveParamMap } else { $script:ParamControls })
+    }
     $P = @{}
     if (-not $script:CurrentAction) { return $P }
     foreach ($pd in @($script:CurrentAction.Params)) {
         $n = [string]$pd.Name
-        $ctl = $script:ParamControls[$n]
+        $ctl = $Map[$n]
         if (-not $ctl) { continue }
         switch ([string]$pd.Type) {
             'Check' { $P[$n] = [bool]$ctl.Checked }
@@ -4465,12 +4531,127 @@ function Start-GuiAction {
 $btnRun.Add_Click({ Start-GuiAction -DryRun $false })
 $btnDry.Add_Click({ Start-GuiAction -DryRun $true })
 
+$script:AdvDialog = $null
+function Show-ActionsDialog {
+    # 各页「高级设置」的共用面板：按页面传入的动作分组过滤，非模态（不挡住主界面的日志）。
+    param([string]$Title = '高级设置', [string[]]$Groups = @())
+
+    # 自检 / 布局导出 / UI 审计时不真开窗：审计会"点"每个按钮，
+    # 真开一个窗口会让它在模态循环里卡住，而且也没必要。
+    if ($SkipPageHooks) { return }
+    if ($script:AdvDialog -and -not $script:AdvDialog.IsDisposed) {
+        try { $script:AdvDialog.Activate() } catch { }
+        return
+    }
+    $acts = @($script:Actions | Where-Object { $Groups -contains [string]$_.Group })
+    if ($acts.Count -eq 0) { return }
+
+    $dlg                 = New-Object System.Windows.Forms.Form
+    $dlg.Text            = $Title + ' · 高级设置'
+    $dlg.StartPosition   = 'CenterParent'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox     = $false
+    $dlg.MinimizeBox     = $false
+    $dlg.ShowInTaskbar   = $false
+    $dlg.BackColor       = $Pal.Bg
+    $dlg.ForeColor       = $Pal.Text
+    $dlg.Font            = New-Font -Size 9.5
+    $dlg.ClientSize      = New-Object System.Drawing.Size(840, 470)
+    try { $dlg.Owner = $form } catch { }
+
+    $lst                 = New-Object System.Windows.Forms.ListBox
+    $lst.Location        = New-Object System.Drawing.Point(0, 0)
+    $lst.Size            = New-Object System.Drawing.Size(250, 470)
+    $lst.BorderStyle     = 'None'
+    $lst.BackColor       = $Pal.Card
+    $lst.ForeColor       = $Pal.Text
+    $lst.Font            = New-Font -Size 9.5
+    $lst.IntegralHeight  = $false
+    foreach ($a in $acts) { [void]$lst.Items.Add([string]$a.Name) }
+    $dlg.Controls.Add($lst)
+
+    $right           = New-Object System.Windows.Forms.Panel
+    $right.Location  = New-Object System.Drawing.Point(262, 0)
+    $right.Size      = New-Object System.Drawing.Size(578, 470)
+    $right.BackColor = $Pal.Card
+    $right.Padding   = New-Object System.Windows.Forms.Padding(14)
+    $dlg.Controls.Add($right)
+
+    $lblT          = New-Label -Text '从左侧选一个功能' -Size 11 -Style Bold
+    $lblT.Location = New-Object System.Drawing.Point(14, 14)
+    $right.Controls.Add($lblT)
+
+    $lblD          = New-Label -Text '' -Size 9 -Color SubText -Width 548
+    $lblD.Location = New-Object System.Drawing.Point(16, 42)
+    $lblD.Height   = 54
+    $right.Controls.Add($lblD)
+
+    $pnlP            = New-Object System.Windows.Forms.Panel
+    $pnlP.Location   = New-Object System.Drawing.Point(14, 100)
+    $pnlP.Size       = New-Object System.Drawing.Size(548, 110)
+    $pnlP.AutoScroll = $true
+    $pnlP.BackColor  = $Pal.Bg
+    $right.Controls.Add($pnlP)
+
+    $btnGo          = New-FlatButton -Text '运行' -Width 100 -Height 34 -Kind Primary
+    $btnGo.Location = New-Object System.Drawing.Point(14, 222)
+    $right.Controls.Add($btnGo)
+
+    $btnDryAdv          = New-FlatButton -Text '仅预览' -Width 90 -Height 34
+    $btnDryAdv.Location = New-Object System.Drawing.Point(122, 222)
+    $right.Controls.Add($btnDryAdv)
+
+    $btnClose          = New-FlatButton -Text '关闭' -Width 80 -Height 34
+    $btnClose.Location = New-Object System.Drawing.Point(220, 222)
+    $btnClose.Add_Click({ try { $script:AdvDialog.Close() } catch { } })
+    $right.Controls.Add($btnClose)
+
+    # 用脚本级变量而不是 .GetNewClosure()：事件回调在函数返回后才执行，局部变量已经没了；
+    # 而 GetNewClosure() 会新建模块作用域，脚本里定义的函数（Select-GuiAction 等）在里面看不见。
+    $script:AdvDialog = $dlg
+    $script:AdvActs   = $acts
+    $script:AdvList   = $lst
+    $script:AdvTitle  = $lblT
+    $script:AdvDesc   = $lblD
+    $script:AdvPanel  = $pnlP
+    $script:AdvDry    = $btnDryAdv
+    $script:AdvMap    = @{}
+
+    $lst.Add_SelectedIndexChanged({
+        $i = [int]$script:AdvList.SelectedIndex
+        if ($i -lt 0 -or $i -ge $script:AdvActs.Count) { return }
+        Select-GuiAction -Action $script:AdvActs[$i] -TitleLabel $script:AdvTitle `
+            -DescLabel $script:AdvDesc -ParamPanel $script:AdvPanel `
+            -DryButton $script:AdvDry -ParamMap $script:AdvMap
+    })
+    $btnGo.Add_Click({ Start-GuiAction -DryRun $false })
+    $btnDryAdv.Add_Click({ Start-GuiAction -DryRun $true })
+    $dlg.Add_FormClosed({
+        $script:AdvDialog = $null
+        # 关掉对话框后，把动作上下文还给设置页当前选中的节点，
+        # 免得主窗口的「运行」还在指向对话框里选过的动作。
+        $script:ActiveParamMap = $null
+        try {
+            if ($tree.SelectedNode -and $tree.SelectedNode.Tag) {
+                Select-GuiAction -Action $tree.SelectedNode.Tag
+            }
+        } catch { }
+    })
+
+    if ($lst.Items.Count -gt 0) { $lst.SelectedIndex = 0 }
+    $dlg.Show()
+}
+
 $tree.Add_AfterSelect({
     $n = $tree.SelectedNode
     if ($n -and $n.Tag) { Select-GuiAction -Action $n.Tag }
 })
 
-$groups = @($script:Actions | Group-Object Group)
+# 设置页只保留「开机与登录」这类系统级设置（用户要求：设置里改成开机自启动之类的）。
+# 其余动作按功能域拆到各页的「高级设置」对话框里，见 Add-PageAdvancedButton。
+$script:SettingsGroups = @('会话与登录', '使用与工具')
+$groups = @($script:Actions | Group-Object Group |
+    Where-Object { $script:SettingsGroups -contains [string]$_.Name })
 foreach ($g in $groups) {
     $node = New-Object System.Windows.Forms.TreeNode($g.Name)
     $node.NodeFont = New-Font -Size 9.5 -Style Bold
@@ -5515,8 +5696,18 @@ if ($SelfTest) {
         Update-ToolButtons
         Update-WacToolGroup
         $toolAvail = @($script:ToolButtons | Where-Object { -not $_.Missing }).Count
-        Write-Host ('GUI SELFTEST OK: 页面 {0} 个 / 状态卡片 {1} 个 / 系统工具 {2} 个(可用 {3}) / 更多里功能 {4} 个 / 参数控件 {5} 个 / 窗体 {6}' -f `
-            $script:Pages.Count, $cardCount, $script:ToolButtons.Count, $toolAvail, $nodeCount, $ctlCount, $form.Size.ToString()) -ForegroundColor Green
+        # 「高级设置」入口：每个有动作的功能页都应挂一个（设置/商店/关于除外）
+        $advCount = 0
+        foreach ($pg in @($script:Pages.Values)) {
+            foreach ($c in @($pg.Controls)) {
+                if ($c.Tag -and $c.Tag.Advanced) { $advCount++ }
+            }
+        }
+        Write-Host ('GUI SELFTEST OK: 页面 {0} 个 / 状态卡片 {1} 个 / 系统工具 {2} 个(可用 {3}) / 设置里功能 {4} 个 / 高级设置入口 {5} 个 / 参数控件 {6} 个 / 窗体 {7}' -f `
+            $script:Pages.Count, $cardCount, $script:ToolButtons.Count, $toolAvail, $nodeCount, $advCount, $ctlCount, $form.Size.ToString()) -ForegroundColor Green
+        if ($advCount -lt 8) {
+            Write-Host ('  !! 高级设置入口只有 {0} 个（应为 8：环境/程序/工具/角色/仪表盘/安全/美化/AI）' -f $advCount) -ForegroundColor Red
+        }
         Write-Host ('  WAC 重复组: {0}   卡片值: {1}' -f `
             $(if ($script:WacToolsSuppressed) { '已隐藏（WAC 里有）' } else { '默认收起' }), ($envVals -join ' | ')) -ForegroundColor Green
         # 再用后台探测产出的 JSON 渲染一遍：确认反序列化后的字段/类型都能被渲染代码正常消费
