@@ -231,6 +231,9 @@ function Invoke-GuiReadyPipeline {
                         $rebootReason = 'App Compatibility FOD 需要重启才生效'
                         Set-GuiReadyPipelineStep -State $state -Name $step.Name -Status 'done' -Note '已安装，待重启'
                     }
+                    # FOD 不包含全部桌面组件（实测 26100 上仍缺 twinui/themeui/themeservice），顺手补齐。
+                    # 源不存在或版本不匹配时函数自己会记日志并跳过，不影响主流程。
+                    try { Install-GuiReadyDesktopDlls | Out-Null } catch { }
                 }
                 'Reboot' {
                     if (-not $needReboot) {

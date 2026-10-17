@@ -172,6 +172,13 @@ function Get-GuiReadyActions {
             DryRun = $true
             Script = { param($P) Invoke-GuiReadyDotNetFix -ExePath $P['Path'] -WhatIf:([bool]$P['DryRun']) | Out-Null }
         }
+        [pscustomobject]@{
+            Id = 'dll-patch'; Group = '补给'; Name = '补齐桌面体验 DLL（twinui / themeui / themeservice）'
+            Desc = '装了 App Compatibility FOD 后仍可能缺这几个桌面组件。从发布包内置的同版本 DLL 复制到 System32（版本必须与系统一致），已有文件会先备份；主题/XAML 组件需重启或注销后生效。'
+            Params = @()
+            DryRun = $true
+            Script = { param($P) Install-GuiReadyDesktopDlls -WhatIf:([bool]$P['DryRun']) | Out-Null }
+        }
         # ---------------- 终端美化 ----------------
         [pscustomobject]@{
             Id = 'console-status'; Group = '终端美化'; Name = '终端美化：状态检查'

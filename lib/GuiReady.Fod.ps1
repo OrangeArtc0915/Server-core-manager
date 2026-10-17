@@ -208,6 +208,77 @@ function Install-GuiReadyFod {
     }
 }
 
+function Install-GuiReadyDesktopDlls {
+    # 补齐 Server Core 缺失的桌面体验 DLL。
+    #
+    # 背景（真机实测 Server 2025 / 26100）：装了 App Compatibility FOD 之后，
+    # twinui.dll / themeui.dll / themeservice.dll 仍然可能不在 System32 —— FOD 只覆盖
+    # MMC / 事件查看器等一部分，主题与 XAML 相关的组件要另外补。
+    #
+    # 源：发布包内置的 setup\dll\amd64（从同版本桌面体验 ISO 的 install.wim 提取）。
+    # 版本必须与当前系统主版本一致，否则拒绝复制（避免把 19041 的文件塞进 26100）。
+    param([switch]$WhatIf, [switch]$Force)
+
+    $names   = @('twinui.dll', 'themeui.dll', 'themeservice.dll', 'DispBroker.dll')
+    $srcDir  = Join-Path $script:GuiReadyRoot 'setup\dll\amd64'
+    $dstDir  = Join-Path $env:SystemRoot 'System32'
+    $osBuild = [Environment]::OSVersion.Version.Build
+    $ok = $true
+    $copied = 0
+    $backup = Join-Path $script:BackupDir ('dll-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+
+    Write-Head '补齐桌面体验 DLL'
+    Write-Log ('源目录: ' + $srcDir) 'INFO'
+    Write-Log ('系统版本: build ' + $osBuild) 'INFO'
+
+    foreach ($n in $names) {
+        $src = Join-Path $srcDir $n
+        if (-not (Test-Path -LiteralPath $src)) {
+            Write-Log ('源文件不存在，跳过: ' + $n) 'WARN'
+            continue
+        }
+        $sv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($src)
+        if ([int]$sv.FileBuildPart -ne [int]$osBuild) {
+            Write-Log ('版本不匹配，拒绝复制 {0}: 文件={1}，系统 build={2}' -f $n, $sv.FileVersion, $osBuild) 'ERROR'
+            $ok = $false
+            continue
+        }
+
+        $dst = Join-Path $dstDir $n
+        if (Test-Path -LiteralPath $dst) {
+            $dv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dst)
+            if (-not $Force -and $dv.FileVersion -eq $sv.FileVersion) {
+                Write-Log ('已存在且版本一致: ' + $n) 'OK'
+                continue
+            }
+            if ($WhatIf) {
+                Write-Log ('将备份并覆盖: {0}（当前 {1} -> {2}）' -f $n, $dv.FileVersion, $sv.FileVersion) 'DRY'
+                continue
+            }
+            if (-not (Test-Path -LiteralPath $backup)) { New-Item -ItemType Directory -Path $backup -Force | Out-Null }
+            try { Copy-Item -LiteralPath $dst -Destination (Join-Path $backup $n) -Force -ErrorAction Stop } catch { }
+        } elseif ($WhatIf) {
+            Write-Log ('将新增: {0} {1}' -f $n, $sv.FileVersion) 'DRY'
+            continue
+        }
+
+        try {
+            Copy-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop
+            Write-Log ('已补齐: {0}  {1}' -f $n, $sv.FileVersion) 'OK'
+            $copied++
+        } catch {
+            Write-Log ('复制失败 {0}: {1}' -f $n, $_.Exception.Message) 'ERROR'
+            $ok = $false
+        }
+    }
+
+    if ($WhatIf) { return $ok }
+    if ($copied -gt 0) {
+        Write-Log ('补齐完成：{0} 个文件。主题/XAML 相关组件需要重启或注销后生效。' -f $copied) 'INFO'
+    }
+    return $ok
+}
+
 function Remove-GuiReadyFod {
     param([switch]$WhatIf)
 
