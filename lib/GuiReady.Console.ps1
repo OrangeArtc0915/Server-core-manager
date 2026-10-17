@@ -425,6 +425,15 @@ function Set-GuiReadyConsoleWelcome {
             } elseif ($old) {
                 if (-not $Quiet) { Write-Log ('AutoRun 是别的程序设置的，保留不动: ' + $old) 'WARN' }
             }
+            # 机器级也一样：只在它指向我们的脚本时才移除
+            try {
+                $hk = 'HKLM:\Software\Microsoft\Command Processor'
+                $oldM = [string](Get-ItemProperty -Path $hk -Name $valName -ErrorAction SilentlyContinue).$valName
+                if ($oldM -like '*scm-welcome.cmd*') {
+                    Remove-ItemProperty -Path $hk -Name $valName -Force -ErrorAction SilentlyContinue
+                    if (-not $Quiet) { Write-Log '已移除机器级 cmd 启动提示（HKLM AutoRun）' 'OK' }
+                }
+            } catch { }
             if (Test-Path -LiteralPath $script:path) { Remove-Item -LiteralPath $script:path -Force -ErrorAction SilentlyContinue }
             return $true
         }
@@ -494,11 +503,107 @@ echo.
         Set-ItemProperty -Path $cpKey -Name $valName -Value ('"' + $script:path + '"') -Type String -Force
         $rb = [string](Get-ItemProperty -Path $cpKey -Name $valName -ErrorAction SilentlyContinue).$valName
         if (-not $Quiet) { Write-Log ('cmd 启动提示已启用（AutoRun = ' + $rb + '）') 'OK' }
+
+        # 机器级兜底：HKCU 只对"跑安装/美化时的那个用户"生效。
+        # 实测踩过：安装以 mmm 身份跑，用户却用 Administrator 登录 RDP —— 他那边的终端一条提示都没有。
+        # 用户明确要求"什么时候都显示"，所以再写一份 HKLM AutoRun（对所有用户生效）。
+        # 只在 HKLM 原本没有 AutoRun 时写；已被别的程序占用就保留并记警告，绝不覆盖别人的配置。
+        try {
+            $hk = 'HKLM:\Software\Microsoft\Command Processor'
+            if (-not (Test-Path $hk)) { New-Item -Path $hk -Force | Out-Null }
+            $oldM = [string](Get-ItemProperty -Path $hk -Name $valName -ErrorAction SilentlyContinue).$valName
+            if ([string]::IsNullOrWhiteSpace($oldM)) {
+                Set-ItemProperty -Path $hk -Name $valName -Value ('"' + $script:path + '"') -Type String -Force
+                if (-not $Quiet) { Write-Log '已启用机器级 cmd 启动提示（HKLM AutoRun，所有用户）' 'OK' }
+            } elseif ($oldM -like '*scm-welcome.cmd*') {
+                if (-not $Quiet) { Write-Log '机器级 cmd 启动提示已存在（HKLM AutoRun）' 'OK' }
+            } else {
+                if (-not $Quiet) { Write-Log ('HKLM AutoRun 已被其他程序占用，未覆盖: ' + $oldM) 'WARN' }
+            }
+        } catch {
+            if (-not $Quiet) { Write-Log ('机器级 cmd 提示写入失败（不影响当前用户）: ' + $_.Exception.Message) 'WARN' }
+        }
     } catch {
         $ok = $false
         if (-not $Quiet) { Write-Log ('写 cmd 启动提示失败: ' + $_.Exception.Message) 'WARN' }
     }
     return $ok
+}
+
+function Get-GuiReadyAllUsersProfilePaths {
+    # AllUsersAllHosts profile：PowerShell 5.1 与 7 各一份（$PSHOME\profile.ps1）
+    $out = New-Object System.Collections.ArrayList
+    try {
+        $h = [string]$PSHOME
+        if ($h) { [void]$out.Add((Join-Path $h 'profile.ps1')) }
+    } catch { }
+    try {
+        $ps7 = Get-GuiReadyPowerShell7Paths
+        if ($ps7.Installed -and $ps7.Dir) { [void]$out.Add((Join-Path $ps7.Dir 'profile.ps1')) }
+    } catch { }
+    return @($out | Where-Object { $_ } | Select-Object -Unique)
+}
+
+function Set-GuiReadyConsoleAllUsersWelcome {
+    # 所有用户的 PowerShell 都显示入口提示（解决"安装用 mmm、登录用 Administrator"时看不到提示）。
+    # 只写提示这几行，**不写 oh-my-posh 初始化** —— AllUsersAllHosts 会对每个 PowerShell 进程加载，
+    # 在这里跑 oh-my-posh 会让所有脚本（含非交互）都变慢。
+    param([switch]$Remove, [switch]$Quiet)
+
+    $tag = $Global:GuiReadyConsoleManagedTag + ' (all users welcome)'
+    $block = @'
+
+# --- __TAG__ (managed block) ---
+# 入口提示：所有用户生效；只在真终端里显示，输出被重定向时保持安静。
+if (-not [Console]::IsOutputRedirected) {
+    if (Test-Path "$env:SystemRoot\System32\sconfig.cmd")  { Write-Host '  输入 "Sconfig" 返回服务器菜单' -ForegroundColor Yellow }
+    if (Test-Path "$env:SystemRoot\System32\scm.cmd")      { Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow }
+    if (Test-Path "$env:SystemRoot\System32\scm-term.cmd") { Write-Host '  输入 "scm-term" 打开美化终端' -ForegroundColor Yellow }
+}
+# --- end managed block ---
+
+'@
+    $block = $block.Replace('__TAG__', $tag)
+
+    $done = New-Object System.Collections.ArrayList
+    foreach ($p in (Get-GuiReadyAllUsersProfilePaths)) {
+        try {
+            $dir = Split-Path -Parent $p
+            if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+            $cur = ''
+            if (Test-Path -LiteralPath $p) { $cur = [System.IO.File]::ReadAllText($p) }
+            # 去掉历史 managed 块（状态机，防止旧版本留下的碎片叠加）
+            $inBlock = $false
+            $keep = New-Object System.Collections.ArrayList
+            foreach ($ln in ($cur -split "`r?`n")) {
+                if ($ln -match [regex]::Escape($tag)) { $inBlock = $true; continue }
+                if ($inBlock) {
+                    if ($ln -match '# --- end managed block ---') { $inBlock = $false }
+                    continue
+                }
+                [void]$keep.Add($ln)
+            }
+            if ($Remove) {
+                $new = ($keep -join "`r`n").TrimEnd("`r", "`n")
+                if ($new -ne $cur.TrimEnd("`r", "`n")) {
+                    [System.IO.File]::WriteAllText($p, ($new + "`r`n"), (New-Object System.Text.UTF8Encoding($true)))
+                    [void]$done.Add('已移除 ' + $p)
+                }
+            } else {
+                $new = (($keep -join "`r`n").TrimEnd("`r", "`n")) + "`r`n" + $block.TrimEnd("`r", "`n") + "`r`n"
+                if ($new -ne $cur) {
+                    [System.IO.File]::WriteAllText($p, $new, (New-Object System.Text.UTF8Encoding($true)))
+                    [void]$done.Add('已写入/更新 ' + $p)
+                } else {
+                    [void]$done.Add('已是最新 ' + $p)
+                }
+            }
+        } catch {
+            [void]$done.Add('失败 ' + $p + ': ' + $_.Exception.Message)
+        }
+    }
+    if (-not $Quiet) { foreach ($d in $done) { Write-Log ('all-users profile: ' + $d) 'OK' } }
+    return @($done)
 }
 
 function Test-GuiReadyConsoleWelcome {
@@ -912,7 +1017,12 @@ function Install-GuiReadyConsoleTheme {
     Write-GuiReadyConsoleProfileHook | Out-Null
 
     # 7.5) cmd 的启动提示：写 HKCU\Software\Microsoft\Command Processor\AutoRun（原值会备份）
+    #      + HKLM 机器级兜底（所有用户，含用别的账户登录的情况）
     Set-GuiReadyConsoleWelcome | Out-Null
+
+    # 7.6) 所有用户的 PowerShell 提示（AllUsersAllHosts profile）
+    #      解决"安装用 A 账户、登录用 B 账户，B 看不到提示"的问题。
+    Set-GuiReadyConsoleAllUsersWelcome | Out-Null
 
     # 8) 把启动器放进 PATH（任意目录输入 scm-term 就能开美化终端）
     try {
@@ -1027,7 +1137,10 @@ function Restore-GuiReadyConsoleTheme {
     }
 
     # 3.5) 移除 cmd 启动提示（AutoRun 只在指向本工具脚本时才动，别人的设置不碰）
-    if (-not $KeepFiles) { Set-GuiReadyConsoleWelcome -Remove -Quiet | Out-Null }
+    if (-not $KeepFiles) {
+        Set-GuiReadyConsoleWelcome -Remove -Quiet | Out-Null
+        Set-GuiReadyConsoleAllUsersWelcome -Remove -Quiet | Out-Null
+    }
 
     # 4) bin 与 PATH 里的命令
     if (-not $KeepFiles) {

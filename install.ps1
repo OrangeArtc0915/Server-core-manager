@@ -350,6 +350,26 @@ if (-not $NoCommand) {
     Write-Host ''
 }
 
+# ---------------------------------------------------------------- 终端入口提示（装了工具就生效）
+
+# 用户明确要求：只要装了本工具，终端顶部就要显示 Sconfig / scm / scm-term 提示，
+# 不管有没有跑过「一键美化终端」。所以安装阶段就把三处配置写好：
+#   - cmd        : HKCU + HKLM AutoRun（机器级覆盖所有账户）
+#   - PowerShell : 当前用户 profile + AllUsersAllHosts profile（覆盖所有账户）
+# 全部幂等；失败只警告，不影响主程序可用。
+Write-Step '配置终端入口提示 ...'
+try {
+    . (Join-Path $Dest 'lib\GuiReady.Common.ps1')
+    . (Join-Path $Dest 'lib\GuiReady.Console.ps1')
+    [void](Set-GuiReadyConsoleWelcome -Quiet)
+    [void](Set-GuiReadyConsoleAllUsersWelcome -Quiet)
+    [void](Write-GuiReadyConsoleProfileHook -Quiet)
+    Write-Ok '已启用：cmd / PowerShell / 美化终端 顶部都会显示入口提示'
+} catch {
+    Write-Warn ('入口提示配置失败（不影响主程序）: ' + $_.Exception.Message)
+}
+Write-Host ''
+
 # ---------------------------------------------------------------- 安全说明：不添加 Defender 排除
 
 # 本工具【不会】把安装目录加进 Windows Defender 的排除列表，也不提供这样的开关。

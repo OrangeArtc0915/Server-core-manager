@@ -5259,6 +5259,21 @@ $form.Add_Shown({
     Update-PageLayout
     Add-BootTrace 'Shown 处理完成（可交互）'
 
+    # 入口提示自愈：用户要求"任何时候都显示"。
+    # 实测踩过：安装以 mmm 身份跑、用户却用 Administrator 登录 RDP，结果他那边一条提示都没有。
+    # 这里在窗口可见后异步补一次（幂等、失败只吞掉，绝不拖慢启动）：
+    #   - cmd：HKCU + HKLM AutoRun（机器级覆盖所有账户）
+    #   - PowerShell：当前用户 profile + AllUsersAllHosts profile（覆盖所有账户）
+    if (-not $SkipPageHooks) {
+        try {
+            $form.BeginInvoke([Action]{
+                try { Set-GuiReadyConsoleWelcome -Quiet | Out-Null } catch { }
+                try { Set-GuiReadyConsoleAllUsersWelcome -Quiet | Out-Null } catch { }
+                try { Write-GuiReadyConsoleProfileHook -Quiet | Out-Null } catch { }
+            }) | Out-Null
+        } catch { }
+    }
+
     # 安全提示弹窗放在最后：界面已经初始化完、也不会挡着初始化。
     # 带 owner（$form）才会显示在主窗口上面；同一个原因只在第一次提示（状态存 state\dir-warning.txt），
     # 免得每次启动都弹一次把人烦到、或者被误当成"卡住了"。
