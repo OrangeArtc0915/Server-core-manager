@@ -3349,7 +3349,7 @@ $btnMonTui.Location = New-Object System.Drawing.Point(260, 2)
 $btnMonTui.Add_Click({ Start-MonitorTui })
 $pnlMonBar.Controls.Add($btnMonTui)
 
-$hintMon = New-HintBar -Text '提示：服务名要填服务名而不是显示名（例如 WinRM / LanmanServer / TermService）。停关键服务可能断开你的远程会话，动作里会先警告。「TUI 监控」会在新的控制台窗口里打开 pstop / htop / btm。' -Kind 'Blue' -Width 900
+$hintMon = New-HintBar -Text '提示：服务名要填服务名而不是显示名（例如 WinRM / LanmanServer / TermService）。停关键服务可能断开你的远程会话，动作里会先警告。「TUI 监控」优先打开已装的 pstop / htop / btm，没有就用内置的 scm-top（零依赖，按 q 退出）。' -Kind 'Blue' -Width 900
 $hintMon.Location = New-Object System.Drawing.Point(0, 288)
 $pageMon.Controls.Add($hintMon)
 
@@ -3557,23 +3557,31 @@ function Resolve-MonitorTui {
 
 function Start-MonitorTui {
     # TUI 必须跑在真实控制台里：用 Start-Process 起一个新窗口，不占用 GUI 进程。
+    # 优先用本机已装的 pstop / htop / btm；都没有就启动内置版（零依赖，离线可用）。
     if ($script:AuditMode) { Append-GuiLog -Line '[INFO] 审计模式：跳过打开 TUI 监控'; return }
     $exe = Resolve-MonitorTui
-    if (-not $exe) {
-        $msg = "本机还没有 TUI 监控工具（pstop / htop / btm）。`r`n`r`n" +
-               "现在用 Chocolatey 安装 pstop 吗？它是 Windows 上的 htop 替代品（约 1 MB、零依赖）。`r`n" +
-               "装完再点一次「TUI 监控」即可（也可以到「应用商店 → TUI」里选 bottom）。"
-        $r = [System.Windows.Forms.MessageBox]::Show($form, $msg, 'TUI 监控', 'YesNo', 'Question')
-        if ($r -eq 'Yes') {
-            Start-StoreAction -Id 'pkg-install' -Params @{ Source = 1; Package = 'pstop' }
+    if ($exe) {
+        Append-GuiLog -Line ('[INFO] 打开 TUI 监控: ' + $exe)
+        try {
+            Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) | Out-Null
+        } catch {
+            Append-GuiLog -Line ('[ERROR] 打开 TUI 监控失败: ' + $_.Exception.Message)
         }
         return
     }
-    Append-GuiLog -Line ('[INFO] 打开 TUI 监控: ' + $exe)
+
+    # 内置版：只依赖系统自带的 Get-Counter / CIM。
+    # 外部的 pstop / bottom 都要从 GitHub 下载，受限网络里会因 TLS/代理失败（实测踩到）。
+    $builtin = Join-Path $guiDir 'GuiReady.TuiMonitor.ps1'
+    if (-not (Test-Path -LiteralPath $builtin)) {
+        Append-GuiLog -Line '[ERROR] 找不到内置 TUI 监控脚本: ' + $builtin
+        return
+    }
+    Append-GuiLog -Line '[INFO] 未找到 pstop / htop / btm，打开内置 TUI 监控（scm-top，按 q 退出）'
     try {
-        Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) | Out-Null
+        Start-Process -FilePath 'powershell.exe' -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $builtin + '"')) | Out-Null
     } catch {
-        Append-GuiLog -Line ('[ERROR] 打开 TUI 监控失败: ' + $_.Exception.Message)
+        Append-GuiLog -Line ('[ERROR] 打开内置 TUI 监控失败: ' + $_.Exception.Message)
     }
 }
 

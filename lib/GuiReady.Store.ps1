@@ -312,6 +312,14 @@ function Install-GuiReadyStoreApp {
     $exe = [string]$e.launch.exe
     if ($exe) {
         $cmd = Get-Command $exe -ErrorAction SilentlyContinue
+        if (-not $cmd) {
+            # 已经运行的进程 PATH 是旧的（choco 刚装完，环境变量不会刷新到本进程），
+            # 所以再去 choco 的 shim 目录找一次 —— 否则刚装完就报「PATH 里找不到」的假警告。
+            try {
+                $fp = Join-Path $env:ProgramData (Join-Path 'chocolatey\bin' $exe)
+                if (Test-Path -LiteralPath $fp) { $cmd = [pscustomobject]@{ Source = $fp } }
+            } catch { }
+        }
         if ($cmd) {
             Write-Log ('验证通过: ' + $exe + ' → ' + [string]$cmd.Source) 'OK'
         } else {
