@@ -301,6 +301,20 @@ function Get-GuiReadyActions {
             Script = { param($P) Install-GuiReadyStoreApp -Id ([string]$P['AppId']) -WhatIf:([bool]$P['DryRun']) | Out-Null }
         }
         [pscustomobject]@{
+            Id = 'manifest-export'; Group = '应用商店'; Name = '导出已装软件清单'
+            Desc = '用 choco export 把本机已装软件导出成 packages.config（含版本），默认写到 reports 目录。换机器时用「导入已装软件清单」一次还原。'
+            Params = @( @{ Name = 'Path'; Label = '导出路径（留空 = reports\packages-时间.config）'; Type = 'Text'; Width = 520 } )
+            DryRun = $false
+            Script = { param($P) [void](Export-GuiReadyInstalledManifest -Path ([string]$P['Path'])) }
+        }
+        [pscustomobject]@{
+            Id = 'manifest-import'; Group = '应用商店'; Name = '导入已装软件清单'
+            Desc = '从 packages.config 还原软件（choco install <清单> -y）。依赖由 choco 自己处理；建议先按「仅预览」看要执行哪条命令。'
+            Params = @( @{ Name = 'Path'; Label = 'packages.config 路径'; Type = 'Text'; Width = 520; Browse = 'File' } )
+            DryRun = $true
+            Script = { param($P) Import-GuiReadyInstalledManifest -Path ([string]$P['Path']) -WhatIf:([bool]$P['DryRun']) | Out-Null }
+        }
+        [pscustomobject]@{
             Id = 'pkg-info'; Group = '应用商店'; Name = '查看软件包详情（只读）'
             Desc = '等价于 choco info <包>：把标题/版本/发布时间/下载量/摘要/标签/官网/许可证/描述解析出来（解析规则按 Chocolatey 2.7.4 的实测输出写，见 lib\GuiReady.Package.ps1）。'
             Params = @( @{ Name = 'Package'; Label = '包名（如 7zip）'; Type = 'Text'; Width = 320 } )

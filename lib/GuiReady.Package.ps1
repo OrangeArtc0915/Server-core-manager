@@ -387,6 +387,79 @@ function Uninstall-GuiReadyPackage {
     return (Invoke-GuiReadyPackageCommand -Exe $exe -DisplayName $Source -Argv $argv)
 }
 
+function Export-GuiReadyInstalledManifest {
+    # 把本机已装包导出成 Chocolatey 的 packages.config（含版本）。
+    # 用途：重装系统 / 复制到另一台机器时，`choco install packages.config` 一次还原。
+    param([string]$Path = '')
+
+    $exe = Resolve-GuiReadyPackageExe -Id 'choco'
+    if (-not $exe) {
+        Write-Log '本机没有 Chocolatey，无法导出清单。' 'ERROR'
+        return $null
+    }
+    if ([string]::IsNullOrWhiteSpace($Path)) {
+        $Path = Join-Path $script:ReportDir ('packages-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.config')
+    }
+    $dir = Split-Path -Parent $Path
+    if ($dir -and -not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue }
+
+    Write-Log ('导出已装清单到: ' + $Path) 'INFO'
+    # 实测 choco 2.7.4：参数名是 --output-file-path（不是 --output-file），
+    # 用错名字也会返回 0 但不生成文件。
+    $argv = @('export', ('--output-file-path=' + $Path), '--include-version-numbers')
+    try {
+        & $exe @argv 2>&1 | ForEach-Object { Write-Log ([string]$_) 'INFO' }
+    } catch {
+        Write-Log ('导出失败: ' + $_.Exception.Message) 'ERROR'
+        return $null
+    }
+    if (Test-Path -LiteralPath $Path) {
+        Write-Log ('已导出: ' + $Path) 'OK'
+        return $Path
+    }
+    Write-Log '导出命令执行了，但没有生成文件。' 'ERROR'
+    return $null
+}
+
+function Import-GuiReadyInstalledManifest {
+    # 从 packages.config 还原已装包（依赖由 choco 自己处理）。
+    param(
+        [Parameter(Mandatory = $true)][string]$Path,
+        [switch]$WhatIf
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Log ('找不到清单文件: ' + $Path) 'ERROR'
+        return $false
+    }
+    $exe = Resolve-GuiReadyPackageExe -Id 'choco'
+    if (-not $exe) {
+        Write-Log '本机没有 Chocolatey，无法导入清单。' 'ERROR'
+        return $false
+    }
+
+    $argv = @('install', $Path, '-y', '--no-progress')
+    if ($WhatIf) {
+        Write-Log '--- 预览模式，不做任何改动 ---' 'DRY'
+        Write-Log ('将执行: choco install "{0}" -y --no-progress' -f $Path) 'DRY'
+        return $true
+    }
+
+    Write-Log ('从清单安装: ' + $Path) 'INFO'
+    $code = -1
+    try {
+        & $exe @argv 2>&1 | ForEach-Object { Write-Log ([string]$_) 'INFO' }
+        $code = $LASTEXITCODE
+    } catch {
+        Write-Log ('导入失败: ' + $_.Exception.Message) 'ERROR'
+        return $false
+    }
+    if ($code -eq 0) { Write-Log '清单导入完成。' 'OK'; return $true }
+    Write-Log ('清单导入失败（退出码 {0}）。' -f $code) 'ERROR'
+    return $false
+}
+
 function Install-GuiReadyPackageManager {
     # 装包管理器本体。目前只做 Chocolatey：走官方安装脚本，
     # 但先下载到临时文件再执行（不用 iex），这样出问题时有文件可查；
