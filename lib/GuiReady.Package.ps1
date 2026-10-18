@@ -182,6 +182,53 @@ function Get-GuiReadyInstalledPackage {
     return @()
 }
 
+function ConvertFrom-GuiReadyOutdatedList {
+    # 解析 `choco outdated --limit-output`：每行「名称|当前版本|可用版本|是否固定」
+    # 例：7zip|23.1|24.9|false
+    # 解析不出来就返回空数组，不猜。
+    param([string[]]$Lines)
+
+    $out = @()
+    foreach ($l in @($Lines)) {
+        $t = ([string]$l).Trim()
+        if (-not $t) { continue }
+        if ($t.IndexOf('|') -lt 0) { continue }
+        $parts = $t -split '\|'
+        if ($parts.Count -lt 3) { continue }
+        $n = $parts[0].Trim()
+        if (-not $n) { continue }
+        $pinned = $false
+        if ($parts.Count -ge 4) {
+            $pv = $parts[3].Trim()
+            $pinned = ($pv -eq 'true' -or $pv -eq '1')
+        }
+        $out += [pscustomobject]@{
+            Id        = $n
+            Current   = $parts[1].Trim()
+            Available = $parts[2].Trim()
+            Pinned    = $pinned
+            Source    = 'choco'
+        }
+    }
+    return $out
+}
+
+function Get-GuiReadyOutdatedPackage {
+    # 已装但有新版本的包（用来在商店页标「可更新」）。
+    param([string]$Source = 'choco')
+
+    if ($Source -ne 'choco') {
+        Write-Log ('源 {0} 的更新检测暂未接入。' -f $Source) 'WARN'
+        return @()
+    }
+    $exe = Resolve-GuiReadyPackageExe -Id 'choco'
+    if (-not $exe) { return @() }
+
+    $raw = @()
+    try { $raw = @(& $exe 'outdated' '--limit-output' 2>$null) } catch { $raw = @() }
+    return @(ConvertFrom-GuiReadyOutdatedList -Lines $raw)
+}
+
 function Invoke-GuiReadyPackageCommand {
     # 统一「跑一条包管理器命令并把输出实时转成日志」的地方，安装/卸载共用。
     # 输出走 Write-Log 是为了让它出现在 GUI 的日志面板里（子进程 stdout）。

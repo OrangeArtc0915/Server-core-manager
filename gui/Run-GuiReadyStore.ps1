@@ -1,4 +1,4 @@
-﻿# GuiReady store query runner: runs the package-source detection / search in a separate
+# GuiReady store query runner: runs the package-source detection / search in a separate
 # process so the store page never blocks the UI thread (choco search is a network call and
 # takes seconds; scoop --version has to spin up PowerShell).
 #
@@ -77,6 +77,7 @@ try {
         'status' { $items = @(Get-GuiReadyPackageSource) }
         'search' { $items = @(Search-GuiReadyPackage -Source $Source -Query $Query) }
         'local'  { $items = @(Get-GuiReadyInstalledPackage -Source $Source) }
+        'outdated' { $items = @(Get-GuiReadyOutdatedPackage -Source $Source) }
         # 详情：单个对象也塞进 Items 数组，GUI 那边只认一种形状
         'info'   { $items = @(Get-GuiReadyPackageInfo -Source $Source -Package $Package) }
         default {

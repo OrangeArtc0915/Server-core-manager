@@ -1850,6 +1850,7 @@ $script:StoreUiFilter    = ''       # 界面类型筛选：'' 全部 | cli | tui
 $script:StoreUiBtns      = @()      # 界面类型筛选按钮（重建时一并释放）
 $script:StoreLocalHits   = @()      # 本次搜索命中的本地精选（与上游结果合并时精选优先）
 $script:StoreLocal       = @()      # 本机已装的包名（用来标「已安装」）
+$script:StoreOutdated    = @{}      # 可更新的包：id -> { Current; Available }（choco outdated）
 $script:StoreRows        = @()      # 结果行
 $script:StoreDetailRows  = @()      # 工具详情的行（与结果行共用同一块区域）
 # 自动装包管理器之后要接着做的那次搜索（Stage: '' → after-action → after-status → ''）
@@ -1956,6 +1957,7 @@ function Start-StoreQuery {
     switch ($Mode) {
         'search' { Set-StoreBusy -Text ('正在搜索 ' + $Query + ' …') -Kind 'Info' }
         'local'  { Set-StoreBusy -Text '正在读取已装清单…' -Kind 'Info' }
+        'outdated' { Set-StoreBusy -Text '正在检查可更新…' -Kind 'Info' }
         default  { Set-StoreBusy -Text '正在检测包管理器…' -Kind 'Info' }
     }
     $script:StoreTimer.Start()
@@ -1994,18 +1996,26 @@ function Add-StoreRow {
     $meta = ('{0}   ·   来自 {1}' -f $(if ($ver) { 'v' + $ver } else { '版本未知' }), $srcName)
     # 精选条目带兼容性标记（✅/⚠️/❌），把设计文档里那三档文案显式摆出来
     if ($Item.PSObject.Properties['Marker'] -and $Item.Marker) { $meta = ([string]$Item.Marker + '   ·   ' + $meta) }
+    # 可更新：choco outdated 的结果（后台查，拿到后重绘时生效）
+    $pkgId = [string]$Item.Id
+    $upd = $null
+    if ($script:StoreOutdated -and $script:StoreOutdated.ContainsKey($pkgId)) { $upd = $script:StoreOutdated[$pkgId] }
+    if ($upd) { $meta = ('🔄 可更新 {0} → {1}   ·   {2}' -f [string]$upd.Current, [string]$upd.Available, $meta) }
     $lbMeta = New-Label -Text $meta -Size 8.5 -Color Hint -Width ($rowW - 220)
     $lbMeta.Location = New-Object System.Drawing.Point(14, 31)
     $row.Controls.Add($lbMeta)
 
-    $installed = ($script:StoreLocal -contains [string]$Item.Id)
+    $installed = ($script:StoreLocal -contains $pkgId)
     $pill = $null
-    if ($installed) {
+    if ($upd) {
+        $pill = New-Pill -Text '可更新' -Kind 'Warn'
+        $row.Controls.Add($pill)
+    } elseif ($installed) {
         $pill = New-Pill -Text '已安装' -Kind 'Success'
         $row.Controls.Add($pill)
     }
 
-    $btnIns = New-FlatButton -Text '安装' -Kind Primary -Width 80 -Height 30
+    $btnIns = New-FlatButton -Text $(if ($upd) { '更新' } else { '安装' }) -Kind Primary -Width 80 -Height 30
     $btnIns.Tag = @{ Pkg = [string]$Item.Id; Src = [string]$Item.Source }
     $btnIns.Add_Click({
         $pkg = [string]$this.Tag.Pkg
@@ -2447,6 +2457,18 @@ function Update-StoreTick {
         'local' {
             $script:StoreLocal = @($items | ForEach-Object { [string]$_.Id })
             if ($script:StoreLastItems.Count -gt 0) { Show-StoreResult -Items $script:StoreLastItems }
+            # 已装清单拿到后，接着查可更新（choco outdated 要联网，放后台）
+            $choco = @($script:StoreSources | Where-Object { $_.Id -eq 'choco' -and $_.Installed })
+            if ($choco.Count -gt 0) { Start-StoreQuery -Mode 'outdated' -Source 'choco' }
+        }
+        'outdated' {
+            $script:StoreOutdated = @{}
+            foreach ($i in $items) { $script:StoreOutdated[[string]$i.Id] = $i }
+            if ($script:StoreLastItems.Count -gt 0) {
+                Show-StoreResult -Items $script:StoreLastItems
+            } else {
+                Show-StorePage
+            }
         }
         'search' { Show-StoreResult -Items $items }
     }
