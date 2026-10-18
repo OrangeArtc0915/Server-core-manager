@@ -294,6 +294,13 @@ function Get-GuiReadyActions {
             }
         }
         [pscustomobject]@{
+            Id = 'store-install'; Group = '应用商店'; Name = '安装精选应用（含前置检查）'
+            Desc = '按商店精选库条目安装：先检查兼容性、FOD 与 Windows 功能依赖（例如 Docker Engine 需要 Containers），再调用对应的包管理器安装，最后验证命令是否可用。不在精选库里的包名会回退成裸 choco 安装。'
+            Params = @( @{ Name = 'AppId'; Label = '应用 ID（catalog.json 的 id，如 docker-engine）'; Type = 'Text'; Width = 360 } )
+            DryRun = $true
+            Script = { param($P) Install-GuiReadyStoreApp -Id ([string]$P['AppId']) -WhatIf:([bool]$P['DryRun']) | Out-Null }
+        }
+        [pscustomobject]@{
             Id = 'pkg-info'; Group = '应用商店'; Name = '查看软件包详情（只读）'
             Desc = '等价于 choco info <包>：把标题/版本/发布时间/下载量/摘要/标签/官网/许可证/描述解析出来（解析规则按 Chocolatey 2.7.4 的实测输出写，见 lib\GuiReady.Package.ps1）。'
             Params = @( @{ Name = 'Package'; Label = '包名（如 7zip）'; Type = 'Text'; Width = 320 } )

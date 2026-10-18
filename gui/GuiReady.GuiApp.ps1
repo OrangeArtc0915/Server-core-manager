@@ -2008,9 +2008,15 @@ function Add-StoreRow {
     $btnIns = New-FlatButton -Text '安装' -Kind Primary -Width 80 -Height 30
     $btnIns.Tag = @{ Pkg = [string]$Item.Id; Src = [string]$Item.Source }
     $btnIns.Add_Click({
-        Start-StoreAction -Id 'pkg-install' -Params @{
-            Source  = $script:StoreSourceIndex[[string]$this.Tag.Src]
-            Package = [string]$this.Tag.Pkg
+        $pkg = [string]$this.Tag.Pkg
+        # 精选库里的条目走完整安装流程（FOD / Containers 等前置检查）；其他包走裸安装。
+        if (Get-GuiReadyStoreEntry -Id $pkg) {
+            Start-StoreAction -Id 'store-install' -Params @{ AppId = $pkg }
+        } else {
+            Start-StoreAction -Id 'pkg-install' -Params @{
+                Source  = $script:StoreSourceIndex[[string]$this.Tag.Src]
+                Package = $pkg
+            }
         }
     })
     $row.Controls.Add($btnIns)
@@ -2222,6 +2228,22 @@ function Render-StoreDetail {
         $body = ($shown -join '   ')
         $note = $(if ($lines.Count -gt 12) { ('（共 {0} 行，这里显示前 12 行 —— 完整内容在下方日志里）' -f $lines.Count) } else { '' })
         $script:StoreDetailRows += (Add-UiRow -Container $pnlStoreResults -Title '描述' -Meta ($body + '   ' + $note) -Height 96 -MarginBottom 4)
+    }
+
+    # 安装入口：精选库条目走完整流程（含前置检查），其他包走裸安装
+    $hit = Get-GuiReadyStoreEntry -Id $pk
+    if ($hit) {
+        $hitName = [string]$pk
+        if ($hit.name_zh) { $hitName = [string]$hit.name_zh }
+        $script:StoreDetailRows += (Add-UiRow -Container $pnlStoreResults -Title '安装' `
+            -Meta ('按精选库完整流程安装：' + $hitName + '（兼容性 / FOD / 功能依赖检查）') `
+            -Height 50 -BtnText '安装' -BtnTag @{ App = $pk } `
+            -BtnClick { Start-StoreAction -Id 'store-install' -Params @{ AppId = [string]$this.Tag.App } })
+    } else {
+        $script:StoreDetailRows += (Add-UiRow -Container $pnlStoreResults -Title '安装' `
+            -Meta ('裸包安装：{0} install {1} -y --no-progress' -f $(if ($src -eq 'scoop') { 'scoop' } else { 'choco' }), $pk) `
+            -Height 50 -BtnText '安装' -BtnTag @{ Pkg = $pk; Src = $src } `
+            -BtnClick { Start-StoreAction -Id 'pkg-install' -Params @{ Source = $script:StoreSourceIndex[[string]$this.Tag.Src]; Package = [string]$this.Tag.Pkg } })
     }
 
     $script:StoreDetailRows += (Add-UiRow -Container $pnlStoreResults -Title '将执行的命令' `
@@ -2442,8 +2464,9 @@ function Start-StoreAction {
 
     # 装/卸软件包都得先有包管理器：没有就问一句（用户选择下载 → 之后自动安装并继续）。
     # 选“是”之后由动作链自己把包管理器装好再装你要的包，用户不用额外操作。
-    if ($Id -in @('pkg-install', 'pkg-uninstall', 'pkg-info') -and -not (Resolve-GuiReadyPackageExe -Id 'choco')) {
+    if ($Id -in @('pkg-install', 'pkg-uninstall', 'pkg-info', 'store-install') -and -not (Resolve-GuiReadyPackageExe -Id 'choco')) {
         $name = [string]$Params['Package']
+        if (-not $name -and $Params['AppId']) { $name = [string]$Params['AppId'] }
         if (-not (Confirm-GuiPackageManager -Why ('你刚要操作的软件包是「' + $name + '」，得先有包管理器。'))) {
             Append-GuiLog -Line '[INFO] 你取消了自动安装包管理器，本次操作没有执行。'
             return

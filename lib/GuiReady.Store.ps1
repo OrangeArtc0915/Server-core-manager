@@ -198,3 +198,127 @@ function Get-GuiReadyStoreStats {
     }
     return [pscustomobject]@{ Total = @($c.Apps).Count; ByCompat = $bc; ByCategory = $bcat; ByUi = $bui; Source = '' }
 }
+
+function Install-GuiReadyStoreApp {
+    # 按精选库条目做「完整安装」：兼容性 → FOD → 功能依赖 → 主安装 → 验证。
+    #
+    # 与裸 pkg-install 的区别：这里读 catalog 的 fod_required / runtime_deps / launch，
+    # 把「装完为什么用不了」的常见坑提前处理掉（例如 Docker Engine 需要 Containers 功能）。
+    # 不在精选库里的包名会回退成裸 choco 安装。
+    param(
+        [Parameter(Mandatory = $true)][string]$Id,
+        [switch]$WhatIf
+    )
+
+    $e = Get-GuiReadyStoreEntry -Id $Id
+    if (-not $e) {
+        Write-Log ('精选库里没有 {0}，按裸包安装处理。' -f $Id) 'INFO'
+        return (Install-GuiReadyPackage -Source 'choco' -Package $Id -WhatIf:$WhatIf)
+    }
+
+    $title = [string]$e.id
+    if ($e.name_zh) { $title = [string]$e.name_zh }
+    Write-Head ('安装精选应用: ' + $title + ' (' + [string]$e.id + ')')
+
+    # 1) 兼容性
+    $compat = [string]$e.compatibility
+    if ($compat -eq 'unsupported') {
+        Write-Log '该应用在当前系统上不兼容，已停止安装。' 'ERROR'
+        foreach ($k in @($e.known_issues)) { if ($k) { Write-Log ('  ' + [string]$k) 'INFO' } }
+        foreach ($a in @($e.alternatives)) { if ($a) { Write-Log ('  替代方案: ' + [string]$a) 'INFO' } }
+        return $false
+    }
+    if ($compat -eq 'unverified') {
+        Write-Log '该条目尚未在真机实测（unverified），安装后请自行验证。' 'WARN'
+    }
+
+    # 2) FOD（只有 GUI 应用才可能非空）
+    foreach ($cap in @($e.fod_required)) {
+        if ([string]::IsNullOrWhiteSpace([string]$cap)) { continue }
+        $state = 'Unknown'
+        try {
+            $c = Get-WindowsCapability -Online -Name ([string]$cap) -ErrorAction Stop
+            if ($c) { $state = [string]$c.State }
+        } catch { }
+        if ($state -ne 'Installed') {
+            Write-Log ('需要 FOD 组件 {0}（当前 {1}）。请先在「环境补全」里安装并重启。' -f $cap, $state) 'ERROR'
+            return $false
+        }
+        Write-Log ('FOD 已就绪: ' + [string]$cap) 'OK'
+    }
+
+    # 3) 运行库 / Windows 功能依赖
+    foreach ($dep in @($e.runtime_deps)) {
+        if ([string]::IsNullOrWhiteSpace([string]$dep)) { continue }
+        if ([string]$dep -match 'Containers') {
+            $f = $null
+            try { $f = Get-WindowsFeature -Name Containers -ErrorAction SilentlyContinue } catch { }
+            if ($f -and [string]$f.InstallState -ne 'Installed') {
+                if ($WhatIf) {
+                    Write-Log '将启用 Windows 功能: Containers' 'DRY'
+                } else {
+                    Write-Log '启用 Windows 功能: Containers（Docker Engine 需要）' 'INFO'
+                    try {
+                        $r = Install-WindowsFeature Containers -ErrorAction Stop
+                        Write-Log ('已启用 Containers（RestartNeeded={0}）' -f $r.RestartNeeded) 'OK'
+                    } catch {
+                        Write-Log ('启用 Containers 失败: ' + $_.Exception.Message) 'ERROR'
+                        return $false
+                    }
+                }
+            } else {
+                Write-Log 'Windows 功能 Containers 已就绪。' 'OK'
+            }
+        } else {
+            Write-Log ('依赖提示: ' + [string]$dep + '（请确认已满足）') 'WARN'
+        }
+    }
+
+    # 4) 主安装
+    $itype = [string]$e.install.type
+    $ipkg = [string]$e.install.id
+    $ok = $false
+    switch ($itype) {
+        'choco' {
+            $ok = Install-GuiReadyPackage -Source 'choco' -Package $ipkg -WhatIf:$WhatIf
+        }
+        'npm' {
+            if ($WhatIf) {
+                Write-Log ('将执行: npm install -g ' + $ipkg) 'DRY'
+                $ok = $true
+            } else {
+                try {
+                    & npm install -g $ipkg 2>&1 | ForEach-Object { Write-Log ([string]$_) 'INFO' }
+                    $ok = ($LASTEXITCODE -eq 0)
+                } catch {
+                    Write-Log ('npm 安装失败: ' + $_.Exception.Message) 'ERROR'
+                    $ok = $false
+                }
+            }
+        }
+        default {
+            Write-Log ('该条目的安装方式暂不支持: ' + $itype + '（可参考 known_issues 手动安装）') 'ERROR'
+            $ok = $false
+        }
+    }
+    if (-not $ok) {
+        Write-Log '安装失败。' 'ERROR'
+        foreach ($k in @($e.known_issues)) { if ($k) { Write-Log ('  ' + [string]$k) 'INFO' } }
+        return $false
+    }
+    if ($WhatIf) { return $true }
+
+    # 5) 安装后验证：launch.exe 是否已经能在 PATH 里找到
+    $exe = [string]$e.launch.exe
+    if ($exe) {
+        $cmd = Get-Command $exe -ErrorAction SilentlyContinue
+        if ($cmd) {
+            Write-Log ('验证通过: ' + $exe + ' → ' + [string]$cmd.Source) 'OK'
+        } else {
+            Write-Log ('安装完成，但 PATH 里还找不到 ' + $exe + '。可能需要重开终端（或重启）。') 'WARN'
+        }
+    } else {
+        Write-Log '安装完成。' 'OK'
+    }
+    return $true
+}
