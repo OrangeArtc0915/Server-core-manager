@@ -215,7 +215,7 @@ function Install-GuiReadyDesktopDlls {
     # twinui.dll / themeui.dll / themeservice.dll 仍然可能不在 System32 —— FOD 只覆盖
     # MMC / 事件查看器等一部分，主题与 XAML 相关的组件要另外补。
     #
-    # 源：发布包内置的 setup\dll\amd64（从同版本桌面体验 ISO 的 install.wim 提取）。
+    # 源：发布包内置的同 build 目录（从同版本桌面体验 ISO 的 install.wim 提取）。
     # 版本必须与当前系统主版本一致，否则拒绝复制（避免把 19041 的文件塞进 26100）。
     param([switch]$WhatIf, [switch]$Force)
 
@@ -223,7 +223,10 @@ function Install-GuiReadyDesktopDlls {
     $osBuild = [Environment]::OSVersion.Version.Build
     $dstDir  = Join-Path $env:SystemRoot 'System32'
     # 多版本目录：Server 2019 / 2022 / 2025 的 DLL 版本不同，必须用同 build 的文件。
-    # 约定：setup\dll\<build>\amd64 放该版本专用；setup\dll\amd64 是默认（当前为 26100）。
+    # 约定：setup\dll\<build>\amd64 放该版本专用；setup\dll\amd64 是默认（26100）。
+    # 已内置：17763（2019）、20348（2022）、26100（2025，默认目录）。
+    # 提取方法：7z x <ISO> -o<tmp> 'sources\install.wim' → 7z x install.wim
+    #   '4\Windows\System32\twinui.dll' ...（索引 4 = Datacenter 桌面体验）。
     $cands = @(
         (Join-Path $script:GuiReadyRoot ('setup\dll\' + $osBuild + '\amd64')),
         (Join-Path $script:GuiReadyRoot 'setup\dll\amd64')
