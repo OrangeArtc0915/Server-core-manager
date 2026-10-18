@@ -1836,7 +1836,7 @@ $btnStoreRetry.Visible  = $false
 $btnStoreRetry.Add_Click({ Retry-StoreQueue })
 $pnlStoreFilter.Controls.Add($btnStoreRetry)
 
-$hintStore = New-HintBar -Text '目标场景是刚装好的 Server Core（机上什么都没有），所以本机没有包管理器时**工具会自动先装 Chocolatey**（点搜索就会触发，装完接着搜）。所有安装动作都会写进下方日志；不确定就先按「仅预览」看要执行什么命令。' -Kind 'Blue' -Width 900
+$hintStore = New-HintBar -Text '目标场景是刚装好的 Server Core（机上什么都没有），所以本机没有包管理器时**工具会自动先装 Chocolatey**（点搜索就会触发，装完接着搜）。搜索源选「全部源」会同时查 Chocolatey 与 npm（npm 走 registry、约 10 秒；Scoop 搜索与 pip search 未接入）。批量队列只收 Chocolatey 条目；npm 结果请逐条安装。所有安装动作都会写进下方日志；不确定就先按「仅预览」看要执行什么命令。' -Kind 'Blue' -Width 900
 $hintStore.Location = New-Object System.Drawing.Point(0, 180)
 $pageStore.Controls.Add($hintStore)
 
@@ -1882,7 +1882,7 @@ $script:StoreOutFile     = ''
 $script:StoreSearchSrc   = 'choco'
 $script:StoreRunner      = Join-Path $guiDir 'Run-GuiReadyStore.ps1'
 # 与 pkg-install / pkg-uninstall 里 Source 下拉的 1 基索引保持一致
-$script:StoreSourceIndex = @{ choco = 1; scoop = 2 }
+$script:StoreSourceIndex = @{ choco = 1; scoop = 2; npm = 3 }
 
 $script:StoreTimer = New-Object System.Windows.Forms.Timer
 $script:StoreTimer.Interval = 250
@@ -1974,6 +1974,7 @@ function Start-StoreQuery {
     $script:StoreTask = $Mode
     switch ($Mode) {
         'search' { Set-StoreBusy -Text ('正在搜索 ' + $Query + ' …') -Kind 'Info' }
+        'searchall' { Set-StoreBusy -Text ('正在搜索全部源 ' + $Query + ' …（npm 较慢）') -Kind 'Info' }
         'local'  { Set-StoreBusy -Text '正在读取已装清单…' -Kind 'Info' }
         'outdated' { Set-StoreBusy -Text '正在检查可更新…' -Kind 'Info' }
         default  { Set-StoreBusy -Text '正在检测包管理器…' -Kind 'Info' }
@@ -2005,20 +2006,24 @@ function Add-StoreRow {
     if ($Item.PSObject.Properties['DisplayName'] -and $Item.DisplayName) { $title = [string]$Item.DisplayName }
 
     # 勾选框：批量安装队列用。勾选状态存在 $script:StoreChecked，列表重绘（已装/可更新刷新）后回填。
-    $chk = New-Object System.Windows.Forms.CheckBox
-    $chk.Location  = New-Object System.Drawing.Point(10, 18)
-    $chk.Size      = New-Object System.Drawing.Size(18, 18)
-    $chk.FlatStyle = 'Flat'
-    $chk.BackColor = $Pal.Card
-    $chk.ForeColor = $Pal.Text
-    $chk.Tag       = [string]$Item.Id
-    $chk.Checked   = $script:StoreChecked.ContainsKey([string]$Item.Id)
-    $chk.Add_Click({
-        $id = [string]$this.Tag
-        if ($this.Checked) { $script:StoreChecked[$id] = $true } else { $script:StoreChecked.Remove($id) }
-        Update-StoreQueueUi
-    })
-    $row.Controls.Add($chk)
+    # 只给 Chocolatey / 精选条目：队列按包名走 choco，npm 包（尤其 @scope/name）塞进去会装错源。
+    $chk = $null
+    if ([string]$Item.Source -eq 'choco') {
+        $chk = New-Object System.Windows.Forms.CheckBox
+        $chk.Location  = New-Object System.Drawing.Point(10, 18)
+        $chk.Size      = New-Object System.Drawing.Size(18, 18)
+        $chk.FlatStyle = 'Flat'
+        $chk.BackColor = $Pal.Card
+        $chk.ForeColor = $Pal.Text
+        $chk.Tag       = [string]$Item.Id
+        $chk.Checked   = $script:StoreChecked.ContainsKey([string]$Item.Id)
+        $chk.Add_Click({
+            $id = [string]$this.Tag
+            if ($this.Checked) { $script:StoreChecked[$id] = $true } else { $script:StoreChecked.Remove($id) }
+            Update-StoreQueueUi
+        })
+        $row.Controls.Add($chk)
+    }
 
     $lbName = New-Label -Text $title -Size 10 -Style Bold -Width ($rowW - 330)
     $lbName.Location = New-Object System.Drawing.Point(38, 9)
@@ -2035,6 +2040,12 @@ function Add-StoreRow {
     $upd = $null
     if ($script:StoreOutdated -and $script:StoreOutdated.ContainsKey($pkgId)) { $upd = $script:StoreOutdated[$pkgId] }
     if ($upd) { $meta = ('🔄 可更新 {0} → {1}   ·   {2}' -f [string]$upd.Current, [string]$upd.Available, $meta) }
+    # npm 搜索结果带一句描述（choco 的 --limit-output 没有描述）
+    if ($Item.PSObject.Properties['Description'] -and $Item.Description) {
+        $desc = ([string]$Item.Description -replace "`r?`n", ' ').Trim()
+        if ($desc.Length -gt 90) { $desc = $desc.Substring(0, 90) + '…' }
+        $meta = $meta + '   ·   ' + $desc
+    }
     $lbMeta = New-Label -Text $meta -Size 8.5 -Color Hint -Width ($rowW - 330)
     $lbMeta.Location = New-Object System.Drawing.Point(38, 31)
     $row.Controls.Add($lbMeta)
@@ -2050,11 +2061,12 @@ function Add-StoreRow {
     }
 
     $btnIns = New-FlatButton -Text $(if ($upd) { '更新' } else { '安装' }) -Kind Primary -Width 80 -Height 30
-    $btnIns.Tag = @{ Pkg = [string]$Item.Id; Src = [string]$Item.Source }
+    # Cat=精选库条目：只有精选条目才走 store-install（带 FOD / Containers 前置检查）。
+    # 不能只按包名判断 —— npm 上的包名可能刚好和精选库某个 id 重名（例如 nodejs）。
+    $btnIns.Tag = @{ Pkg = [string]$Item.Id; Src = [string]$Item.Source; Cat = ([string]$Item.Label -eq '精选') }
     $btnIns.Add_Click({
         $pkg = [string]$this.Tag.Pkg
-        # 精选库里的条目走完整安装流程（FOD / Containers 等前置检查）；其他包走裸安装。
-        if (Get-GuiReadyStoreEntry -Id $pkg) {
+        if ([bool]$this.Tag.Cat) {
             Start-StoreAction -Id 'store-install' -Params @{ AppId = $pkg }
         } else {
             Start-StoreAction -Id 'pkg-install' -Params @{
@@ -2076,13 +2088,17 @@ function Add-StoreRow {
     })
     $row.Controls.Add($btnUn)
 
-    # 「详情」：在同一个结果区里换成详情视图（choco info 的输出，见 Get-GuiReadyPackageInfo）
-    $btnInfo = New-FlatButton -Text '详情' -Width 64 -Height 30
-    $btnInfo.Tag = @{ Pkg = [string]$Item.Id; Src = [string]$Item.Source }
-    $btnInfo.Add_Click({
-        Show-StoreDetail -Package ([string]$this.Tag.Pkg) -Source ([string]$this.Tag.Src)
-    })
-    $row.Controls.Add($btnInfo)
+    # 「详情」：在同一个结果区里换成详情视图（choco info 的输出，见 Get-GuiReadyPackageInfo）。
+    # npm 结果没有 choco info 可查，索性不摆这个按钮，免得点下去只得到一句"不支持"。
+    $btnInfo = $null
+    if ([string]$Item.Source -eq 'choco') {
+        $btnInfo = New-FlatButton -Text '详情' -Width 64 -Height 30
+        $btnInfo.Tag = @{ Pkg = [string]$Item.Id; Src = [string]$Item.Source }
+        $btnInfo.Add_Click({
+            Show-StoreDetail -Package ([string]$this.Tag.Pkg) -Source ([string]$this.Tag.Src)
+        })
+        $row.Controls.Add($btnInfo)
+    }
 
     $pnlStoreResults.Controls.Add($row)
     $script:StoreRows += [pscustomobject]@{ Panel = $row; Name = $lbName; Meta = $lbMeta; Check = $chk; Install = $btnIns; Uninstall = $btnUn; Info = $btnInfo; Pill = $pill }
@@ -2341,15 +2357,19 @@ function Show-StoreResult {
 }
 
 function Update-StoreSourceCombo {
-    # 下拉只列「能搜索」的源（目前只有 Chocolatey）。
+    # 下拉列「全部源」+ 每个可搜索的源（目前 Chocolatey / npm）。
+    # 只有一个源时不加「全部源」，避免同一份结果出现两条入口。
     try {
         $cmbStoreSrc.Items.Clear()
         $script:StoreComboMap = @()
-        foreach ($s in $script:StoreSources) {
-            if ($s.CanSearch) {
-                [void]$cmbStoreSrc.Items.Add([string]$s.Name)
-                $script:StoreComboMap += [string]$s.Id
-            }
+        $searchable = @($script:StoreSources | Where-Object { $_.CanSearch })
+        if ($searchable.Count -gt 1) {
+            [void]$cmbStoreSrc.Items.Add('全部源')
+            $script:StoreComboMap += 'all'
+        }
+        foreach ($s in $searchable) {
+            [void]$cmbStoreSrc.Items.Add([string]$s.Name)
+            $script:StoreComboMap += [string]$s.Id
         }
         if ($script:StoreComboMap.Count -gt 0) {
             $cmbStoreSrc.SelectedIndex = 0
@@ -2484,8 +2504,9 @@ function Update-StoreTick {
                 $q = [string]$script:StoreAutoSearch.Query
                 if ($q -and $script:StoreComboMap.Count -gt 0) {
                     $sid = [string]$script:StoreComboMap[0]
+                    $mode = $(if ($sid -eq 'all') { 'searchall' } else { 'search' })
                     Append-GuiLog -Line ('[INFO] 包管理器已就绪，继续刚才的搜索: ' + $q)
-                    Start-StoreQuery -Mode 'search' -Source $sid -Query $q
+                    Start-StoreQuery -Mode $mode -Source $sid -Query $q
                 }
             }
         }
@@ -2505,7 +2526,8 @@ function Update-StoreTick {
                 Show-StorePage
             }
         }
-        'search' { Show-StoreResult -Items $items }
+        'search'    { Show-StoreResult -Items $items }
+        'searchall' { Show-StoreResult -Items $items }
     }
 }
 
@@ -2521,13 +2543,22 @@ function Start-StoreAction {
 
     # 装/卸软件包都得先有包管理器：没有就问一句（用户选择下载 → 之后自动安装并继续）。
     # 选“是”之后由动作链自己把包管理器装好再装你要的包，用户不用额外操作。
-    if ($Id -in @('pkg-install', 'pkg-uninstall', 'pkg-info', 'store-install', 'store-queue') -and -not (Resolve-GuiReadyPackageExe -Id 'choco')) {
-        $name = [string]$Params['Package']
-        if (-not $name -and $Params['AppId']) { $name = [string]$Params['AppId'] }
-        if (-not $name -and $Params['AppIds']) { $name = '批量安装队列' }
-        if (-not (Confirm-GuiPackageManager -Why ('你刚要操作的软件包是「' + $name + '」，得先有包管理器。'))) {
-            Append-GuiLog -Line '[INFO] 你取消了自动安装包管理器，本次操作没有执行。'
-            return
+    # npm 源没有「自动装 Node.js」这条路（代价太大），缺 npm 就如实拒绝。
+    if ($Id -in @('pkg-install', 'pkg-uninstall', 'pkg-info', 'store-install', 'store-queue')) {
+        $srcId = 'choco'
+        if ([int]$Params['Source'] -eq 3) { $srcId = 'npm' }
+        if (-not (Resolve-GuiReadyPackageExe -Id $srcId)) {
+            if ($srcId -ne 'choco') {
+                Append-GuiLog -Line '[ERROR] 本机没有 npm，装不了 npm 源上的包。请先在商店安装 Node.js（nodejs）。'
+                return
+            }
+            $name = [string]$Params['Package']
+            if (-not $name -and $Params['AppId']) { $name = [string]$Params['AppId'] }
+            if (-not $name -and $Params['AppIds']) { $name = '批量安装队列' }
+            if (-not (Confirm-GuiPackageManager -Why ('你刚要操作的软件包是「' + $name + '」，得先有包管理器。'))) {
+                Append-GuiLog -Line '[INFO] 你取消了自动安装包管理器，本次操作没有执行。'
+                return
+            }
         }
     }
 
@@ -2671,8 +2702,9 @@ $btnStoreSearch.Add_Click({
         return
     }
     $sid = [string]$script:StoreComboMap[$cmbStoreSrc.SelectedIndex]
-    Append-GuiLog -Line ('[INFO] 商店搜索: ' + $q)
-    Start-StoreQuery -Mode 'search' -Source $sid -Query $q
+    $mode = $(if ($sid -eq 'all') { 'searchall' } else { 'search' })
+    Append-GuiLog -Line ('[INFO] 商店搜索[{0}]: {1}' -f $(if ($sid -eq 'all') { '全部源' } else { $sid }), $q)
+    Start-StoreQuery -Mode $mode -Source $sid -Query $q
 })
 
 $txtStoreQuery.Box.Add_KeyDown({
@@ -2788,6 +2820,8 @@ $script:RoleSupport  = $null
 $script:RoleItems    = @()
 $script:RoleRows     = @()
 $script:RoleChecked  = @{}      # 勾选待批量操作的角色：Name -> Installed（勾选时的安装态）
+$script:RoleRestartNeeded = $false   # 最近一次角色动作是否需要重启
+$script:RoleRestartItems  = @()      # 需要重启才生效的角色/功能名
 $script:RolePills    = @()
 $script:RoleTask     = ''      # '' | support | list | watch
 $script:RoleProc     = $null
@@ -3002,6 +3036,31 @@ function Start-RoleQueue {
     }
 }
 
+function Read-RoleProgress {
+    # 读 state\role-progress.json（动作子进程每装/卸一项就写一次）
+    try {
+        $p = Join-Path (Join-Path $toolRoot 'state') 'role-progress.json'
+        if (-not (Test-Path -LiteralPath $p)) { return $null }
+        $raw = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8)
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+        return ($raw | ConvertFrom-Json)
+    } catch { return $null }
+}
+
+function Confirm-RoleReboot {
+    # 「需要重启」时的唯一入口：先把要生效的项说清楚，再走延时重启（可取消）
+    if ($script:AuditMode) { Append-GuiLog -Line '[INFO] 审计模式：跳过重启确认'; return }
+    $items = @($script:RoleRestartItems)
+    $who = $(if ($items.Count -gt 0) { ($items -join '、') } else { '最近一次角色变更' })
+    $msg = "以下变更需要重启才会生效：`r`n`r`n  $who`r`n`r`n现在重启服务器吗？所有会话会断开。`r`n`r`n真跑时会延时 20 秒，期间可在命令行执行 shutdown /a 取消。"
+    try {
+        $r = [System.Windows.Forms.MessageBox]::Show($form, $msg, '重启服务器', 'YesNo', 'Warning')
+        if ($r -ne 'Yes') { return }
+        Append-GuiLog -Line '[WARN] 已计划重启：20 秒后执行（取消：shutdown /a）'
+        Start-RoleAction -Id 'reboot' -Params @{ DelaySec = 20 }
+    } catch { }
+}
+
 function Show-RoleResult {
     $items = @(Get-RoleFilteredItems)
     Clear-RoleRows
@@ -3071,15 +3130,46 @@ function Update-RoleStatusRow {
     $btn.Location = New-Object System.Drawing.Point($x, 2)
     $btn.Add_Click({ Start-RoleQuery -Mode 'list' })
     $pnlRoleStatus.Controls.Add($btn)
+    $x += 84
+
+    # 需要重启时出现在这一行：把「待生效的项」说清楚，再走延时重启（可取消）
+    if ($script:RoleRestartNeeded) {
+        $n = @($script:RoleRestartItems).Count
+        $btnRb = New-FlatButton -Text $(if ($n -gt 0) { ('重启服务器（{0} 项待生效）' -f $n) } else { '重启服务器' }) -Kind Primary -Width 200 -Height 30
+        $btnRb.Location = New-Object System.Drawing.Point($x, 2)
+        $btnRb.Add_Click({ Confirm-RoleReboot })
+        $pnlRoleStatus.Controls.Add($btnRb)
+    }
 }
 
 function Update-RoleTick {
     if ($script:RoleTask -eq 'watch') {
         $running = $false
         try { if ($script:Proc) { $script:Proc.Refresh(); $running = -not $script:Proc.HasExited } } catch { }
-        if ($running) { try { $barRole.Invalidate() } catch { }; return }
+        if ($running) {
+            # 进度：动作子进程每装/卸一项写一次 state\role-progress.json
+            $pr = Read-RoleProgress
+            if ($pr -and [int]$pr.Total -gt 0 -and [string]$pr.Stage -ne 'done') {
+                $cur = [int]$pr.Current
+                $tot = [int]$pr.Total
+                $pct = [int][Math]::Floor(100.0 * $cur / $tot)
+                $verb = $(if ([string]$pr.Stage -eq 'remove') { '移除' } else { '安装' })
+                $txt = ('{0} {1}/{2}（{3}%）' -f $verb, $cur, $tot, $pct)
+                if ($pr.CurrentName) { $txt += '：' + [string]$pr.CurrentName }
+                Set-Pill -Pill $pillRoleCount -Text $txt -Kind 'Info'
+            }
+            try { $barRole.Invalidate() } catch { }
+            return
+        }
         Stop-RoleTask
+        # 收尾：把「是否需要重启」连同具体项一起记下来，状态行会出现重启按钮
+        $pr = Read-RoleProgress
+        if ($pr) {
+            $script:RoleRestartNeeded = [bool]$pr.RestartNeeded
+            $script:RoleRestartItems  = @($pr.RestartItems | Where-Object { $_ })
+        }
         Update-RoleQueueUi
+        Update-RoleStatusRow
         Append-GuiLog -Line '[INFO] 角色动作已结束，正在刷新列表（需要重启的项会写在日志里）。'
         # 安装/卸载后缓存已失效，自动重读一次，页面不会停在旧状态
         Start-RoleQuery -Mode 'list'
@@ -3158,8 +3248,25 @@ function Apply-RoleResult {
     Show-RoleResult
 }
 
+function Restore-RoleRestartState {
+    # GUI 关掉再打开后，「需要重启」仍然要提示 —— 但不能把重启前的旧记录当成新的：
+    # 只认「本次开机之后」写下的进度文件（用 TickCount64 推算开机时间）。
+    try {
+        if ($script:RoleRestartNeeded) { return }
+        $pr = Read-RoleProgress
+        if (-not $pr -or [string]$pr.Stage -ne 'done' -or -not [bool]$pr.RestartNeeded) { return }
+        $ts = [datetime]::MinValue
+        try { $ts = [datetime]::Parse([string]$pr.Updated) } catch { return }
+        $boot = (Get-Date).AddMilliseconds(-[double][Environment]::TickCount64)
+        if ($ts -lt $boot) { return }
+        $script:RoleRestartNeeded = $true
+        $script:RoleRestartItems = @($pr.RestartItems | Where-Object { $_ })
+    } catch { }
+}
+
 function Show-RolePage {
     if ($SkipPageHooks) { return }
+    Restore-RoleRestartState
     if (-not $script:RoleSupport -and -not $script:RoleTask) {
         # 先用磁盘缓存秒显，再后台刷新 —— 用户反馈"读取角色列表好慢"。
         $cache = Read-RoleCache
@@ -3216,6 +3323,7 @@ foreach ($spec in @(@{ K = 'cpu'; T = 'CPU' }, @{ K = 'mem'; T = '内存' }, @{ 
 # 历史只留在内存里（最多 120 点 ≈ 10 分钟），不落盘 —— 服务器上不堆无用的时序文件。
 $script:MonHistory    = New-Object System.Collections.ArrayList
 $script:MonHistoryMax = 120
+$script:MonAlarm      = @{ cpu = $false; mem = $false; disk = $false }   # 告警边沿检测（只在跨阈值时写日志）
 $script:MonTrendFont      = New-Font -Size 8.5 -Style Bold
 $script:MonTrendFontSmall = New-Font -Size 8
 
@@ -3342,12 +3450,18 @@ $pillMonSum          = New-Pill -Text '还未采集' -Kind 'Neutral'
 $pillMonSum.Location = New-Object System.Drawing.Point(86, 6)
 $pnlMonBar.Controls.Add($pillMonSum)
 
-# TUI 监控：优先用本机已有的 pstop / htop / btm；都没有就引导装 pstop（约 1 MB、零依赖）。
-# 放在后台子进程里启动一个真实控制台窗口 —— TUI 需要真的控制台，不能画在 GUI 里。
+# TUI 监控：优先用本机已有的 pstop / htop / btm，没有就启动内置版（零依赖）。
+# 在后台起一个真实控制台窗口 —— TUI 需要真的控制台，不能画在 GUI 里。
 $btnMonTui          = New-FlatButton -Text 'TUI 监控' -Width 96 -Height 30
 $btnMonTui.Location = New-Object System.Drawing.Point(260, 2)
 $btnMonTui.Add_Click({ Start-MonitorTui })
 $pnlMonBar.Controls.Add($btnMonTui)
+
+# 告警阈值：CPU / 内存 / 磁盘的百分比，存 state\monitor-thresholds.json
+$btnMonThresh          = New-FlatButton -Text '告警阈值' -Width 96 -Height 30
+$btnMonThresh.Location = New-Object System.Drawing.Point(366, 2)
+$btnMonThresh.Add_Click({ Show-MonitorThresholdDialog })
+$pnlMonBar.Controls.Add($btnMonThresh)
 
 $hintMon = New-HintBar -Text '提示：服务名要填服务名而不是显示名（例如 WinRM / LanmanServer / TermService）。停关键服务可能断开你的远程会话，动作里会先警告。「TUI 监控」优先打开已装的 pstop / htop / btm，没有就用内置的 scm-top（零依赖，按 q 退出）。' -Kind 'Blue' -Width 900
 $hintMon.Location = New-Object System.Drawing.Point(0, 288)
@@ -3458,6 +3572,10 @@ function Render-Monitor {
 
     Set-Pill -Pill $pillMonSum -Text ('采集于 {0}' -f [string]$s.Stamp) -Kind $(if ($down.Count -gt 0) { 'Warn' } else { 'Success' })
 
+    # 越限时把汇总胶囊换成告警（比"采集于"更重要）
+    $alarm = Update-MonitorAlarm -Cpu $seedCpu -Mem $seedMem -Disk $seedDisk
+    if ($alarm) { Set-Pill -Pill $pillMonSum -Text ('告警：' + $alarm) -Kind 'Danger' }
+
     # ---- 服务 ----
     Add-MonSection ('关键服务（{0} 个，其中 {1} 个未运行）' -f $svcs.Count, $down.Count)
     foreach ($sv in $svcs) {
@@ -3506,11 +3624,145 @@ $btnMonRefresh.Add_Click({ Start-GuiQueryHost -Query $script:QMon -Task 'snapsho
 $script:QMonTrend = New-GuiQueryHost -Name 'monitor-trend' -Runner (Join-Path $guiDir 'Run-GuiReadyMonitor.ps1') -TimeoutSec 30 `
     -OnResult { param($obj) if ($obj -and $obj.Snap) { Add-MonTrendPoint -Cpu $obj.Snap.Cpu -Mem $obj.Snap.MemPct -Disk $obj.Snap.DiskPct } }
 
+function Get-MonitorThresholds {
+    # 告警阈值（百分比）。默认 90/90/90，存 state\monitor-thresholds.json。
+    $t = @{ Cpu = 90; Mem = 90; Disk = 90 }
+    try {
+        $p = Join-Path (Join-Path $toolRoot 'state') 'monitor-thresholds.json'
+        if (Test-Path -LiteralPath $p) {
+            $raw = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8)
+            if (-not [string]::IsNullOrWhiteSpace($raw)) {
+                $o = $raw | ConvertFrom-Json
+                foreach ($k in @('Cpu', 'Mem', 'Disk')) {
+                    $v = 0
+                    try { $v = [int]$o.$k } catch { }
+                    if ($v -ge 1 -and $v -le 100) { $t[$k] = $v }
+                }
+            }
+        }
+    } catch { }
+    return $t
+}
+
+function Set-MonitorThresholds {
+    param([int]$Cpu = 90, [int]$Mem = 90, [int]$Disk = 90)
+    try {
+        $p = Join-Path (Join-Path $toolRoot 'state') 'monitor-thresholds.json'
+        $dir = Split-Path -Parent $p
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $o = [ordered]@{ Cpu = $Cpu; Mem = $Mem; Disk = $Disk }
+        [System.IO.File]::WriteAllText($p, (ConvertTo-Json -InputObject $o -Compress),
+            (New-Object System.Text.UTF8Encoding($false)))
+        return $true
+    } catch { return $false }
+}
+
+function Update-MonitorAlarm {
+    # 用最新样本判断是否越限，并做「边沿检测」：
+    # 只在「从正常跨到越限」和「从越限回落到正常」时各写一行日志，避免每 5 秒刷屏。
+    # 返回越限描述（多段用；分隔），没有越限返回 $null。
+    param($Cpu, $Mem, $Disk)
+    $th = Get-MonitorThresholds
+    $specs = @(
+        @{ K = 'cpu';  T = 'CPU';  V = $Cpu;  L = [double]$th.Cpu },
+        @{ K = 'mem';  T = '内存'; V = $Mem;  L = [double]$th.Mem },
+        @{ K = 'disk'; T = '磁盘'; V = $Disk; L = [double]$th.Disk }
+    )
+    $hits = @()
+    foreach ($s in $specs) {
+        if ($null -eq $s.V) { continue }
+        $on = ([double]$s.V -ge $s.L)
+        if ($on) { $hits += ('{0} {1:0.0}% ≥ {2}%' -f $s.T, [double]$s.V, $s.L) }
+        if ($on -and -not $script:MonAlarm[$s.K]) {
+            Append-GuiLog -Line ('[WARN] 告警：{0} 使用率 {1:0.0}% 已达到阈值 {2}%（仪表盘「告警阈值」可调）。' -f $s.T, [double]$s.V, $s.L)
+        } elseif (-not $on -and $script:MonAlarm[$s.K]) {
+            Append-GuiLog -Line ('[INFO] 告警解除：{0} 回落到 {1:0.0}%（阈值 {2}%）。' -f $s.T, [double]$s.V, $s.L)
+        }
+        $script:MonAlarm[$s.K] = $on
+    }
+    if ($hits.Count -gt 0) { return ($hits -join '；') }
+    return $null
+}
+
+function Show-MonitorThresholdDialog {
+    if ($script:AuditMode) { Append-GuiLog -Line '[INFO] 审计模式：跳过告警阈值对话框'; return }
+    $th = Get-MonitorThresholds
+    $dlg = New-Object System.Windows.Forms.Form
+    try {
+        $dlg.Text = '告警阈值'
+        $dlg.FormBorderStyle = 'FixedDialog'
+        $dlg.MaximizeBox = $false
+        $dlg.MinimizeBox = $false
+        $dlg.StartPosition = 'CenterParent'
+        $dlg.ClientSize = New-Object System.Drawing.Size(340, 200)
+        $dlg.BackColor = $Pal.Bg
+        $dlg.ForeColor = $Pal.Text
+        $dlg.Font = New-Font -Size 9.5
+
+        $specs = @(
+            @{ K = 'Cpu';  T = 'CPU 使用率（%）';  V = $th.Cpu;  Y = 16 },
+            @{ K = 'Mem';  T = '内存使用率（%）'; V = $th.Mem;  Y = 52 },
+            @{ K = 'Disk'; T = '磁盘使用率（%）'; V = $th.Disk; Y = 88 }
+        )
+        $spins = @{}
+        foreach ($s in $specs) {
+            $l = New-Label -Text $s.T -Size 9.5
+            $l.Location = New-Object System.Drawing.Point(18, ($s.Y + 4))
+            $dlg.Controls.Add($l)
+            $sp = New-Object System.Windows.Forms.NumericUpDown
+            $sp.Minimum = 1
+            $sp.Maximum = 100
+            $sp.Value = [decimal][int]$s.V
+            $sp.Location = New-Object System.Drawing.Point(196, $s.Y)
+            $sp.Size = New-Object System.Drawing.Size(110, 26)
+            $sp.BackColor = $Pal.Sunken
+            $sp.ForeColor = $Pal.Text
+            $dlg.Controls.Add($sp)
+            $spins[$s.K] = $sp
+        }
+
+        $btnOk = New-FlatButton -Text '保存' -Kind Primary -Width 88 -Height 30
+        $btnOk.Location = New-Object System.Drawing.Point(112, 140)
+        $btnOk.Add_Click({ $f = $this.FindForm(); if ($f) { $f.DialogResult = [System.Windows.Forms.DialogResult]::OK } })
+        $dlg.Controls.Add($btnOk)
+
+        $btnCancel = New-FlatButton -Text '取消' -Width 88 -Height 30
+        $btnCancel.Location = New-Object System.Drawing.Point(212, 140)
+        $btnCancel.Add_Click({ $f = $this.FindForm(); if ($f) { $f.DialogResult = [System.Windows.Forms.DialogResult]::Cancel } })
+        $dlg.Controls.Add($btnCancel)
+
+        $r = $dlg.ShowDialog($form)
+        if ($r -eq [System.Windows.Forms.DialogResult]::OK) {
+            $ok = Set-MonitorThresholds -Cpu ([int]$spins['Cpu'].Value) -Mem ([int]$spins['Mem'].Value) -Disk ([int]$spins['Disk'].Value)
+            if ($ok) {
+                Append-GuiLog -Line ('[INFO] 告警阈值已更新：CPU {0}% / 内存 {1}% / 磁盘 {2}%' -f `
+                    [int]$spins['Cpu'].Value, [int]$spins['Mem'].Value, [int]$spins['Disk'].Value)
+                # 立刻重采一次：胶囊与告警状态都会按新阈值重算
+                Start-GuiQueryHost -Query $script:QMon -Task 'snapshot' -BusyText '重新采集…' | Out-Null
+            } else {
+                Append-GuiLog -Line '[WARN] 告警阈值保存失败（看日志目录权限）。'
+            }
+        }
+    } finally {
+        try { $dlg.Dispose() } catch { }
+    }
+}
+
 function Add-MonTrendPoint {
     # 往内存里的趋势环里放一个点。同一时刻的快照与 metrics 可能只差几百毫秒，
     # 2 秒内不再重复记（否则曲线会出现两条几乎重合的竖线）。
     param($Cpu, $Mem, $Disk)
     try {
+        # 先按最新样本判一次告警（即使因去重没记曲线点，告警状态也要更新）
+        $alarm = Update-MonitorAlarm -Cpu $Cpu -Mem $Mem -Disk $Disk
+        if (-not $script:QMon.Task -and -not $script:QMonTrend.Task) {
+            if ($alarm) {
+                try { Set-Pill -Pill $pillMonSum -Text ('告警：' + $alarm) -Kind 'Danger' } catch { }
+            } elseif ($pillMonSum.Tag -and ([string]$pillMonSum.Tag.Text) -like '告警：*') {
+                # 告警已解除：别让红色胶囊一直挂着（用户不点刷新也能看到恢复）
+                try { Set-Pill -Pill $pillMonSum -Text ('采样于 ' + (Get-Date -Format 'HH:mm:ss')) -Kind 'Neutral' } catch { }
+            }
+        }
         if ($script:MonHistory.Count -gt 0) {
             $lastP = $script:MonHistory[$script:MonHistory.Count - 1]
             if (((Get-Date) - $lastP.T).TotalSeconds -lt 2) { return }

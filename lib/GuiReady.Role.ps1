@@ -132,6 +132,45 @@ function Clear-GuiReadyRoleCache {
     } catch { }
 }
 
+function Write-GuiReadyRoleProgress {
+    # 把批量安装/移除的进度写进 state\role-progress.json，供 GUI 的界面轮询。
+    #
+    # 为什么用文件而不是 IPC：动作跑在独立子进程里（这是硬约束，见项目架构），
+    # GUI 只能靠磁盘上的文件知道「现在装到第几项」。写入用 tmp + Move，读的一方不会读到半个 JSON。
+    param(
+        [string]$Stage = 'install',          # install | remove | done
+        [int]$Total = 0,
+        [int]$Current = 0,
+        [string]$CurrentName = '',
+        [string[]]$Succeeded = @(),
+        [string[]]$Failed = @(),
+        [string[]]$RestartItems = @(),
+        [bool]$RestartNeeded = $false,
+        [string]$Note = ''
+    )
+    try {
+        $p = Join-Path $script:GuiReadyRoot 'state\role-progress.json'
+        $dir = Split-Path -Parent $p
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $o = [ordered]@{
+            Updated      = (Get-Date).ToString('o')
+            Stage        = $Stage
+            Total        = $Total
+            Current      = $Current
+            CurrentName  = $CurrentName
+            Succeeded    = @($Succeeded)
+            Failed       = @($Failed)
+            RestartItems = @($RestartItems)
+            RestartNeeded = $RestartNeeded
+            Note         = $Note
+        }
+        $tmp = $p + '.tmp'
+        [System.IO.File]::WriteAllText($tmp, (ConvertTo-Json -InputObject $o -Depth 4 -Compress),
+            (New-Object System.Text.UTF8Encoding($false)))
+        Move-Item -LiteralPath $tmp -Destination $p -Force
+    } catch { }
+}
+
 function Get-GuiReadyRoleSummary {
     # 给页面上那排胶囊用的统计
     param($Items)
@@ -156,6 +195,9 @@ function Install-GuiReadyRole {
         [switch]$WithManagementTools,
         [switch]$WhatIf
     )
+
+    # 供批量循环汇总「哪些项需要重启」：Install-WindowsFeature 的返回值里没有可累计的字段
+    $script:GuiReadyRoleLastRestart = $false
 
     # 预览放在最前面：即使本机装不了，也要能看清「真跑会执行什么命令」
     $cmdOk = $false
@@ -191,7 +233,10 @@ function Install-GuiReadyRole {
         $restart = [bool](Get-GuiReadyRoleProp $r 'RestartNeeded' $false)
         $exit = Get-GuiReadyRoleProp $r 'ExitCode' '?'
         Write-Log ('结果: 成功={0}  需要重启={1}  退出码={2}' -f (Format-Bool $ok), (Format-Bool $restart), $exit) $(if ($ok) { 'OK' } else { 'ERROR' })
-        if ($restart) { Write-Log '这次安装需要重启才会生效。' 'WARN' }
+        if ($restart) {
+            $script:GuiReadyRoleLastRestart = $true
+            Write-Log '这次安装需要重启才会生效。' 'WARN'
+        }
         if ($ok) { Clear-GuiReadyRoleCache }
         return $ok
     } catch {
@@ -206,6 +251,8 @@ function Remove-GuiReadyRole {
         [Parameter(Mandatory = $true)][string]$Name,
         [switch]$WhatIf
     )
+
+    $script:GuiReadyRoleLastRestart = $false
 
     $cmdOk = $false
     try { $cmdOk = [bool](Get-Command Uninstall-WindowsFeature -ErrorAction SilentlyContinue) } catch { }
@@ -238,7 +285,10 @@ function Remove-GuiReadyRole {
         $ok = [bool](Get-GuiReadyRoleProp $r 'Success' $false)
         $restart = [bool](Get-GuiReadyRoleProp $r 'RestartNeeded' $false)
         Write-Log ('结果: 成功={0}  需要重启={1}' -f (Format-Bool $ok), (Format-Bool $restart)) $(if ($ok) { 'OK' } else { 'ERROR' })
-        if ($restart) { Write-Log '移除需要重启才会彻底生效。' 'WARN' }
+        if ($restart) {
+            $script:GuiReadyRoleLastRestart = $true
+            Write-Log '移除需要重启才会彻底生效。' 'WARN'
+        }
         if ($ok) { Clear-GuiReadyRoleCache }
         return $ok
     } catch {
@@ -350,6 +400,7 @@ function Install-GuiReadyRoleBatch {
     if ($skip.Count -gt 0) { Write-Log ('已安装，跳过: ' + (@($skip) -join ', ')) 'INFO' }
     if ($todo.Count -eq 0) {
         Write-Log '这些角色/功能都已安装，无需操作。' 'OK'
+        Write-GuiReadyRoleProgress -Stage 'done' -Total 0 -Current 0 -Note '全部已安装' -RestartNeeded $false
         return $true
     }
     Write-Log ('将依次安装 {0} 项（依赖在前）: {1}' -f $todo.Count, (@($todo) -join ', ')) 'INFO'
@@ -364,11 +415,18 @@ function Install-GuiReadyRoleBatch {
         return $true
     }
 
+    # 进度文件：GUI 在「执行中」阶段轮询它显示 3/17（18%）：当前项
+    Write-GuiReadyRoleProgress -Stage 'install' -Total $todo.Count -Current 0 -Note ((@($names)) -join ',')
+
     $done = @()
     $failed = @()
+    $restartItems = @()
+    $needRestart = $false
     $i = 0
     foreach ($n in $todo) {
         $i++
+        Write-GuiReadyRoleProgress -Stage 'install' -Total $todo.Count -Current $i -CurrentName $n `
+            -Succeeded $done -Failed $failed -RestartItems $restartItems -RestartNeeded $needRestart
         Write-Log ('[{0}/{1}] {2}' -f $i, $todo.Count, $n) 'STEP'
         $ok = $false
         try {
@@ -377,15 +435,27 @@ function Install-GuiReadyRoleBatch {
             Write-Log ('安装异常: ' + $_.Exception.Message) 'ERROR'
             $ok = $false
         }
-        if ($ok) { $done += $n } else { $failed += $n }
+        if ($ok) {
+            $done += $n
+            if ($script:GuiReadyRoleLastRestart) {
+                $needRestart = $true
+                $restartItems += $n
+            }
+        } else {
+            $failed += $n
+        }
+        Write-GuiReadyRoleProgress -Stage 'install' -Total $todo.Count -Current $i -CurrentName $n `
+            -Succeeded $done -Failed $failed -RestartItems $restartItems -RestartNeeded $needRestart
     }
 
     Write-Head '安装结果'
     Write-Log ('成功 {0} 项，失败 {1} 项。' -f $done.Count, $failed.Count) $(if ($failed.Count -eq 0) { 'OK' } else { 'ERROR' })
     foreach ($f in $failed) { Write-Log ('  失败: ' + $f) 'ERROR' }
-    if ($failed.Count -eq 0) {
-        Write-Log '提示：日志里出现「需要重启」的项，要重启后才会生效。' 'INFO'
+    if ($needRestart) {
+        Write-Log ('需要重启才能生效（{0} 项）: {1}' -f @($restartItems).Count, (@($restartItems) -join ', ')) 'WARN'
     }
+    Write-GuiReadyRoleProgress -Stage 'done' -Total $todo.Count -Current $todo.Count `
+        -Succeeded $done -Failed $failed -RestartItems $restartItems -RestartNeeded $needRestart
     return ($failed.Count -eq 0)
 }
 
@@ -410,18 +480,38 @@ function Remove-GuiReadyRoleBatch {
 
     $done = @()
     $failed = @()
+    $restartItems = @()
+    $needRestart = $false
     $i = 0
+    Write-GuiReadyRoleProgress -Stage 'remove' -Total $names.Count -Current 0 -Note (($names) -join ',')
     foreach ($n in $names) {
         $i++
+        Write-GuiReadyRoleProgress -Stage 'remove' -Total $names.Count -Current $i -CurrentName $n `
+            -Succeeded $done -Failed $failed -RestartItems $restartItems -RestartNeeded $needRestart
         Write-Log ('[{0}/{1}] {2}' -f $i, $names.Count, $n) 'STEP'
         $ok = $false
         try { $ok = [bool](Remove-GuiReadyRole -Name $n) } catch { $ok = $false }
-        if ($ok) { $done += $n } else { $failed += $n }
+        if ($ok) {
+            $done += $n
+            if ($script:GuiReadyRoleLastRestart) {
+                $needRestart = $true
+                $restartItems += $n
+            }
+        } else {
+            $failed += $n
+        }
+        Write-GuiReadyRoleProgress -Stage 'remove' -Total $names.Count -Current $i -CurrentName $n `
+            -Succeeded $done -Failed $failed -RestartItems $restartItems -RestartNeeded $needRestart
     }
 
     Write-Head '移除结果'
     Write-Log ('成功 {0} 项，失败 {1} 项。' -f $done.Count, $failed.Count) $(if ($failed.Count -eq 0) { 'OK' } else { 'ERROR' })
     foreach ($f in $failed) { Write-Log ('  失败: ' + $f) 'ERROR' }
+    if ($needRestart) {
+        Write-Log ('需要重启才能彻底生效（{0} 项）: {1}' -f @($restartItems).Count, (@($restartItems) -join ', ')) 'WARN'
+    }
+    Write-GuiReadyRoleProgress -Stage 'done' -Total $names.Count -Current $names.Count `
+        -Succeeded $done -Failed $failed -RestartItems $restartItems -RestartNeeded $needRestart
     return ($failed.Count -eq 0)
 }
 

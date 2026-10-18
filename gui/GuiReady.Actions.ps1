@@ -282,7 +282,7 @@ function Get-GuiReadyActions {
             Id = 'pkg-install'; Group = '应用商店'; Name = '安装软件包'
             Desc = '从包管理器安装软件包并把输出实时打进日志。Chocolatey 走 choco install -y --no-progress；Scoop 走 scoop install。拿不准就先按「仅预览」看要执行哪条命令。'
             Params = @(
-                @{ Name = 'Source';  Label = '包管理器'; Type = 'Combo'; Options = @('Chocolatey', 'Scoop'); Default = 1 }
+                @{ Name = 'Source';  Label = '包管理器'; Type = 'Combo'; Options = @('Chocolatey', 'Scoop', 'npm'); Default = 1 }
                 @{ Name = 'Package'; Label = '包名（如 7zip / git）'; Type = 'Text'; Width = 320 }
             )
             DryRun = $true
@@ -290,6 +290,7 @@ function Get-GuiReadyActions {
                 param($P)
                 $src = 'choco'
                 if ([int]$P['Source'] -eq 2) { $src = 'scoop' }
+                elseif ([int]$P['Source'] -eq 3) { $src = 'npm' }
                 Install-GuiReadyPackage -Source $src -Package ([string]$P['Package']) -WhatIf:([bool]$P['DryRun']) | Out-Null
             }
         }
@@ -332,7 +333,7 @@ function Get-GuiReadyActions {
             Id = 'pkg-uninstall'; Group = '应用商店'; Name = '卸载软件包'
             Desc = '从包管理器卸载软件包。Chocolatey 走 choco uninstall -y --no-progress；Scoop 走 scoop uninstall。'
             Params = @(
-                @{ Name = 'Source';  Label = '包管理器'; Type = 'Combo'; Options = @('Chocolatey', 'Scoop'); Default = 1 }
+                @{ Name = 'Source';  Label = '包管理器'; Type = 'Combo'; Options = @('Chocolatey', 'Scoop', 'npm'); Default = 1 }
                 @{ Name = 'Package'; Label = '包名'; Type = 'Text'; Width = 320 }
             )
             DryRun = $true
@@ -340,6 +341,7 @@ function Get-GuiReadyActions {
                 param($P)
                 $src = 'choco'
                 if ([int]$P['Source'] -eq 2) { $src = 'scoop' }
+                elseif ([int]$P['Source'] -eq 3) { $src = 'npm' }
                 Uninstall-GuiReadyPackage -Source $src -Package ([string]$P['Package']) -WhatIf:([bool]$P['DryRun']) | Out-Null
             }
         }
@@ -501,6 +503,24 @@ function Get-GuiReadyActions {
                 param($P)
                 if ([bool]$P['DryRun']) { Invoke-GuiReadyRdpQuickFix -WhatIf } else { Invoke-GuiReadyRdpQuickFix }
             }
+        }
+        [pscustomobject]@{
+            Id = 'reboot'; Group = '会话与登录'; Name = '重启服务器（延时，可取消）'
+            Desc = 'shutdown /r /t <延时> /f。所有会话会断开；延时期间可在命令行执行 shutdown /a 取消。角色安装后需要重启时，角色页会自动出现这个入口。'
+            Params = @( @{ Name = 'DelaySec'; Label = '延时（秒，默认 20，最小 5）'; Type = 'Text'; Width = 120 } )
+            DryRun = $true
+            Script = {
+                param($P)
+                $d = 20
+                try { $t = [int]([string]$P['DelaySec']); if ($t -gt 0) { $d = $t } } catch { }
+                Invoke-GuiReadySystemReboot -DelaySec $d -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'reboot-cancel'; Group = '会话与登录'; Name = '取消已计划的重启'
+            Desc = '等价于 shutdown /a：取消由本工具或其它程序排定的延时重启。'
+            Params = @(); DryRun = $false
+            Script = { param($P) Invoke-GuiReadySystemRebootCancel | Out-Null }
         }
         [pscustomobject]@{
             Id = 'autologon-status'; Group = '会话与登录'; Name = '开机自动登录：查看状态'

@@ -56,8 +56,8 @@ function Get-GuiReadyPackageSource {
             Note = '安装 / 卸载 / 列表可用；搜索未接入（输出格式随版本变化）'
         }
         [pscustomobject]@{
-            Id = 'npm'; Name = 'npm'; Exe = 'npm'; Search = $false; Install = $false
-            Note = '语言生态，本轮只做检测'
+            Id = 'npm'; Name = 'npm'; Exe = 'npm'; Search = $true; Install = $true
+            Note = '搜索 npm registry / 全局安装（-g）。结果大多是 JS 包，按需选择'
         }
         [pscustomobject]@{
             Id = 'pip'; Name = 'pip'; Exe = 'pip'; Search = $false; Install = $false
@@ -152,6 +152,61 @@ function Search-GuiReadyPackage {
     Write-Log ('命中 {0} 个包。' -f $items.Count) 'OK'
     if ($items.Count -gt $Limit) { $items = $items[0..($Limit - 1)] }
     return $items
+}
+
+function Search-GuiReadyPackageNpm {
+    # npm search 的 JSON 输出（--json）是稳定的机器可读格式，比 scoop 的表格靠谱。
+    # 只取 name / version / description；安装走 `npm install -g`。
+    param([string]$Query = '', [int]$Limit = 10)
+
+    if ([string]::IsNullOrWhiteSpace($Query)) { return @() }
+    if ($Query -match '^-' -or $Query -match '[\r\n]') { return @() }
+
+    $exe = Resolve-GuiReadyPackageExe -Id 'npm'
+    if (-not $exe) { return @() }
+
+    Write-Log ('搜索: npm search {0} --json' -f $Query) 'STEP'
+    $raw = @()
+    try { $raw = @(& $exe search $Query --json ('--searchlimit=' + $Limit) 2>$null) } catch { return @() }
+
+    $text = ($raw -join "`n").Trim()
+    if (-not $text) { return @() }
+    # 偶尔前面会混进 warning，只截取 JSON 数组本体
+    $i = $text.IndexOf('[')
+    $j = $text.LastIndexOf(']')
+    if ($i -lt 0 -or $j -le $i) { return @() }
+    $text = $text.Substring($i, ($j - $i + 1))
+
+    $parsed = $null
+    try { $parsed = ConvertFrom-Json -InputObject $text } catch { return @() }
+    # 注意：PS 5.1 的 ConvertFrom-Json 对顶层数组要"先赋值再 @() 展开"
+    $arr = @($parsed)
+
+    $out = @()
+    foreach ($p in $arr) {
+        $n = [string]$p.name
+        if (-not $n) { continue }
+        $out += [pscustomobject]@{
+            Id          = $n
+            Version     = [string]$p.version
+            Source      = 'npm'
+            Description = [string]$p.description
+        }
+    }
+    if ($Limit -gt 0 -and $out.Count -gt $Limit) { $out = $out[0..($Limit - 1)] }
+    return $out
+}
+
+function Search-GuiReadyPackageAll {
+    # 多源聚合：Chocolatey 优先，npm 补充。Scoop 搜索仍不接（输出格式随版本变化），
+    # pip 的 search 上游已停用 —— 这两条都在界面上如实说明，不拿猜的解析糊弄。
+    param([string]$Query = '', [int]$Limit = 40)
+
+    if ([string]::IsNullOrWhiteSpace($Query)) { return @() }
+    $out = New-Object System.Collections.ArrayList
+    foreach ($i in @(Search-GuiReadyPackage -Source 'choco' -Query $Query -Limit $Limit)) { [void]$out.Add($i) }
+    foreach ($i in @(Search-GuiReadyPackageNpm -Query $Query -Limit 10)) { [void]$out.Add($i) }
+    return @($out)
 }
 
 function Get-GuiReadyInstalledPackage {
@@ -305,8 +360,8 @@ function Install-GuiReadyPackage {
         Write-Log '包名为空。' 'ERROR'
         return $false
     }
-    if (-not (Test-GuiReadyPackageId -Id $Package)) {
-        Write-Log ('包名含非法字符: {0}（只允许字母数字与 . _ + -）' -f $Package) 'ERROR'
+    if (-not (Test-GuiReadyPackageId -Id $Package -Source $Source)) {
+        Write-Log ('包名含非法字符: {0}（只允许字母数字与 . _ + -；npm 作用域包用 @scope/name）' -f $Package) 'ERROR'
         return $false
     }
 
@@ -314,6 +369,7 @@ function Install-GuiReadyPackage {
     switch ($Source) {
         'choco' { $argv = @('install', $Package, '-y', '--no-progress') }
         'scoop' { $argv = @('install', $Package) }
+        'npm'   { $argv = @('install', '-g', $Package) }
         default { Write-Log ('源 {0} 暂不支持安装。' -f $Source) 'ERROR'; return $false }
     }
 
@@ -356,8 +412,8 @@ function Uninstall-GuiReadyPackage {
         Write-Log '包名为空。' 'ERROR'
         return $false
     }
-    if (-not (Test-GuiReadyPackageId -Id $Package)) {
-        Write-Log ('包名含非法字符: {0}（只允许字母数字与 . _ + -）' -f $Package) 'ERROR'
+    if (-not (Test-GuiReadyPackageId -Id $Package -Source $Source)) {
+        Write-Log ('包名含非法字符: {0}（只允许字母数字与 . _ + -；npm 作用域包用 @scope/name）' -f $Package) 'ERROR'
         return $false
     }
 
@@ -365,6 +421,7 @@ function Uninstall-GuiReadyPackage {
     switch ($Source) {
         'choco' { $argv = @('uninstall', $Package, '-y', '--no-progress') }
         'scoop' { $argv = @('uninstall', $Package) }
+        'npm'   { $argv = @('uninstall', '-g', $Package) }
         default { Write-Log ('源 {0} 暂不支持卸载。' -f $Source) 'ERROR'; return $false }
     }
 
@@ -575,8 +632,12 @@ function Test-GuiReadyPackageId {
     #   2. Windows 下 Start-Process 的 ArgumentList 不会自动加引号，要靠手工拼引号 ——
     #      名字里带一个 '"' 就能把额外参数注入到我们启动的进程命令行里（实测确认这个形状）；
     #   3. 社区仓库本身也只允许 [A-Za-z0-9._+-]，所以拒绝这些字符不会误伤正常包名。
-    param([string]$Id)
+    #   4. npm 还允许 @scope/name 这种带斜杠的包名，按 Source 单独放行。
+    param([string]$Id, [string]$Source = '')
     if ([string]::IsNullOrWhiteSpace($Id)) { return $false }
+    if ($Source -eq 'npm') {
+        if ($Id -match '^@[A-Za-z0-9][A-Za-z0-9\._\+\-]{0,63}/[A-Za-z0-9][A-Za-z0-9\._\+\-]{0,63}$') { return $true }
+    }
     return [bool]($Id -match '^[A-Za-z0-9][A-Za-z0-9\._\+\-]{0,63}$')
 }
 

@@ -73,6 +73,64 @@ function Assert-Administrator {
     return $false
 }
 
+function Invoke-GuiReadySystemReboot {
+    # 延时重启：先给用户一个取消窗口，再重启。
+    #
+    # 为什么用 shutdown.exe 而不是 Restart-Computer -Force：
+    #   1. shutdown 支持 /t 延时与 /c 原因，用户能在窗口期执行 `shutdown /a` 取消；
+    #   2. Restart-Computer 在 WinRM / 计划任务会话里经常直接断连，连日志都来不及写。
+    param(
+        [int]$DelaySec = 30,
+        [string]$Comment = 'SCM: restart after role change',
+        [switch]$WhatIf
+    )
+
+    if ($DelaySec -lt 5) { $DelaySec = 5 }
+    if ($DelaySec -gt 3600) { $DelaySec = 3600 }
+
+    if (-not (Test-IsAdministrator)) {
+        Write-Log '重启需要管理员权限。' 'ERROR'
+        return $false
+    }
+
+    if ($WhatIf) {
+        Write-Log '--- 预览模式，不做任何改动 ---' 'DRY'
+        Write-Log ('将执行: shutdown.exe /r /t {0} /f /d p:4:1 /c "{1}"' -f $DelaySec, $Comment) 'DRY'
+        Write-Log ('所有会话会断开；{0} 秒内可在命令行执行 shutdown /a 取消。' -f $DelaySec) 'DRY'
+        return $true
+    }
+
+    Write-Log ('{0} 秒后重启服务器（取消: shutdown /a）' -f $DelaySec) 'WARN'
+    try {
+        & shutdown.exe /r /t $DelaySec /f /d p:4:1 /c $Comment 2>&1 | ForEach-Object { Write-Log ([string]$_) 'INFO' }
+        if ($LASTEXITCODE -ne 0) {
+            Write-Log ('shutdown 返回退出码 {0}，重启没有排上。' -f $LASTEXITCODE) 'ERROR'
+            return $false
+        }
+        return $true
+    } catch {
+        Write-Log ('重启命令失败: ' + $_.Exception.Message) 'ERROR'
+        return $false
+    }
+}
+
+function Invoke-GuiReadySystemRebootCancel {
+    # 取消已计划的重启（shutdown /a）
+    Write-Log '取消已计划的重启…' 'STEP'
+    try {
+        & shutdown.exe /a 2>&1 | ForEach-Object { Write-Log ([string]$_) 'INFO' }
+        if ($LASTEXITCODE -eq 0) {
+            Write-Log '已取消。' 'OK'
+            return $true
+        }
+        Write-Log ('没有可取消的重启计划（退出码 {0}）。' -f $LASTEXITCODE) 'WARN'
+        return $false
+    } catch {
+        Write-Log ('取消失败: ' + $_.Exception.Message) 'ERROR'
+        return $false
+    }
+}
+
 function Request-GuiReadyElevation {
     # 以管理员身份重启自己。返回值（调用方按这个决定下一步）：
     #   'Admin'      —— 当前已经是管理员，正常往下跑

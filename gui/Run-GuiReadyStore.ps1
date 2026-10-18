@@ -8,6 +8,7 @@
 # Modes:
 #   status  -> the package-source list (which package managers exist, versions, support level)
 #   search  -> search result for -Source / -Query
+#   searchall -> aggregate search: Chocolatey first, npm second
 #   local   -> the installed package list for -Source
 #
 # Keep this file ASCII-only: it ships inside the release zip and must parse under any
@@ -76,6 +77,8 @@ try {
     switch ($Mode) {
         'status' { $items = @(Get-GuiReadyPackageSource) }
         'search' { $items = @(Search-GuiReadyPackage -Source $Source -Query $Query) }
+        # 多源聚合：Chocolatey 优先 + npm 补充（Scoop 搜索未接入，pip search 上游已停用）
+        'searchall' { $items = @(Search-GuiReadyPackageAll -Query $Query) }
         'local'  { $items = @(Get-GuiReadyInstalledPackage -Source $Source) }
         'outdated' { $items = @(Get-GuiReadyOutdatedPackage -Source $Source) }
         # 详情：单个对象也塞进 Items 数组，GUI 那边只认一种形状
