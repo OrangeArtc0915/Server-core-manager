@@ -58,9 +58,31 @@ function Get-GuiReadyRoleProp {
 function Get-GuiReadyRoleList {
     # Server 角色 / 功能清单。没有 ServerManager 时返回空数组 ——
     # 「为什么空」由 Get-GuiReadyRoleSupport 的 Note 负责说明，不要在这里编数据。
-    param([switch]$InstalledOnly)
+    #
+    # 缓存：Get-WindowsFeature 在真机上首次要 5~30 秒（用户反馈"读取角色列表好慢"）。
+    # 结果写入 state\roles-cache.json，6 小时内直接复用；安装/卸载角色后主动失效。
+    param([switch]$InstalledOnly, [switch]$Force)
 
     if (-not (Get-GuiReadyRoleSupport).ServerManager) { return @() }
+
+    $cacheFile = Join-Path $script:GuiReadyRoot 'state\roles-cache.json'
+    if (-not $Force -and (Test-Path -LiteralPath $cacheFile)) {
+        try {
+            $age = ((Get-Date) - (Get-Item -LiteralPath $cacheFile).LastWriteTime).TotalHours
+            if ($age -lt 6) {
+                # 注意：不要写成 `@(ConvertFrom-Json ...)` ——
+                # PowerShell 5.1 把顶层 JSON 数组作为**单个输出对象**返回，
+                # @(命令) 不会展开它，208 条读回来会变成 1 条（实测踩到两次）。
+                # 必须先赋值给变量，再用 @($var) 展开。
+                $parsed = ConvertFrom-Json -InputObject (Get-Content -LiteralPath $cacheFile -Raw -Encoding UTF8)
+                $cached = @($parsed)
+                if ($cached.Count -gt 0) {
+                    if ($InstalledOnly) { return @($cached | Where-Object { $_.Installed }) }
+                    return $cached
+                }
+            }
+        } catch { }
+    }
 
     $items = @()
     try {
@@ -85,10 +107,29 @@ function Get-GuiReadyRoleList {
                 Note         = [string](Get-GuiReadyRoleProp $f 'Description')
             }
         }
+
+        # 只有拿到完整列表才写缓存（失败时不要用空列表覆盖旧缓存）。
+        if ($items.Count -gt 0 -and -not $InstalledOnly) {
+            try {
+                $dir = Split-Path -Parent $cacheFile
+                if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+                [System.IO.File]::WriteAllText($cacheFile,
+                    (ConvertTo-Json -InputObject @($items) -Depth 5 -Compress),
+                    (New-Object System.Text.UTF8Encoding($false)))
+            } catch { }
+        }
     } catch {
         Write-Log ('读取角色列表失败: ' + $_.Exception.Message) 'ERROR'
     }
     return $items
+}
+
+function Clear-GuiReadyRoleCache {
+    # 角色安装/卸载后让缓存失效，下次读取会重新枚举。
+    try {
+        $f = Join-Path $script:GuiReadyRoot 'state\roles-cache.json'
+        if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force -ErrorAction SilentlyContinue }
+    } catch { }
 }
 
 function Get-GuiReadyRoleSummary {
@@ -151,6 +192,7 @@ function Install-GuiReadyRole {
         $exit = Get-GuiReadyRoleProp $r 'ExitCode' '?'
         Write-Log ('结果: 成功={0}  需要重启={1}  退出码={2}' -f (Format-Bool $ok), (Format-Bool $restart), $exit) $(if ($ok) { 'OK' } else { 'ERROR' })
         if ($restart) { Write-Log '这次安装需要重启才会生效。' 'WARN' }
+        if ($ok) { Clear-GuiReadyRoleCache }
         return $ok
     } catch {
         Write-Log ('安装失败: ' + $_.Exception.Message) 'ERROR'
@@ -197,6 +239,7 @@ function Remove-GuiReadyRole {
         $restart = [bool](Get-GuiReadyRoleProp $r 'RestartNeeded' $false)
         Write-Log ('结果: 成功={0}  需要重启={1}' -f (Format-Bool $ok), (Format-Bool $restart)) $(if ($ok) { 'OK' } else { 'ERROR' })
         if ($restart) { Write-Log '移除需要重启才会彻底生效。' 'WARN' }
+        if ($ok) { Clear-GuiReadyRoleCache }
         return $ok
     } catch {
         Write-Log ('移除失败: ' + $_.Exception.Message) 'ERROR'
