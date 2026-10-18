@@ -301,6 +301,13 @@ function Get-GuiReadyActions {
             Script = { param($P) Install-GuiReadyStoreApp -Id ([string]$P['AppId']) -WhatIf:([bool]$P['DryRun']) | Out-Null }
         }
         [pscustomobject]@{
+            Id = 'store-queue'; Group = '应用商店'; Name = '批量安装所选应用（队列）'
+            Desc = '把多个应用按顺序装完：单个失败不会中断后面的条目，结束后把失败清单写进 state\store-queue.json。界面的「重试失败」只重跑这些失败项。'
+            Params = @( @{ Name = 'AppIds'; Label = '应用 ID（逗号分隔，如 7zip,git）'; Type = 'Text'; Width = 520 } )
+            DryRun = $true
+            Script = { param($P) Install-GuiReadyStoreQueue -Ids @([string]$P['AppIds']) -WhatIf:([bool]$P['DryRun']) | Out-Null }
+        }
+        [pscustomobject]@{
             Id = 'manifest-export'; Group = '应用商店'; Name = '导出已装软件清单'
             Desc = '用 choco export 把本机已装软件导出成 packages.config（含版本），默认写到 reports 目录。换机器时用「导入已装软件清单」一次还原。'
             Params = @( @{ Name = 'Path'; Label = '导出路径（留空 = reports\packages-时间.config）'; Type = 'Text'; Width = 520 } )
@@ -346,7 +353,7 @@ function Get-GuiReadyActions {
         }
         [pscustomobject]@{
             Id = 'role-install'; Group = '角色与功能'; Name = '安装角色/功能'
-            Desc = '等价于 Install-WindowsFeature -Name <名称>。默认不包含管理工具 —— Server Core 上装了 MMC 管理单元也用不了，管理工具建议装在管理端的 RSAT 上。安装可能需要重启，是否需要会写进日志。'
+            Desc = '等价于 Install-WindowsFeature -Name <名称>。会先按 DependsOn 递归展开依赖、把未安装的依赖先装好（依赖自动补齐）；默认不包含管理工具 —— Server Core 上装了 MMC 管理单元也用不了，管理工具建议装在管理端的 RSAT 上。安装可能需要重启，是否需要会写进日志。'
             Params = @(
                 @{ Name = 'Name';                 Label = '角色/功能名称（如 Web-Server / DNS / Hyper-V）'; Type = 'Text'; Width = 360 }
                 @{ Name = 'WithManagementTools';  Label = '同时包含管理工具（-IncludeManagementTools）'; Type = 'Check'; Default = $false }
@@ -354,7 +361,21 @@ function Get-GuiReadyActions {
             DryRun = $true
             Script = {
                 param($P)
-                Install-GuiReadyRole -Name ([string]$P['Name']) -WithManagementTools:([bool]$P['WithManagementTools']) `
+                Install-GuiReadyRoleBatch -Name @([string]$P['Name']) -WithManagementTools:([bool]$P['WithManagementTools']) `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'role-batch-install'; Group = '角色与功能'; Name = '批量安装角色/功能（队列）'
+            Desc = '多个角色/功能按「依赖在前」的顺序依次安装：依赖自动补齐，单个失败不中断后面的条目。'
+            Params = @(
+                @{ Name = 'Names';                Label = '角色/功能名称（逗号分隔，如 DNS,DHCP）'; Type = 'Text'; Width = 520 }
+                @{ Name = 'WithManagementTools';  Label = '同时包含管理工具（-IncludeManagementTools）'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Install-GuiReadyRoleBatch -Name @([string]$P['Names']) -WithManagementTools:([bool]$P['WithManagementTools']) `
                     -WhatIf:([bool]$P['DryRun']) | Out-Null
             }
         }
@@ -366,6 +387,15 @@ function Get-GuiReadyActions {
             )
             DryRun = $true
             Script = { param($P) Remove-GuiReadyRole -Name ([string]$P['Name']) -WhatIf:([bool]$P['DryRun']) | Out-Null }
+        }
+        [pscustomobject]@{
+            Id = 'role-batch-remove'; Group = '角色与功能'; Name = '批量移除角色/功能'
+            Desc = '多个角色/功能依次移除，单个失败不中断（被其它角色依赖时会失败，属于预期）。不带 -Restart。'
+            Params = @(
+                @{ Name = 'Names'; Label = '角色/功能名称（逗号分隔）'; Type = 'Text'; Width = 520 }
+            )
+            DryRun = $true
+            Script = { param($P) Remove-GuiReadyRoleBatch -Name @([string]$P['Names']) -WhatIf:([bool]$P['DryRun']) | Out-Null }
         }
 
         # ---------------- 监控与诊断 ----------------
@@ -627,8 +657,11 @@ function Set-GuiReadyActionRequirements {
         'pkg-install'      = @('Package')
         'pkg-info'         = @('Package')
         'pkg-uninstall'    = @('Package')
+        'store-queue'      = @('AppIds')
         'role-install'     = @('Name')
+        'role-batch-install' = @('Names')
         'role-remove'      = @('Name')
+        'role-batch-remove' = @('Names')
         'monitor-service'  = @('Name')
         'autologon-enable' = @('User', 'Password')
         'persistent-run'   = @('Path')

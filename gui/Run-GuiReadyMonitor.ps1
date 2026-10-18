@@ -3,6 +3,7 @@
 #
 # Modes:
 #   snapshot -> CPU / memory / disks / key services / recent system errors / top processes
+#   metrics  -> lightweight CPU / memory / system-disk sample for the dashboard trend chart
 #
 # Keep this file ASCII-only: it ships inside the release zip and must parse under any
 # console code page without depending on a BOM.
@@ -48,6 +49,11 @@ try {
         'snapshot' {
             $snap = Get-GuiReadyMonitorSnapshot
             Write-MonitorResult -Snapshot $snap
+            exit 0
+        }
+        'metrics' {
+            $m = Get-GuiReadyMonitorMetrics
+            Write-MonitorResult -Snapshot $m
             exit 0
         }
         default {

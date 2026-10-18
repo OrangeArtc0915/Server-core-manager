@@ -1820,6 +1820,22 @@ $lblStoreFilter          = New-Label -Text '界面类型' -Size 9.5 -Color Hint
 $lblStoreFilter.Location = New-Object System.Drawing.Point(4, 6)
 $pnlStoreFilter.Controls.Add($lblStoreFilter)
 
+# ---- 批量安装队列 ----
+# 行左侧有勾选框（Add-StoreRow），这里放两个入口：
+#   安装选中：按勾选顺序排队安装（单个失败不中断）
+#   重试失败：只重跑上次队列里失败的条目（state\store-queue.json）
+$btnStoreQueue          = New-FlatButton -Text '安装选中' -Kind Primary -Width 104 -Height 30
+$btnStoreQueue.Location = New-Object System.Drawing.Point(460, 1)
+$btnStoreQueue.Enabled  = $false
+$btnStoreQueue.Add_Click({ Start-StoreQueue })
+$pnlStoreFilter.Controls.Add($btnStoreQueue)
+
+$btnStoreRetry          = New-FlatButton -Text '重试失败' -Width 96 -Height 30
+$btnStoreRetry.Location = New-Object System.Drawing.Point(572, 1)
+$btnStoreRetry.Visible  = $false
+$btnStoreRetry.Add_Click({ Retry-StoreQueue })
+$pnlStoreFilter.Controls.Add($btnStoreRetry)
+
 $hintStore = New-HintBar -Text '目标场景是刚装好的 Server Core（机上什么都没有），所以本机没有包管理器时**工具会自动先装 Chocolatey**（点搜索就会触发，装完接着搜）。所有安装动作都会写进下方日志；不确定就先按「仅预览」看要执行什么命令。' -Kind 'Blue' -Width 900
 $hintStore.Location = New-Object System.Drawing.Point(0, 180)
 $pageStore.Controls.Add($hintStore)
@@ -1851,6 +1867,8 @@ $script:StoreUiBtns      = @()      # 界面类型筛选按钮（重建时一并
 $script:StoreLocalHits   = @()      # 本次搜索命中的本地精选（与上游结果合并时精选优先）
 $script:StoreLocal       = @()      # 本机已装的包名（用来标「已安装」）
 $script:StoreOutdated    = @{}      # 可更新的包：id -> { Current; Available }（choco outdated）
+$script:StoreChecked     = @{}      # 勾选待批量安装的包：id -> $true（重建行时回填）
+$script:StoreQueueFailed = @()      # 上次队列的失败项（state\store-queue.json）
 $script:StoreRows        = @()      # 结果行
 $script:StoreDetailRows  = @()      # 工具详情的行（与结果行共用同一块区域）
 # 自动装包管理器之后要接着做的那次搜索（Stage: '' → after-action → after-status → ''）
@@ -1983,11 +2001,27 @@ function Add-StoreRow {
     $row  = New-Card -Width $rowW -Height 56 -Radius 10
     $row.Margin = New-Object System.Windows.Forms.Padding(0, 0, 0, 8)
 
-    # 精选条目显示中文名（"7-Zip"），裸条目只有包 id（"7zip"）—— 有 DisplayName 就用它
     $title = [string]$Item.Id
     if ($Item.PSObject.Properties['DisplayName'] -and $Item.DisplayName) { $title = [string]$Item.DisplayName }
-    $lbName = New-Label -Text $title -Size 10 -Style Bold -Width ($rowW - 220)
-    $lbName.Location = New-Object System.Drawing.Point(14, 9)
+
+    # 勾选框：批量安装队列用。勾选状态存在 $script:StoreChecked，列表重绘（已装/可更新刷新）后回填。
+    $chk = New-Object System.Windows.Forms.CheckBox
+    $chk.Location  = New-Object System.Drawing.Point(10, 18)
+    $chk.Size      = New-Object System.Drawing.Size(18, 18)
+    $chk.FlatStyle = 'Flat'
+    $chk.BackColor = $Pal.Card
+    $chk.ForeColor = $Pal.Text
+    $chk.Tag       = [string]$Item.Id
+    $chk.Checked   = $script:StoreChecked.ContainsKey([string]$Item.Id)
+    $chk.Add_Click({
+        $id = [string]$this.Tag
+        if ($this.Checked) { $script:StoreChecked[$id] = $true } else { $script:StoreChecked.Remove($id) }
+        Update-StoreQueueUi
+    })
+    $row.Controls.Add($chk)
+
+    $lbName = New-Label -Text $title -Size 10 -Style Bold -Width ($rowW - 330)
+    $lbName.Location = New-Object System.Drawing.Point(38, 9)
     $row.Controls.Add($lbName)
 
     $ver  = [string]$Item.Version
@@ -2001,8 +2035,8 @@ function Add-StoreRow {
     $upd = $null
     if ($script:StoreOutdated -and $script:StoreOutdated.ContainsKey($pkgId)) { $upd = $script:StoreOutdated[$pkgId] }
     if ($upd) { $meta = ('🔄 可更新 {0} → {1}   ·   {2}' -f [string]$upd.Current, [string]$upd.Available, $meta) }
-    $lbMeta = New-Label -Text $meta -Size 8.5 -Color Hint -Width ($rowW - 220)
-    $lbMeta.Location = New-Object System.Drawing.Point(14, 31)
+    $lbMeta = New-Label -Text $meta -Size 8.5 -Color Hint -Width ($rowW - 330)
+    $lbMeta.Location = New-Object System.Drawing.Point(38, 31)
     $row.Controls.Add($lbMeta)
 
     $installed = ($script:StoreLocal -contains $pkgId)
@@ -2051,7 +2085,7 @@ function Add-StoreRow {
     $row.Controls.Add($btnInfo)
 
     $pnlStoreResults.Controls.Add($row)
-    $script:StoreRows += [pscustomobject]@{ Panel = $row; Name = $lbName; Meta = $lbMeta; Install = $btnIns; Uninstall = $btnUn; Info = $btnInfo; Pill = $pill }
+    $script:StoreRows += [pscustomobject]@{ Panel = $row; Name = $lbName; Meta = $lbMeta; Check = $chk; Install = $btnIns; Uninstall = $btnUn; Info = $btnInfo; Pill = $pill }
 }
 
 function ConvertTo-StoreRowItem {
@@ -2155,8 +2189,8 @@ function Update-StoreRowLayout {
     foreach ($r in $script:StoreRows) {
         try {
             $r.Panel.Width = $rowW
-            $r.Name.Width  = $rowW - 300
-            $r.Meta.Width  = $rowW - 300
+            $r.Name.Width  = $rowW - 330
+            $r.Meta.Width  = $rowW - 330
             # 三个按钮从右往左排、间距统一 8px：
             #   详情 [rowW-96, rowW-32] · 卸载 [rowW-184, rowW-104] · 安装 [rowW-272, rowW-192]
             # 上一版是 -256/-168/-96，卸载右边界 rowW-88 压住详情左边界 rowW-96（交叠 8px）。
@@ -2399,6 +2433,7 @@ function Update-StoreTick {
         }
         Stop-StoreTask
         Append-GuiLog -Line '[INFO] 商店：动作已结束，可以重新搜索刷新列表。'
+        Update-StoreQueueUi
         # 装/卸之后本机的已装清单变了，顺手刷一次，把「已安装」标记更新过来
         $choco = @($script:StoreSources | Where-Object { $_.Id -eq 'choco' -and $_.Installed })
         if ($choco.Count -gt 0) { Start-StoreQuery -Mode 'local' -Source 'choco' }
@@ -2486,9 +2521,10 @@ function Start-StoreAction {
 
     # 装/卸软件包都得先有包管理器：没有就问一句（用户选择下载 → 之后自动安装并继续）。
     # 选“是”之后由动作链自己把包管理器装好再装你要的包，用户不用额外操作。
-    if ($Id -in @('pkg-install', 'pkg-uninstall', 'pkg-info', 'store-install') -and -not (Resolve-GuiReadyPackageExe -Id 'choco')) {
+    if ($Id -in @('pkg-install', 'pkg-uninstall', 'pkg-info', 'store-install', 'store-queue') -and -not (Resolve-GuiReadyPackageExe -Id 'choco')) {
         $name = [string]$Params['Package']
         if (-not $name -and $Params['AppId']) { $name = [string]$Params['AppId'] }
+        if (-not $name -and $Params['AppIds']) { $name = '批量安装队列' }
         if (-not (Confirm-GuiPackageManager -Why ('你刚要操作的软件包是「' + $name + '」，得先有包管理器。'))) {
             Append-GuiLog -Line '[INFO] 你取消了自动安装包管理器，本次操作没有执行。'
             return
@@ -2509,12 +2545,76 @@ function Start-StoreAction {
     }
 }
 
+function Read-StoreQueueState {
+    # 读 state\store-queue.json（批量安装结束时由 lib\GuiReady.Store.ps1 写入）
+    try {
+        $p = Join-Path (Join-Path $toolRoot 'state') 'store-queue.json'
+        if (-not (Test-Path -LiteralPath $p)) { return $null }
+        $raw = [System.IO.File]::ReadAllText($p, [System.Text.Encoding]::UTF8)
+        if ([string]::IsNullOrWhiteSpace($raw)) { return $null }
+        return ($raw | ConvertFrom-Json)
+    } catch { return $null }
+}
+
+function Update-StoreQueueUi {
+    # 刷新「安装选中 (N)」与「重试失败 (N)」两个按钮的状态
+    $n = 0
+    try { $n = @($script:StoreChecked.Keys).Count } catch { }
+    try {
+        $btnStoreQueue.Text    = $(if ($n -gt 0) { ('安装选中 ({0})' -f $n) } else { '安装选中' })
+        $btnStoreQueue.Enabled = ($n -gt 0 -and -not $script:Proc)
+    } catch { }
+
+    $failed = @()
+    $st = Read-StoreQueueState
+    if ($st -and $st.PSObject.Properties['Failed']) {
+        $failed = @($st.Failed | Where-Object { $_ -and $_.Id })
+    }
+    $script:StoreQueueFailed = $failed
+    try {
+        $btnStoreRetry.Visible = ($failed.Count -gt 0)
+        $btnStoreRetry.Text    = ('重试失败 ({0})' -f $failed.Count)
+        $btnStoreRetry.Enabled = ($failed.Count -gt 0 -and -not $script:Proc)
+    } catch { }
+}
+
+function Start-StoreQueue {
+    # 把勾选的行排成队列，交给后台动作顺序安装（单个失败不中断）
+    $ids = @($script:StoreChecked.Keys | Sort-Object)
+    if ($ids.Count -eq 0) { return }
+    if ($script:Proc) {
+        [System.Windows.Forms.MessageBox]::Show('上一个动作还在运行，请先等它结束。', '提示', 'OK', 'Information') | Out-Null
+        return
+    }
+    Append-GuiLog -Line ('[INFO] 批量安装 {0} 个应用: {1}' -f $ids.Count, ($ids -join ', '))
+    Start-StoreAction -Id 'store-queue' -Params @{ AppIds = ($ids -join ',') }
+    # 只有真的起来了才清勾选；被取消（比如拒绝装包管理器）时保留，用户可直接再点一次
+    if ($script:Proc) {
+        $script:StoreChecked = @{}
+        foreach ($r in @($script:StoreRows)) { try { if ($r.Check) { $r.Check.Checked = $false } } catch { } }
+        Update-StoreQueueUi
+    }
+}
+
+function Retry-StoreQueue {
+    # 只重跑上次队列里失败的条目
+    $ids = @($script:StoreQueueFailed | ForEach-Object { [string]$_.Id } | Where-Object { $_ })
+    if ($ids.Count -eq 0) { return }
+    if ($script:Proc) {
+        [System.Windows.Forms.MessageBox]::Show('上一个动作还在运行，请先等它结束。', '提示', 'OK', 'Information') | Out-Null
+        return
+    }
+    Append-GuiLog -Line ('[INFO] 重试上次失败的应用: ' + ($ids -join ', '))
+    Start-StoreAction -Id 'store-queue' -Params @{ AppIds = ($ids -join ',') }
+}
+
 function Show-StorePage {
     # 进页面：先用本地精选库立刻铺一屏（毫秒级），再后台检测包管理器（要起子进程，秒级）。
     # 顺序很重要：以前是空列表等检测，现在是**立刻有内容**。
     $script:StoreLocalHits = @()   # 回到"精选浏览"，清掉上次搜索残留的本地命中
     Update-StoreUiFilter
     Add-StoreCatalogRows | Out-Null
+    Update-StoreQueueUi
     if ($SkipPageHooks) { return }
     if ($script:StoreSources.Count -eq 0 -and -not $script:StoreTask) {
         Start-StoreQuery -Mode 'status'
@@ -2615,7 +2715,7 @@ $pnlRoleStatus.Controls.Add($lblRoleStatusHint)
 
 $pnlRoleFilter           = New-Object System.Windows.Forms.Panel
 $pnlRoleFilter.Location  = New-Object System.Drawing.Point(0, 98)
-$pnlRoleFilter.Size      = New-Object System.Drawing.Size(900, 40)
+$pnlRoleFilter.Size      = New-Object System.Drawing.Size(900, 76)
 $pnlRoleFilter.Anchor    = 'Top,Left,Right'
 $pnlRoleFilter.BackColor = $Pal.Bg
 $pageRole.Controls.Add($pnlRoleFilter)
@@ -2643,17 +2743,34 @@ $pillRoleCount          = New-Pill -Text '—' -Kind 'Neutral'
 $pillRoleCount.Location = New-Object System.Drawing.Point(588, 8)
 $pnlRoleFilter.Controls.Add($pillRoleCount)
 
+# 第二行：批量操作（行左侧有勾选框，见 Add-RoleRow）
+$btnRoleBatchIns          = New-FlatButton -Text '安装选中' -Kind Primary -Width 118 -Height 30
+$btnRoleBatchIns.Location = New-Object System.Drawing.Point(4, 44)
+$btnRoleBatchIns.Enabled  = $false
+$btnRoleBatchIns.Add_Click({ Start-RoleQueue -Mode 'install' })
+$pnlRoleFilter.Controls.Add($btnRoleBatchIns)
+
+$btnRoleBatchRem          = New-FlatButton -Text '移除选中' -Width 118 -Height 30
+$btnRoleBatchRem.Location = New-Object System.Drawing.Point(130, 44)
+$btnRoleBatchRem.Enabled  = $false
+$btnRoleBatchRem.Add_Click({ Start-RoleQueue -Mode 'remove' })
+$pnlRoleFilter.Controls.Add($btnRoleBatchRem)
+
+$lblRoleBatchHint          = New-Label -Text '勾选后可批量操作；安装会先按 DependsOn 自动补齐依赖。' -Size 8.5 -Color Hint
+$lblRoleBatchHint.Location = New-Object System.Drawing.Point(262, 50)
+$pnlRoleFilter.Controls.Add($lblRoleBatchHint)
+
 $hintRole = New-HintBar -Text '提示：Server Core 上装了角色也没有图形管理工具可用（管理工具建议装在管理端的 RSAT 上），所以默认不勾选「包含管理工具」。按需功能（如 App Compatibility FOD）请用「更多 → 补给」。' -Kind 'Blue' -Width 900
-$hintRole.Location = New-Object System.Drawing.Point(0, 144)
+$hintRole.Location = New-Object System.Drawing.Point(0, 180)
 $pageRole.Controls.Add($hintRole)
 
 $barRole          = New-ProgressBar -Width 420 -Height 6 -Indeterminate
-$barRole.Location = New-Object System.Drawing.Point(0, 182)
+$barRole.Location = New-Object System.Drawing.Point(0, 218)
 $barRole.Visible  = $false
 $pageRole.Controls.Add($barRole)
 
 $pnlRoleResults              = New-Object System.Windows.Forms.FlowLayoutPanel
-$pnlRoleResults.Location     = New-Object System.Drawing.Point(0, 196)
+$pnlRoleResults.Location     = New-Object System.Drawing.Point(0, 232)
 $pnlRoleResults.Size         = New-Object System.Drawing.Size(896, 248)
 $pnlRoleResults.Anchor       = 'Top,Left,Right,Bottom'
 $pnlRoleResults.FlowDirection = 'TopDown'
@@ -2670,6 +2787,7 @@ $pnlRoleResults.Controls.Add($lblRoleEmpty)
 $script:RoleSupport  = $null
 $script:RoleItems    = @()
 $script:RoleRows     = @()
+$script:RoleChecked  = @{}      # 勾选待批量操作的角色：Name -> Installed（勾选时的安装态）
 $script:RolePills    = @()
 $script:RoleTask     = ''      # '' | support | list | watch
 $script:RoleProc     = $null
@@ -2774,8 +2892,25 @@ function Add-RoleRow {
 
     $title = [string]$Item.DisplayName
     if ([string]::IsNullOrWhiteSpace($title)) { $title = [string]$Item.Name }
-    $lbName = New-Label -Text $title -Size 10 -Style Bold -Width ($rowW - 240)
-    $lbName.Location = New-Object System.Drawing.Point(14, 9)
+
+    # 勾选框：批量安装 / 移除（状态存 $script:RoleChecked，列表重绘后回填）
+    $chk = New-Object System.Windows.Forms.CheckBox
+    $chk.Location  = New-Object System.Drawing.Point(10, 20)
+    $chk.Size      = New-Object System.Drawing.Size(18, 18)
+    $chk.FlatStyle = 'Flat'
+    $chk.BackColor = $Pal.Card
+    $chk.ForeColor = $Pal.Text
+    $chk.Tag       = @{ Name = [string]$Item.Name; Installed = [bool]$Item.Installed }
+    $chk.Checked   = $script:RoleChecked.ContainsKey([string]$Item.Name)
+    $chk.Add_Click({
+        $n = [string]$this.Tag.Name
+        if ($this.Checked) { $script:RoleChecked[$n] = [bool]$this.Tag.Installed } else { $script:RoleChecked.Remove($n) }
+        Update-RoleQueueUi
+    })
+    $row.Controls.Add($chk)
+
+    $lbName = New-Label -Text $title -Size 10 -Style Bold -Width ($rowW - 330)
+    $lbName.Location = New-Object System.Drawing.Point(38, 9)
     $row.Controls.Add($lbName)
 
     $kind = [string]$Item.FeatureType
@@ -2783,8 +2918,8 @@ function Add-RoleRow {
     $dep = ''
     if (@($Item.DependsOn).Count -gt 0) { $dep = '   依赖: ' + (@($Item.DependsOn) -join ', ') }
     $meta = ('{0}   ·   {1}{2}' -f [string]$Item.Name, $kind, $dep)
-    $lbMeta = New-Label -Text $meta -Size 8.5 -Color Hint -Width ($rowW - 240)
-    $lbMeta.Location = New-Object System.Drawing.Point(14, 32)
+    $lbMeta = New-Label -Text $meta -Size 8.5 -Color Hint -Width ($rowW - 330)
+    $lbMeta.Location = New-Object System.Drawing.Point(38, 32)
     $row.Controls.Add($lbMeta)
 
     $pill = $null
@@ -2805,7 +2940,7 @@ function Add-RoleRow {
     $row.Controls.Add($btnRem)
 
     $pnlRoleResults.Controls.Add($row)
-    $script:RoleRows += [pscustomobject]@{ Panel = $row; Name = $lbName; Meta = $lbMeta; Install = $btnIns; Remove = $btnRem; Pill = $pill }
+    $script:RoleRows += [pscustomobject]@{ Panel = $row; Name = $lbName; Meta = $lbMeta; Check = $chk; Install = $btnIns; Remove = $btnRem; Pill = $pill }
 }
 
 function Update-RoleRowLayout {
@@ -2813,8 +2948,8 @@ function Update-RoleRowLayout {
     foreach ($r in $script:RoleRows) {
         try {
             $r.Panel.Width = $rowW
-            $r.Name.Width  = $rowW - 240
-            $r.Meta.Width  = $rowW - 240
+            $r.Name.Width  = $rowW - 330
+            $r.Meta.Width  = $rowW - 330
             $r.Install.Location = New-Object System.Drawing.Point(($rowW - 184), 14)
             $r.Remove.Location  = New-Object System.Drawing.Point(($rowW - 96), 14)
             if ($r.Pill) { $r.Pill.Location = New-Object System.Drawing.Point(($rowW - 194 - $r.Pill.Width), 18) }
@@ -2823,9 +2958,54 @@ function Update-RoleRowLayout {
     }
 }
 
+function Update-RoleQueueUi {
+    # 「安装选中 (N)」「移除选中 (N)」的状态：移除只统计勾选时已安装的项
+    $all = 0
+    $inst = 0
+    try {
+        $all  = @($script:RoleChecked.Keys).Count
+        $inst = @($script:RoleChecked.Keys | Where-Object { $script:RoleChecked[$_] }).Count
+    } catch { }
+    try {
+        $btnRoleBatchIns.Text    = $(if ($all -gt 0) { ('安装选中 ({0})' -f $all) } else { '安装选中' })
+        $btnRoleBatchIns.Enabled = ($all -gt 0 -and -not $script:Proc)
+        $btnRoleBatchRem.Text    = $(if ($inst -gt 0) { ('移除选中 ({0})' -f $inst) } else { '移除选中' })
+        $btnRoleBatchRem.Enabled = ($inst -gt 0 -and -not $script:Proc)
+    } catch { }
+}
+
+function Start-RoleQueue {
+    # 批量安装 / 移除勾选的角色。依赖展开与「失败不中断」都在 lib\GuiReady.Role.ps1 里。
+    param([string]$Mode = 'install')
+
+    $names = @()
+    if ($Mode -eq 'remove') {
+        $names = @($script:RoleChecked.Keys | Where-Object { $script:RoleChecked[$_] } | Sort-Object)
+    } else {
+        $names = @($script:RoleChecked.Keys | Sort-Object)
+    }
+    if ($names.Count -eq 0) { return }
+    if ($script:Proc) {
+        [System.Windows.Forms.MessageBox]::Show('上一个动作还在运行，请先等它结束。', '提示', 'OK', 'Information') | Out-Null
+        return
+    }
+
+    $verb = $(if ($Mode -eq 'remove') { '移除' } else { '安装' })
+    Append-GuiLog -Line ('[INFO] 批量{0} {1} 项角色/功能: {2}' -f $verb, $names.Count, ($names -join ', '))
+    $id = $(if ($Mode -eq 'remove') { 'role-batch-remove' } else { 'role-batch-install' })
+    Start-RoleAction -Id $id -Params @{ Names = ($names -join ',') }
+
+    if ($script:Proc) {
+        $script:RoleChecked = @{}
+        foreach ($r in @($script:RoleRows)) { try { if ($r.Check) { $r.Check.Checked = $false } } catch { } }
+        Update-RoleQueueUi
+    }
+}
+
 function Show-RoleResult {
     $items = @(Get-RoleFilteredItems)
     Clear-RoleRows
+    Update-RoleQueueUi
 
     if ($script:RoleItems.Count -eq 0) {
         # 空列表必须带原因：没有 ServerManager 和「真的一个功能都没有」是两回事
@@ -2899,7 +3079,10 @@ function Update-RoleTick {
         try { if ($script:Proc) { $script:Proc.Refresh(); $running = -not $script:Proc.HasExited } } catch { }
         if ($running) { try { $barRole.Invalidate() } catch { }; return }
         Stop-RoleTask
-        Append-GuiLog -Line '[INFO] 角色动作已结束 —— 点「刷新」看最新状态（需要重启的会写在日志里）。'
+        Update-RoleQueueUi
+        Append-GuiLog -Line '[INFO] 角色动作已结束，正在刷新列表（需要重启的项会写在日志里）。'
+        # 安装/卸载后缓存已失效，自动重读一次，页面不会停在旧状态
+        Start-RoleQuery -Mode 'list'
         return
     }
     if (-not $script:RoleTask) { try { $script:RoleTimer.Stop() } catch { }; return }
@@ -2927,6 +3110,7 @@ function Update-RoleTick {
     $script:RoleSupport = $obj.Support
     $script:RoleItems   = @($obj.Items)
     Apply-RoleResult -Obj $obj
+    Update-RoleQueueUi
     if ($task -eq 'list' -and $script:RoleItems.Count -gt 0) {
         Append-GuiLog -Line ('[INFO] 角色与功能共 {0} 项，已装 {1} 项。' -f $script:RoleItems.Count, @($script:RoleItems | Where-Object { $_.Installed }).Count)
     }
@@ -3027,8 +3211,123 @@ foreach ($spec in @(@{ K = 'cpu'; T = 'CPU' }, @{ K = 'mem'; T = '内存' }, @{ 
     $script:MonCards[$spec.K] = New-StatusCard -Title $spec.T -Width 208 -Parent $pnlMonCards
 }
 
+# ---- 趋势曲线（CPU / 内存 / 系统盘）----
+# 采样走独立的轻量查询（Run-GuiReadyMonitor.ps1 -Mode metrics，约 1 秒），每 5 秒一次；
+# 历史只留在内存里（最多 120 点 ≈ 10 分钟），不落盘 —— 服务器上不堆无用的时序文件。
+$script:MonHistory    = New-Object System.Collections.ArrayList
+$script:MonHistoryMax = 120
+$script:MonTrendFont      = New-Font -Size 8.5 -Style Bold
+$script:MonTrendFontSmall = New-Font -Size 8
+
+$pnlMonTrend           = New-Object System.Windows.Forms.Panel
+$pnlMonTrend.Location  = New-Object System.Drawing.Point(0, 140)
+$pnlMonTrend.Size      = New-Object System.Drawing.Size(896, 104)
+$pnlMonTrend.Anchor    = 'Top,Left,Right'
+$pnlMonTrend.BackColor = $Pal.Bg
+Enable-UiDoubleBuffer -Control $pnlMonTrend
+$pnlMonTrend.Add_Paint({ param($s, $e) Render-MonTrend -Graphics $e.Graphics -Width $s.Width -Height $s.Height })
+$pageMon.Controls.Add($pnlMonTrend)
+
+function Draw-MonTrendCell {
+    # 一格：标题（左上）+ 最新值（右上）+ 0~100% 的曲线（含浅色填充）
+    param($Graphics, [int]$X, [int]$Y, [int]$W, [int]$H, [string]$Title, $Values, $Color)
+
+    [System.Windows.Forms.TextRenderer]::DrawText($Graphics, $Title, $script:MonTrendFont,
+        (New-Object System.Drawing.Point($X, $Y)), $Pal.SubText)
+
+    $last = $null
+    foreach ($v in @($Values)) { if ($null -ne $v) { $last = [double]$v } }
+    $valText = '—'
+    if ($null -ne $last) { $valText = ('{0:0.0} %' -f $last) }
+    $sz = [System.Windows.Forms.TextRenderer]::MeasureText($valText, $script:MonTrendFontSmall)
+    [System.Windows.Forms.TextRenderer]::DrawText($Graphics, $valText, $script:MonTrendFontSmall,
+        (New-Object System.Drawing.Point(($X + $W - $sz.Width), $Y)), $Pal.Text)
+
+    $py = $Y + 20
+    $ph = $H - 24
+    if ($ph -lt 18) { return }
+
+    # 25 / 50 / 75 三条参考线：不画文字，避免小图里噪音太大
+    $penGrid = New-Object System.Drawing.Pen($Pal.Border, 1)
+    try {
+        foreach ($pct in @(25, 50, 75)) {
+            $gy = $py + $ph - [int]($ph * $pct / 100)
+            $Graphics.DrawLine($penGrid, $X, $gy, ($X + $W), $gy)
+        }
+    } finally { $penGrid.Dispose() }
+
+    $vals = @()
+    foreach ($v in @($Values)) {
+        if ($null -eq $v) { continue }
+        $f = [double]$v
+        if ($f -lt 0) { $f = 0 }
+        if ($f -gt 100) { $f = 100 }
+        $vals += $f
+    }
+    if ($vals.Count -lt 2) {
+        [System.Windows.Forms.TextRenderer]::DrawText($Graphics, '正在积累样本…', $script:MonTrendFontSmall,
+            (New-Object System.Drawing.Point($X, ($py + 4))), $Pal.Hint)
+        return
+    }
+
+    # 最新点贴右边：X 轴按固定容量（120 点）铺，样本少时曲线从右侧长出来
+    $step = [double]$W / [Math]::Max(1, ($script:MonHistoryMax - 1))
+    $x0 = $X + [double]($script:MonHistoryMax - $vals.Count) * $step
+    $pts = New-Object System.Collections.ArrayList
+    for ($i = 0; $i -lt $vals.Count; $i++) {
+        $px = $x0 + $i * $step
+        $pyy = $py + $ph - ($vals[$i] / 100.0 * $ph)
+        [void]$pts.Add([System.Drawing.PointF]::new([float]$px, [float]$pyy))
+    }
+    $arr = [System.Drawing.PointF[]]$pts.ToArray()
+
+    $penLine = New-Object System.Drawing.Pen($Color, 1.6)
+    $brushFill = New-Object System.Drawing.SolidBrush([System.Drawing.Color]::FromArgb(38, $Color))
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    try {
+        # 面积填充：曲线 + 右侧垂线 + 底边 + 左侧垂线，闭合成多边形
+        $bottomY = [float]($py + $ph)
+        $poly = New-Object System.Collections.ArrayList
+        foreach ($p in $arr) { [void]$poly.Add($p) }
+        [void]$poly.Add([System.Drawing.PointF]::new([float]$arr[$arr.Length - 1].X, $bottomY))
+        [void]$poly.Add([System.Drawing.PointF]::new([float]$arr[0].X, $bottomY))
+        $path.AddPolygon([System.Drawing.PointF[]]$poly.ToArray())
+        $Graphics.FillPath($brushFill, $path)
+    } catch { }
+    try { $Graphics.DrawLines($penLine, $arr) } catch { }
+    try { $path.Dispose(); $penLine.Dispose(); $brushFill.Dispose() } catch { }
+}
+
+function Render-MonTrend {
+    param($Graphics, [int]$Width, [int]$Height)
+    if (-not $Graphics -or $Width -lt 40 -or $Height -lt 40) { return }
+    Invoke-UiPaintFrame -Graphics $Graphics -Width $Width -Height $Height -Radius 10 -Fill $Pal.Card -Border $Pal.Border
+
+    $hist = @($script:MonHistory)
+    if ($hist.Count -eq 0) {
+        [System.Windows.Forms.TextRenderer]::DrawText($Graphics, '趋势还在积累（每 5 秒采样一次）…', $script:MonTrendFontSmall,
+            (New-Object System.Drawing.Point(14, 14)), $Pal.Hint)
+        return
+    }
+
+    $cpuVals = @(); $memVals = @(); $diskVals = @()
+    foreach ($s in $hist) {
+        $cpuVals  += $(if ($null -ne $s.Cpu)  { [double]$s.Cpu }  else { $null })
+        $memVals  += $(if ($null -ne $s.Mem)  { [double]$s.Mem }  else { $null })
+        $diskVals += $(if ($null -ne $s.Disk) { [double]$s.Disk } else { $null })
+    }
+
+    $pad = 12
+    $gap = 10
+    $cellW = [int](($Width - 2 * $pad - 2 * $gap) / 3)
+    $cellH = $Height - 14
+    Draw-MonTrendCell -Graphics $Graphics -X $pad -Y 7 -W $cellW -H $cellH -Title 'CPU %'  -Values $cpuVals  -Color $Pal.Accent3
+    Draw-MonTrendCell -Graphics $Graphics -X ($pad + $cellW + $gap) -Y 7 -W $cellW -H $cellH -Title '内存 %' -Values $memVals  -Color $Pal.Ok
+    Draw-MonTrendCell -Graphics $Graphics -X ($pad + 2 * ($cellW + $gap)) -Y 7 -W $cellW -H $cellH -Title '系统盘 %' -Values $diskVals -Color $Pal.Warn
+}
+
 $pnlMonBar           = New-Object System.Windows.Forms.Panel
-$pnlMonBar.Location  = New-Object System.Drawing.Point(0, 140)
+$pnlMonBar.Location  = New-Object System.Drawing.Point(0, 252)
 $pnlMonBar.Size      = New-Object System.Drawing.Size(900, 34)
 $pnlMonBar.Anchor    = 'Top,Left,Right'
 $pnlMonBar.BackColor = $Pal.Bg
@@ -3043,17 +3342,24 @@ $pillMonSum          = New-Pill -Text '还未采集' -Kind 'Neutral'
 $pillMonSum.Location = New-Object System.Drawing.Point(86, 6)
 $pnlMonBar.Controls.Add($pillMonSum)
 
-$hintMon = New-HintBar -Text '提示：服务名要填服务名而不是显示名（例如 WinRM / LanmanServer / TermService）。停关键服务可能断开你的远程会话，动作里会先警告。' -Kind 'Blue' -Width 900
-$hintMon.Location = New-Object System.Drawing.Point(0, 176)
+# TUI 监控：优先用本机已有的 pstop / htop / btm；都没有就引导装 pstop（约 1 MB、零依赖）。
+# 放在后台子进程里启动一个真实控制台窗口 —— TUI 需要真的控制台，不能画在 GUI 里。
+$btnMonTui          = New-FlatButton -Text 'TUI 监控' -Width 96 -Height 30
+$btnMonTui.Location = New-Object System.Drawing.Point(260, 2)
+$btnMonTui.Add_Click({ Start-MonitorTui })
+$pnlMonBar.Controls.Add($btnMonTui)
+
+$hintMon = New-HintBar -Text '提示：服务名要填服务名而不是显示名（例如 WinRM / LanmanServer / TermService）。停关键服务可能断开你的远程会话，动作里会先警告。「TUI 监控」会在新的控制台窗口里打开 pstop / htop / btm。' -Kind 'Blue' -Width 900
+$hintMon.Location = New-Object System.Drawing.Point(0, 288)
 $pageMon.Controls.Add($hintMon)
 
 $barMon          = New-ProgressBar -Width 420 -Height 6 -Indeterminate
-$barMon.Location = New-Object System.Drawing.Point(0, 214)
+$barMon.Location = New-Object System.Drawing.Point(0, 326)
 $barMon.Visible  = $false
 $pageMon.Controls.Add($barMon)
 
 $pnlMonRows              = New-Object System.Windows.Forms.FlowLayoutPanel
-$pnlMonRows.Location     = New-Object System.Drawing.Point(0, 228)
+$pnlMonRows.Location     = New-Object System.Drawing.Point(0, 340)
 $pnlMonRows.Size         = New-Object System.Drawing.Size(896, 220)
 $pnlMonRows.Anchor       = 'Top,Left,Right,Bottom'
 $pnlMonRows.FlowDirection = 'TopDown'
@@ -3100,6 +3406,13 @@ function Render-Monitor {
     }
     $lblMonEmpty.Visible = $false
     $s = $Obj.Snap
+
+    # 快照也记进趋势：页面刚打开时曲线不至于空白（2 秒内的 metrics 点会自动去重）
+    $seedCpu = $null; $seedMem = $null; $seedDisk = $null
+    try { if ($s.Cpu -and $null -ne $s.Cpu.Percent) { $seedCpu = [double]$s.Cpu.Percent } } catch { }
+    try { if ($s.Memory) { $seedMem = [double]$s.Memory.UsedPercent } } catch { }
+    try { $ds = @($s.Disks); if ($ds.Count -gt 0) { $seedDisk = [double]$ds[0].UsedPercent } } catch { }
+    Add-MonTrendPoint -Cpu $seedCpu -Mem $seedMem -Disk $seedDisk
 
     # ---- 指标卡片 ----
     $c = $script:MonCards['cpu']
@@ -3188,12 +3501,89 @@ $script:QMon = New-GuiQueryHost -Name 'monitor' -Runner (Join-Path $guiDir 'Run-
 
 $btnMonRefresh.Add_Click({ Start-GuiQueryHost -Query $script:QMon -Task 'snapshot' -BusyText '采集快照…' | Out-Null })
 
+# ---- 趋势采样 ----
+# 独立的轻量查询（Mode=metrics），每 5 秒一次；只在仪表盘可见且窗口未最小化时跑。
+$script:QMonTrend = New-GuiQueryHost -Name 'monitor-trend' -Runner (Join-Path $guiDir 'Run-GuiReadyMonitor.ps1') -TimeoutSec 30 `
+    -OnResult { param($obj) if ($obj -and $obj.Snap) { Add-MonTrendPoint -Cpu $obj.Snap.Cpu -Mem $obj.Snap.MemPct -Disk $obj.Snap.DiskPct } }
+
+function Add-MonTrendPoint {
+    # 往内存里的趋势环里放一个点。同一时刻的快照与 metrics 可能只差几百毫秒，
+    # 2 秒内不再重复记（否则曲线会出现两条几乎重合的竖线）。
+    param($Cpu, $Mem, $Disk)
+    try {
+        if ($script:MonHistory.Count -gt 0) {
+            $lastP = $script:MonHistory[$script:MonHistory.Count - 1]
+            if (((Get-Date) - $lastP.T).TotalSeconds -lt 2) { return }
+        }
+        [void]$script:MonHistory.Add([pscustomobject]@{
+            T    = (Get-Date)
+            Cpu  = $(if ($null -ne $Cpu)  { [double]$Cpu }  else { $null })
+            Mem  = $(if ($null -ne $Mem)  { [double]$Mem }  else { $null })
+            Disk = $(if ($null -ne $Disk) { [double]$Disk } else { $null })
+        })
+        while ($script:MonHistory.Count -gt $script:MonHistoryMax) { $script:MonHistory.RemoveAt(0) }
+        try { $pnlMonTrend.Invalidate() } catch { }
+    } catch { }
+}
+
+$script:MonTrendTimer = New-Object System.Windows.Forms.Timer
+$script:MonTrendTimer.Interval = 5000
+$script:MonTrendTimer.Add_Tick({
+    try {
+        if (-not $pageMon.Visible) { return }
+        if ($form.WindowState -eq 'Minimized') { return }
+        if ($script:QMonTrend.Task) { return }   # 上一次还没回来就跳过，避免日志刷屏
+        Start-GuiQueryHost -Query $script:QMonTrend -Task 'metrics' -BusyText '' | Out-Null
+    } catch { }
+})
+
+function Resolve-MonitorTui {
+    # 优先已装的外部 TUI；choco 的 shim 路径兜底（装完不用重启工具也能找到）
+    foreach ($exe in @('pstop.exe', 'htop.exe', 'btm.exe', 'ntop.exe')) {
+        $c = Get-Command $exe -ErrorAction SilentlyContinue
+        if ($c) { return [string]$c.Source }
+    }
+    $dirs = @()
+    if ($env:ProgramData) { $dirs += (Join-Path $env:ProgramData 'chocolatey\bin') }
+    $dirs += 'C:\ProgramData\chocolatey\bin'
+    foreach ($d in $dirs) {
+        foreach ($exe in @('pstop.exe', 'htop.exe', 'btm.exe', 'ntop.exe')) {
+            $p = Join-Path $d $exe
+            try { if (Test-Path -LiteralPath $p) { return $p } } catch { }
+        }
+    }
+    return ''
+}
+
+function Start-MonitorTui {
+    # TUI 必须跑在真实控制台里：用 Start-Process 起一个新窗口，不占用 GUI 进程。
+    if ($script:AuditMode) { Append-GuiLog -Line '[INFO] 审计模式：跳过打开 TUI 监控'; return }
+    $exe = Resolve-MonitorTui
+    if (-not $exe) {
+        $msg = "本机还没有 TUI 监控工具（pstop / htop / btm）。`r`n`r`n" +
+               "现在用 Chocolatey 安装 pstop 吗？它是 Windows 上的 htop 替代品（约 1 MB、零依赖）。`r`n" +
+               "装完再点一次「TUI 监控」即可（也可以到「应用商店 → TUI」里选 bottom）。"
+        $r = [System.Windows.Forms.MessageBox]::Show($form, $msg, 'TUI 监控', 'YesNo', 'Question')
+        if ($r -eq 'Yes') {
+            Start-StoreAction -Id 'pkg-install' -Params @{ Source = 1; Package = 'pstop' }
+        }
+        return
+    }
+    Append-GuiLog -Line ('[INFO] 打开 TUI 监控: ' + $exe)
+    try {
+        Start-Process -FilePath $exe -WorkingDirectory (Split-Path -Parent $exe) | Out-Null
+    } catch {
+        Append-GuiLog -Line ('[ERROR] 打开 TUI 监控失败: ' + $_.Exception.Message)
+    }
+}
+
 function Show-MonPage {
     if ($SkipPageHooks) { return }
     if (-not $script:MonLoaded) {
         $script:MonLoaded = $true
         Start-GuiQueryHost -Query $script:QMon -Task 'snapshot' -BusyText '采集快照…' | Out-Null
     }
+    try { $script:MonTrendTimer.Start() } catch { }
 }
 $script:MonLoaded = $false
 
@@ -3808,7 +4198,7 @@ function Update-PageLayout {
         Update-RoleLayout
 
         # ---- 仪表盘 / 安全 / 美化 / AI（四页骨架一样，统一走一个函数）----
-        Update-RayPageLayout -Page $pageMon -Rows $pnlMonRows -Wide @($lblMonDesc, $pnlMonCards, $pnlMonBar, $hintMon)
+        Update-RayPageLayout -Page $pageMon -Rows $pnlMonRows -Wide @($lblMonDesc, $pnlMonCards, $pnlMonTrend, $pnlMonBar, $hintMon)
         Update-RayPageLayout -Page $pageSec -Rows $pnlSecRows -Wide @($lblSecDesc, $pnlSecBar, $pnlSecFilter, $hintSec)
         Update-RayPageLayout -Page $pageBeauty -Rows $pnlBeautyRows -Wide @($lblBeautyDesc, $pnlBeautyStatus, $pnlBeautyTheme, $pnlBeautyActions, $hintBeauty)
         Update-RayPageLayout -Page $pageDsh -Rows $pnlDshRows -Wide @($lblDshDesc, $pnlDshStatus, $hintDsh, $pnlDshActions)
@@ -5180,7 +5570,8 @@ function Exit-ToCommandLine {
     try { $script:ProbeTimer.Stop(); $script:ProbeTimer.Dispose() } catch { }
     try { $script:StoreTimer.Stop(); $script:StoreTimer.Dispose() } catch { }
     try { $script:RoleTimer.Stop(); $script:RoleTimer.Dispose() } catch { }
-    foreach ($q in @($script:QMon, $script:QSec, $script:QDsh, $script:QStoreInfo)) { if ($q) { Close-GuiQueryHost -Query $q } }
+    try { $script:MonTrendTimer.Stop(); $script:MonTrendTimer.Dispose() } catch { }
+    foreach ($q in @($script:QMon, $script:QMonTrend, $script:QSec, $script:QDsh, $script:QStoreInfo)) { if ($q) { Close-GuiQueryHost -Query $q } }
     Open-GuiExitShell -Quiet
     $form.Close()
 }
@@ -6057,7 +6448,8 @@ if ($SelfTest) {
         try { $script:ProbeTimer.Dispose() } catch { }
         try { $script:StoreTimer.Dispose() } catch { }
         try { $script:RoleTimer.Dispose() } catch { }
-        foreach ($q in @($script:QMon, $script:QSec, $script:QDsh, $script:QStoreInfo)) { if ($q) { Close-GuiQueryHost -Query $q } }
+        try { $script:MonTrendTimer.Dispose() } catch { }
+        foreach ($q in @($script:QMon, $script:QMonTrend, $script:QSec, $script:QDsh, $script:QStoreInfo)) { if ($q) { Close-GuiQueryHost -Query $q } }
         $form.Dispose()
     } catch {
         Write-Host ('GUI SELFTEST FAIL: ' + $_.Exception.Message) -ForegroundColor Red

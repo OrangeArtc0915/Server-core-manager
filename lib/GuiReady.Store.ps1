@@ -322,3 +322,95 @@ function Install-GuiReadyStoreApp {
     }
     return $true
 }
+
+function Get-GuiReadyStoreQueueStatePath {
+    return (Join-Path $script:GuiReadyRoot 'state\store-queue.json')
+}
+
+function Install-GuiReadyStoreQueue {
+    # 批量安装队列：按顺序逐个装，**单个失败不中断**，最后把失败项写进
+    # state\store-queue.json —— 界面的「重试失败」只重跑这些条目。
+    #
+    # 为什么不做并行：choco 自己会锁安装目录，两个 choco 同时跑必然有一个报锁冲突；
+    # 而且角色/功能那类前置（Containers 等）也不适合并发。
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Ids,
+        [switch]$WhatIf
+    )
+
+    # 包名来自界面 / 远程 feed：只接受保守字符集，且用 JSON 参数文件传进来（不拼命令行）。
+    # 只按逗号分隔 —— 不能把空格也当分隔符，否则 "bad name" 会被拆成两个合法包名。
+    $list = New-Object System.Collections.ArrayList
+    $seen = @{}
+    foreach ($raw in @($Ids)) {
+        foreach ($one in (([string]$raw) -split ',')) {
+            $id = $one.Trim()
+            if (-not $id) { continue }
+            if ($id -notmatch '^[A-Za-z0-9._+-]+$') {
+                Write-Log ('跳过非法包名: ' + $id) 'ERROR'
+                continue
+            }
+            $k = $id.ToLower()
+            if ($seen.ContainsKey($k)) { continue }
+            $seen[$k] = $true
+            [void]$list.Add($id)
+        }
+    }
+
+    if ($list.Count -eq 0) {
+        Write-Log '安装队列是空的。' 'ERROR'
+        return $false
+    }
+
+    Write-Head ('安装队列: {0} 个应用' -f $list.Count)
+    if ($WhatIf) {
+        Write-Log '--- 预览模式，不做任何改动 ---' 'DRY'
+        $n = 0
+        foreach ($id in $list) { $n++; Write-Log ('  [{0}/{1}] {2}' -f $n, $list.Count, $id) 'DRY' }
+        Write-Log '真跑时会逐个安装；某个失败不会中断后面的条目。' 'DRY'
+        return $true
+    }
+
+    $done = @()
+    $failed = @()
+    $i = 0
+    foreach ($id in $list) {
+        $i++
+        Write-Log ('[{0}/{1}] {2}' -f $i, $list.Count, $id) 'STEP'
+        $ok = $false
+        try {
+            $ok = [bool](Install-GuiReadyStoreApp -Id $id)
+        } catch {
+            Write-Log ('安装异常: ' + $_.Exception.Message) 'ERROR'
+            $ok = $false
+        }
+        if ($ok) {
+            $done += $id
+        } else {
+            $failed += [pscustomobject]@{ Id = $id; Reason = '安装未完成，详见上方日志' }
+        }
+    }
+
+    Write-Head '安装队列结果'
+    Write-Log ('成功 {0} 个，失败 {1} 个。' -f $done.Count, $failed.Count) $(if ($failed.Count -eq 0) { 'OK' } else { 'WARN' })
+    foreach ($f in $failed) { Write-Log ('  失败: {0}（{1}）' -f $f.Id, $f.Reason) 'ERROR' }
+
+    # 失败清单落盘，供界面「重试失败」使用；全成功也写（Failed 为空 → 按钮隐藏）
+    try {
+        $p = Get-GuiReadyStoreQueueStatePath
+        $dir = Split-Path -Parent $p
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $state = [ordered]@{
+            Updated   = (Get-Date).ToString('o')
+            Total     = $list.Count
+            Succeeded = @($done)
+            Failed    = @($failed)
+        }
+        [System.IO.File]::WriteAllText($p, (ConvertTo-Json -InputObject $state -Depth 4 -Compress),
+            (New-Object System.Text.UTF8Encoding($false)))
+    } catch {
+        Write-Log ('写入队列状态失败: ' + $_.Exception.Message) 'WARN'
+    }
+
+    return ($failed.Count -eq 0)
+}

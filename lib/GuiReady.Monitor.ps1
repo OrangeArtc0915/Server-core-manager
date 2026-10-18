@@ -144,6 +144,58 @@ function Get-GuiReadyMonitorSnapshot {
     return [pscustomobject]$snap
 }
 
+function Get-GuiReadyMonitorMetrics {
+    # 轻量采样：只取 CPU / 内存 / 系统盘，给仪表盘的趋势曲线用。
+    #
+    # 为什么不复用 Get-GuiReadyMonitorSnapshot：快照要查系统事件日志（Server Core 上数百毫秒
+    # 到数秒）与进程列表，每 5 秒跑一次太重。这里只做三件事，单次约 1 秒（CPU 计数器本身要采样）。
+    $cpuPct = $null
+    $cpuSrc = ''
+    try {
+        $cpu = Get-GuiReadyMonitorCpu
+        if ($null -ne $cpu.Percent) { $cpuPct = [double]$cpu.Percent }
+        $cpuSrc = [string]$cpu.Source
+    } catch { }
+
+    $memPct = $null
+    try {
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        $totalKb = [double]$os.TotalVisibleMemorySize
+        $freeKb  = [double]$os.FreePhysicalMemory
+        if ($totalKb -gt 0) { $memPct = [Math]::Round(($totalKb - $freeKb) / $totalKb * 100, 1) }
+    } catch { }
+
+    $diskName = ''
+    $diskPct  = $null
+    try {
+        $drv = $env:SystemDrive
+        if (-not $drv) { $drv = 'C:' }
+        $d = $null
+        try { $d = Get-CimInstance Win32_LogicalDisk -Filter ("DeviceID='" + $drv + "'") -ErrorAction Stop } catch { }
+        if (-not $d) {
+            $d = @(Get-CimInstance Win32_LogicalDisk -Filter 'DriveType=3' -ErrorAction SilentlyContinue | Select-Object -First 1)
+        }
+        if ($d -is [array]) { if ($d.Count -gt 0) { $d = $d[0] } else { $d = $null } }
+        if ($d) {
+            $size = [double]$d.Size
+            $free = [double]$d.FreeSpace
+            if ($size -gt 0) {
+                $diskName = [string]$d.DeviceID
+                $diskPct  = [Math]::Round(($size - $free) / $size * 100, 1)
+            }
+        }
+    } catch { }
+
+    return [pscustomobject]@{
+        Stamp   = (Get-Date).ToString('s')
+        Cpu     = $cpuPct
+        CpuSrc  = $cpuSrc
+        MemPct  = $memPct
+        DiskName = $diskName
+        DiskPct = $diskPct
+    }
+}
+
 function Invoke-GuiReadyServiceControl {
     # 启停单个服务。只做这一件事，不做依赖分析 —— 依赖链上的服务该不该跟着停是运维判断。
     param(

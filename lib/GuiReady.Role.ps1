@@ -247,6 +247,184 @@ function Remove-GuiReadyRole {
     }
 }
 
+function ConvertTo-GuiReadyRoleNameList {
+    # 把界面传来的逗号分隔字符串 / 数组统一成去重后的名字列表。
+    # 角色名只允许字母、数字、点、下划线、连字符（实测 Get-WindowsFeature 的 Name 都是这种）。
+    param([string[]]$Name)
+
+    $out = New-Object System.Collections.ArrayList
+    foreach ($raw in @($Name)) {
+        foreach ($one in (([string]$raw) -split ',')) {
+            $n = $one.Trim()
+            if (-not $n) { continue }
+            if ($n -notmatch '^[A-Za-z0-9._-]+$') {
+                Write-Log ('跳过非法角色名: ' + $n) 'ERROR'
+                continue
+            }
+            if (-not ($out -contains $n)) { [void]$out.Add($n) }
+        }
+    }
+    return @($out)
+}
+
+function Resolve-GuiReadyRoleClosure {
+    # 把 DependsOn 递归展开，得到「依赖在前、请求项在后」的安装顺序。
+    #
+    # 为什么要自己做一遍：Get-WindowsFeature 只给直接依赖，界面以前只把它显示出来、
+    # 并没有代装（想法.md 里记的已知缺口）。批量装时先装依赖，失败点更清楚。
+    # 已安装的项由调用方跳过；这里只负责展开与排序。
+    param([string[]]$Name)
+
+    $all = @(Get-GuiReadyRoleList)
+    $map = @{}
+    foreach ($i in $all) {
+        $k = ([string]$i.Name).ToLower()
+        if ($k) { $map[$k] = $i }
+    }
+
+    $order   = New-Object System.Collections.ArrayList
+    $missing = New-Object System.Collections.ArrayList
+    $seen    = @{}
+
+    # 递归用 scriptblock（PowerShell 的嵌套函数会随作用域丢失，scriptblock 读父作用域变量可靠）。
+    $visit = $null
+    $visit = {
+        param([string]$n)
+        $k = $n.ToLower()
+        if ($seen.ContainsKey($k)) { return }
+        $seen[$k] = $true
+        if (-not $map.ContainsKey($k)) {
+            # 清单里没有（读列表失败 / 名称拼错）：仍放进安装顺序，让 Install-WindowsFeature 给出准确结论
+            [void]$missing.Add($n)
+            [void]$order.Add($n)
+            return
+        }
+        foreach ($d in @($map[$k].DependsOn)) {
+            $dn = ([string]$d).Trim()
+            if ($dn) { & $visit $dn }
+        }
+        [void]$order.Add($n)
+    }
+
+    foreach ($n in @($Name)) {
+        $t = ([string]$n).Trim()
+        if ($t) { & $visit $t }
+    }
+
+    return [pscustomobject]@{
+        Order   = @($order)
+        Missing = @($missing)
+        ByName  = $map
+    }
+}
+
+function Install-GuiReadyRoleBatch {
+    # 批量安装角色/功能：依赖自动补齐、依赖先装、单个失败不中断。
+    # 单个安装（界面的「安装」按钮）也走这里 —— 这样依赖同样会被显式展开并记进日志。
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Name,
+        [switch]$WithManagementTools,
+        [switch]$WhatIf
+    )
+
+    $names = @(ConvertTo-GuiReadyRoleNameList -Name $Name)
+    if ($names.Count -eq 0) {
+        Write-Log '没有要安装的角色/功能（名称是空的）。' 'ERROR'
+        return $false
+    }
+
+    $plan = Resolve-GuiReadyRoleClosure -Name $names
+    $todo = New-Object System.Collections.ArrayList
+    $skip = New-Object System.Collections.ArrayList
+    foreach ($n in @($plan.Order)) {
+        $k = ([string]$n).ToLower()
+        $it = $null
+        if ($plan.ByName.ContainsKey($k)) { $it = $plan.ByName[$k] }
+        if ($it -and [bool]$it.Installed) { [void]$skip.Add($n) } else { [void]$todo.Add($n) }
+    }
+    foreach ($m in @($plan.Missing)) {
+        Write-Log ('注意：本机角色清单里没有 {0}，仍会尝试安装。' -f $m) 'WARN'
+    }
+
+    Write-Head ('安装角色/功能: {0}（依赖已自动展开）' -f (@($names) -join ', '))
+    if ($skip.Count -gt 0) { Write-Log ('已安装，跳过: ' + (@($skip) -join ', ')) 'INFO' }
+    if ($todo.Count -eq 0) {
+        Write-Log '这些角色/功能都已安装，无需操作。' 'OK'
+        return $true
+    }
+    Write-Log ('将依次安装 {0} 项（依赖在前）: {1}' -f $todo.Count, (@($todo) -join ', ')) 'INFO'
+
+    if ($WhatIf) {
+        Write-Log '--- 预览模式，不做任何改动 ---' 'DRY'
+        $i = 0
+        foreach ($n in $todo) {
+            $i++
+            Write-Log ('  [{0}/{1}] Install-WindowsFeature -Name {2}{3}' -f $i, $todo.Count, $n, $(if ($WithManagementTools) { ' -IncludeManagementTools' } else { '' })) 'DRY'
+        }
+        return $true
+    }
+
+    $done = @()
+    $failed = @()
+    $i = 0
+    foreach ($n in $todo) {
+        $i++
+        Write-Log ('[{0}/{1}] {2}' -f $i, $todo.Count, $n) 'STEP'
+        $ok = $false
+        try {
+            $ok = [bool](Install-GuiReadyRole -Name $n -WithManagementTools:$WithManagementTools)
+        } catch {
+            Write-Log ('安装异常: ' + $_.Exception.Message) 'ERROR'
+            $ok = $false
+        }
+        if ($ok) { $done += $n } else { $failed += $n }
+    }
+
+    Write-Head '安装结果'
+    Write-Log ('成功 {0} 项，失败 {1} 项。' -f $done.Count, $failed.Count) $(if ($failed.Count -eq 0) { 'OK' } else { 'ERROR' })
+    foreach ($f in $failed) { Write-Log ('  失败: ' + $f) 'ERROR' }
+    if ($failed.Count -eq 0) {
+        Write-Log '提示：日志里出现「需要重启」的项，要重启后才会生效。' 'INFO'
+    }
+    return ($failed.Count -eq 0)
+}
+
+function Remove-GuiReadyRoleBatch {
+    # 批量移除角色/功能：单个失败不中断（被其它角色依赖时会失败，属于预期）。
+    param(
+        [Parameter(Mandatory = $true)][string[]]$Name,
+        [switch]$WhatIf
+    )
+
+    $names = @(ConvertTo-GuiReadyRoleNameList -Name $Name)
+    if ($names.Count -eq 0) {
+        Write-Log '没有要移除的角色/功能（名称是空的）。' 'ERROR'
+        return $false
+    }
+
+    if ($WhatIf) {
+        Write-Log '--- 预览模式，不做任何改动 ---' 'DRY'
+        foreach ($n in $names) { Write-Log ('将执行: Uninstall-WindowsFeature -Name ' + $n) 'DRY' }
+        return $true
+    }
+
+    $done = @()
+    $failed = @()
+    $i = 0
+    foreach ($n in $names) {
+        $i++
+        Write-Log ('[{0}/{1}] {2}' -f $i, $names.Count, $n) 'STEP'
+        $ok = $false
+        try { $ok = [bool](Remove-GuiReadyRole -Name $n) } catch { $ok = $false }
+        if ($ok) { $done += $n } else { $failed += $n }
+    }
+
+    Write-Head '移除结果'
+    Write-Log ('成功 {0} 项，失败 {1} 项。' -f $done.Count, $failed.Count) $(if ($failed.Count -eq 0) { 'OK' } else { 'ERROR' })
+    foreach ($f in $failed) { Write-Log ('  失败: ' + $f) 'ERROR' }
+    return ($failed.Count -eq 0)
+}
+
 function Show-GuiReadyRoleStatus {
     # 「更多」页里的只读动作
     Write-Head '角色与功能：状态'
