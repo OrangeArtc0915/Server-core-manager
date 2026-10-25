@@ -13,10 +13,6 @@ order: 1
 
 <img src="../../images/sponsor/wechat.jpg" alt="微信赞赏码" width="320" loading="lazy" decoding="async" />
 
-**支付宝**
-
-<img src="../../images/sponsor/alipay.png" alt="支付宝收款码" width="320" loading="lazy" decoding="async" />
-
 ## 赞助完全自愿
 
 不影响任何功能，也不影响提 issue 的处理顺序 —— **功能和 Bug 都照常修**。
