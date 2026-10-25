@@ -6,16 +6,19 @@ export interface Project {
 	title: string;
 	description: string;
 	image: string;
-	category: "web" | "mobile" | "desktop" | "other";
+	category: "scm" | "mobile" | "other";
 	techStack: string[];
 	status: "completed" | "in-progress" | "planned";
 	liveDemo?: string;
 	sourceCode?: string;
+	downloadUrl?: string;
 	startDate: string;
 	endDate?: string;
 	featured?: boolean;
 	tags?: string[];
-	visitUrl?: string; // 添加前往项目链接字段
+	visitUrl?: string; // 外部项目链接
+	internalPage?: string; // 站内介绍页（优先于 visitUrl）
+	showInCategory?: boolean; // 是否出现在页面下方的分类列表里（默认 true）
 }
 
 export const projectsData: Project[] = [
@@ -25,29 +28,41 @@ export const projectsData: Project[] = [
 		description:
 			"让带图形界面的程序在 Windows Server Core 上真正跑起来。补齐官方图形组件、添加程序、启动并排障，全部一键完成，工具自己也是图形界面。29 个功能动作，21 个系统工具入口。",
 		image: "",
-		category: "desktop",
-		techStack: ["PowerShell", "WinForms", "DISM", "WinRM", "Windows Admin Center"],
+		category: "scm",
+		techStack: [
+			"PowerShell",
+			"WinForms",
+			"DISM",
+			"WinRM",
+			"Windows Admin Center",
+		],
 		status: "completed",
 		sourceCode: "https://github.com/OrangeArtc0915/Server-core-manager",
-		visitUrl: "https://gitee.com/orangearc655743/server-core-manager/releases",
+		downloadUrl:
+			"https://gitee.com/orangearc655743/server-core-manager/releases",
 		startDate: "2026-09-01",
 		endDate: "2026-09-19",
 		featured: true,
+		showInCategory: false,
 		tags: ["Windows Server", "Server Core", "开源", "GPL-3.0"],
 	},
 	{
-		id: "server-core-manager-site",
-		title: "项目主页（本站）",
+		id: "craftdock",
+		title: "CraftDock",
 		description:
-			"用 Astro 构建的项目主页，把工具的设计取舍与实测记录整理成文章。所有数字与结论都来自真机测试，并附上复现方式。",
+			"终端里的 Minecraft 服务端管理器：实例启停、镜像下载、模组/插件一键安装、Java 运行时、备份与内网穿透，全部在 cmd / PowerShell 中完成，单文件 exe 开箱即用。",
 		image: "",
-		category: "web",
-		techStack: ["Astro", "TypeScript", "Tailwind CSS", "Svelte"],
+		category: "scm",
+		techStack: ["Node.js", "TypeScript", "blessed", "Node.js SEA"],
 		status: "completed",
-		sourceCode: "https://github.com/OrangeArtc0915/Server-core-manager/tree/WEB",
-		startDate: "2026-09-19",
-		endDate: "2026-09-19",
-		tags: ["Astro", "静态站点", "文档"],
+		sourceCode: "https://github.com/OrangeArtc0915/CraftDock",
+		downloadUrl:
+			"https://github.com/OrangeArtc0915/CraftDock/releases/latest",
+		internalPage: "/projects/craftdock/",
+		startDate: "2026-10-01",
+		endDate: "2026-10-25",
+		featured: false,
+		tags: ["Minecraft", "TUI", "Windows Server Core", "开源"],
 	},
 ];
 
@@ -72,10 +87,11 @@ export const getProjectStats = () => {
 
 // Get projects by category
 export const getProjectsByCategory = (category?: string) => {
+	const list = projectsData.filter((p) => p.showInCategory !== false);
 	if (!category || category === "all") {
-		return projectsData;
+		return list;
 	}
-	return projectsData.filter((p) => p.category === category);
+	return list.filter((p) => p.category === category);
 };
 
 // Get featured projects

@@ -34,13 +34,14 @@ const specCollection = defineCollection({
 	schema: z.object({}),
 });
 
-// 文档（wiki）：group 决定左侧章节树的分组，order 决定组内顺序
+// 文档（wiki）：project 区分属于哪个项目的文档，group 决定左侧章节树的分组，order 决定组内顺序
 const wikiCollection = defineCollection({
 	schema: z.object({
 		title: z.string(),
 		description: z.string().optional().default(""),
 		group: z.enum(["入门", "使用", "进阶", "参考", "支持"]),
 		order: z.number(),
+		project: z.enum(["scm", "craftdock"]).optional().default("scm"),
 	}),
 });
 

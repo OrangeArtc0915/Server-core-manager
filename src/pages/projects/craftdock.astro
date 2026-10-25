@@ -1,0 +1,265 @@
+---
+import IconifyLoader from "@components/misc/IconifyLoader.astro";
+import MainGridLayout from "@layouts/MainGridLayout.astro";
+import { url } from "@utils/url-utils";
+
+const title = "CraftDock";
+const description =
+	"终端里的 Minecraft 服务端管理器：单文件 exe，在 cmd / PowerShell 中完成实例启停、镜像下载、模组插件安装、Java 运行时、备份与内网穿透。";
+
+const repoUrl = "https://github.com/OrangeArtc0915/CraftDock";
+const downloadUrl = "https://github.com/OrangeArtc0915/CraftDock/releases/latest";
+const issuesUrl = "https://github.com/OrangeArtc0915/CraftDock/issues";
+
+const techStack = ["Node.js", "TypeScript", "neo-blessed", "Node.js SEA"];
+
+const features = [
+	{
+		icon: "material-symbols:dns",
+		name: "实例管理",
+		desc: "新建、启动、停止、删除实例，控制台实时回显。无 PTY 环境下自动把停止命令纠正为 stop，不会再往控制台里塞乱码。",
+	},
+	{
+		icon: "material-symbols:cloud-download",
+		name: "服务端核心",
+		desc: "Paper、Purpur、Fabric、Forge、NeoForge、原版，支持选择构建号。原版按 MSL → BMCLAPI → Mojang 三级回退，全部带 sha256 校验。",
+	},
+	{
+		icon: "material-symbols:extension",
+		name: "游戏资源",
+		desc: "Modrinth、CurseForge、Spigot 三大来源，按平台（Paper / Bukkit / Fabric / Forge / NeoForge）分类，按下载量排序并支持翻页，选中即一键安装。",
+	},
+	{
+		icon: "material-symbols:coffee",
+		name: "Java 运行时",
+		desc: "扫描本机已装 Java，也可直接从 MSL JDK 镜像拉取对应版本，下载完成自动解压并绑定到实例。",
+	},
+	{
+		icon: "material-symbols:save",
+		name: "备份与恢复",
+		desc: "把世界和配置打包成 zip，支持列出、删除与恢复，大存档也能看到实时进度。",
+	},
+	{
+		icon: "material-symbols:settings-ethernet",
+		name: "内网穿透",
+		desc: "内置 Sakura、OpenFrp、ChmlFrp 三家客户端，粘贴令牌即可列出隧道、一键创建隧道并启停 frpc。",
+	},
+	{
+		icon: "material-symbols:folder-open",
+		name: "文件管理",
+		desc: "浏览实例目录，上传、下载、解压、压缩、删除，全部用同一套快捷键，不用记命令。",
+	},
+	{
+		icon: "material-symbols:package-2",
+		name: "单文件分发",
+		desc: "用 Node.js SEA 打包成一个 exe，不需要安装 Node.js，也不用开浏览器或常驻 Web 服务。",
+	},
+];
+
+const steps = [
+	{
+		name: "下载并解压",
+		desc: "从 Releases 下载 craftdock-windows-amd64.zip，解压到任意目录；只想用主程序的话，单独拿 craftdock.exe 也可以。",
+	},
+	{
+		name: "启动",
+		desc: "双击 start-craftdock.bat（会顺手把窗口调成 120 × 36），或者直接在 cmd / PowerShell 里运行 craftdock.exe。",
+	},
+	{
+		name: "建实例",
+		desc: "主菜单选「实例 → 新建」，挑一个服务端核心和版本，剩下的下载、解压、写配置、绑 Java 全部自动完成。",
+	},
+];
+
+const shortcuts = [
+	{ key: "↑ ↓", desc: "移动选择" },
+	{ key: "Enter", desc: "确认 / 进入" },
+	{ key: "Esc", desc: "返回上一层" },
+	{ key: "x", desc: "删除" },
+	{ key: "d", desc: "下载" },
+	{ key: "p", desc: "上传" },
+	{ key: "u", desc: "解压" },
+	{ key: "z", desc: "压缩" },
+	{ key: "/", desc: "搜索" },
+];
+---
+
+<MainGridLayout title={title} description={description}>
+  <IconifyLoader />
+  <div class="flex w-full rounded-[var(--radius-large)] overflow-hidden relative min-h-32">
+    <div class="card-base z-10 px-9 py-6 relative w-full">
+      <!-- 页面标题 -->
+      <div class="flex flex-col items-start justify-center mb-8">
+        <h1 class="text-4xl font-bold text-black/90 dark:text-white/90 mb-2 relative
+                  before:w-1 before:h-8 before:rounded-md before:bg-[var(--primary)]
+                  before:absolute before:top-1/2 before:-translate-y-1/2 before:-left-4">
+          CraftDock
+        </h1>
+        <p class="text-lg text-black/60 dark:text-white/60">
+          终端里的 Minecraft 服务端管理器，单文件 exe，专为没有图形界面的 Windows Server Core 准备。
+        </p>
+        <div class="flex flex-wrap gap-2 mt-4">
+          {techStack.map((tech) => (
+            <span class="px-2 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded">
+              {tech}
+            </span>
+          ))}
+          <span class="px-2 py-1 text-xs bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 rounded-full">
+            已完成
+          </span>
+        </div>
+        <div class="flex flex-wrap gap-2 mt-6">
+          <a href={downloadUrl} target="_blank" rel="noopener noreferrer" class="btn-gradient btn-gradient-primary btn-gradient-lg">
+            <iconify-icon icon="material-symbols:download" width="18" height="18"></iconify-icon>
+            下载最新版
+          </a>
+          <a href={repoUrl} target="_blank" rel="noopener noreferrer" class="btn-gradient btn-github btn-gradient-lg">
+            <iconify-icon icon="mdi:github" width="18" height="18"></iconify-icon>
+            GitHub 仓库
+          </a>
+          <a href={url("/projects/")} class="btn-gradient btn-gradient-primary btn-gradient-lg">
+            <iconify-icon icon="material-symbols:arrow-back" width="18" height="18"></iconify-icon>
+            返回项目展示
+          </a>
+        </div>
+      </div>
+
+      <!-- 项目简介 -->
+      <div class="mb-10">
+        <h2 class="text-2xl font-bold text-black/90 dark:text-white/90 mb-4 relative
+                  before:w-1 before:h-6 before:rounded-md before:bg-[var(--primary)]
+                  before:absolute before:top-1/2 before:-translate-y-1/2 before:-left-4">
+          这是什么
+        </h2>
+        <div class="text-black/70 dark:text-white/70 leading-relaxed space-y-3">
+          <p>
+            CraftDock 是把 MCSManager 那套「实例 + 面板」的体验重新做了一遍：去掉 Web 面板和守护进程，
+            只留一块终端界面。所有操作都在 cmd 或 PowerShell 里用方向键完成，不装浏览器、不开端口、
+            不需要额外的运行环境。
+          </p>
+          <p>
+            它面向的场景很具体：Windows Server Core 这类没有桌面的服务器，以及只想在一台机器上
+            快速开个服、装几个模组、顺手做个内网穿透的情况。程序本体、frpc 客户端、terminal 数据库
+            全部塞进同一个 exe，复制过去就能跑。
+          </p>
+        </div>
+      </div>
+
+      <!-- 功能 -->
+      <div class="mb-10">
+        <h2 class="text-2xl font-bold text-black/90 dark:text-white/90 mb-4 relative
+                  before:w-1 before:h-6 before:rounded-md before:bg-[var(--primary)]
+                  before:absolute before:top-1/2 before:-translate-y-1/2 before:-left-4">
+          主要功能
+        </h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {features.map((feature) => (
+            <div class="bg-white dark:bg-transparent rounded-lg border border-black/10 dark:border-white/10 p-5 hover:shadow-lg transition-shadow duration-300">
+              <div class="flex items-start gap-3">
+                <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 bg-black/5 dark:bg-white/10">
+                  <iconify-icon icon={feature.icon} width="22" height="22" style="color: var(--primary)"></iconify-icon>
+                </div>
+                <div class="flex-1 min-w-0">
+                  <h3 class="text-lg font-semibold text-black/90 dark:text-white/90 mb-1">
+                    {feature.name}
+                  </h3>
+                  <p class="text-sm text-black/60 dark:text-white/60 leading-relaxed">
+                    {feature.desc}
+                  </p>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <!-- 快速开始 -->
+      <div class="mb-10">
+        <h2 class="text-2xl font-bold text-black/90 dark:text-white/90 mb-4 relative
+                  before:w-1 before:h-6 before:rounded-md before:bg-[var(--primary)]
+                  before:absolute before:top-1/2 before:-translate-y-1/2 before:-left-4">
+          快速开始
+        </h2>
+        <ol class="space-y-3">
+          {steps.map((step, index) => (
+            <li class="bg-white dark:bg-transparent rounded-lg border border-black/10 dark:border-white/10 p-5">
+              <div class="flex items-start gap-4">
+                <span class="w-8 h-8 rounded-full shrink-0 flex items-center justify-center text-sm font-bold text-white bg-[var(--primary)]">
+                  {index + 1}
+                </span>
+                <div class="flex-1 min-w-0">
+                  <h3 class="text-base font-semibold text-black/90 dark:text-white/90 mb-1">
+                    {step.name}
+                  </h3>
+                  <p class="text-sm text-black/60 dark:text-white/60 leading-relaxed">
+                    {step.desc}
+                  </p>
+                </div>
+              </div>
+            </li>
+          ))}
+        </ol>
+      </div>
+
+      <!-- 快捷键 -->
+      <div class="mb-10">
+        <h2 class="text-2xl font-bold text-black/90 dark:text-white/90 mb-4 relative
+                  before:w-1 before:h-6 before:rounded-md before:bg-[var(--primary)]
+                  before:absolute before:top-1/2 before:-translate-y-1/2 before:-left-4">
+          快捷键
+        </h2>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          {shortcuts.map((item) => (
+            <div class="flex items-center gap-3 rounded-lg border border-black/10 dark:border-white/10 px-4 py-3">
+              <kbd class="px-2 py-1 text-xs font-mono rounded border border-black/15 dark:border-white/20 bg-black/5 dark:bg-white/10 text-black/80 dark:text-white/80 shrink-0">
+                {item.key}
+              </kbd>
+              <span class="text-sm text-black/70 dark:text-white/70">{item.desc}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <!-- 系统要求 -->
+      <div class="mb-10">
+        <h2 class="text-2xl font-bold text-black/90 dark:text-white/90 mb-4 relative
+                  before:w-1 before:h-6 before:rounded-md before:bg-[var(--primary)]
+                  before:absolute before:top-1/2 before:-translate-y-1/2 before:-left-4">
+          系统要求
+        </h2>
+        <ul class="list-disc pl-5 space-y-2 text-black/70 dark:text-white/70 leading-relaxed">
+          <li>Windows 10 / 11，或 Windows Server 2016 及以上（含 Server Core），x64</li>
+          <li>不需要安装 Node.js，也不需要 .NET、浏览器或额外的面板服务</li>
+          <li>首次创建实例时需联网下载服务端核心与 Java 运行时，其余功能可离线使用</li>
+          <li>内网穿透需要自备 Sakura / OpenFrp / ChmlFrp 的账号与令牌</li>
+        </ul>
+      </div>
+
+      <!-- 相关链接 -->
+      <div class="pt-8 border-t border-black/10 dark:border-white/10">
+        <h2 class="text-2xl font-bold text-black/90 dark:text-white/90 mb-4 relative
+                  before:w-1 before:h-6 before:rounded-md before:bg-[var(--primary)]
+                  before:absolute before:top-1/2 before:-translate-y-1/2 before:-left-4">
+          相关链接
+        </h2>
+        <div class="flex flex-wrap gap-2">
+          <a href={downloadUrl} target="_blank" rel="noopener noreferrer" class="btn-gradient btn-gradient-primary btn-gradient-md">
+            <iconify-icon icon="material-symbols:download" width="18" height="18"></iconify-icon>
+            下载地址
+          </a>
+          <a href={`${repoUrl}#readme`} target="_blank" rel="noopener noreferrer" class="btn-gradient btn-github btn-gradient-md">
+            <iconify-icon icon="mdi:github" width="18" height="18"></iconify-icon>
+            GitHub 页面
+          </a>
+          <a href={issuesUrl} target="_blank" rel="noopener noreferrer" class="btn-gradient btn-github btn-gradient-md">
+            <iconify-icon icon="material-symbols:bug-report" width="18" height="18"></iconify-icon>
+            问题反馈
+          </a>
+        </div>
+        <p class="mt-4 text-sm text-black/50 dark:text-white/50">
+          下载地址目前指向 GitHub Releases 的最新版本，如果国内访问困难，可以在仓库的 Releases 页面里找同版本的压缩包镜像。
+        </p>
+      </div>
+    </div>
+  </div>
+</MainGridLayout>

@@ -1,64 +1,100 @@
----
+﻿---
 import { getCollection } from "astro:content";
+import IconifyLoader from "@components/misc/IconifyLoader.astro";
 import MainGridLayout from "@layouts/MainGridLayout.astro";
+import { wikiProjects, wikiSlug } from "@/data/wiki-projects";
 import { url } from "@utils/url-utils";
 
-const GROUP_ORDER = ["入门", "使用", "进阶", "参考", "支持"] as const;
-
 const entries = await getCollection("wiki");
-const chapters = entries
+
+// 每个项目各有多少篇文档
+const counts = entries.reduce(
+	(acc, e) => {
+		acc[e.data.project] = (acc[e.data.project] ?? 0) + 1;
+		return acc;
+	},
+	{} as Record<string, number>,
+);
+
+// 支持类文档（赞助）不分项目，仍然留在文档首页
+const supportChapters = entries
+	.filter((e) => e.data.group === "支持")
 	.map((e) => ({
-		slug: e.slug,
+		slug: wikiSlug(e.slug, e.data.project),
+		project: e.data.project,
 		title: e.data.title,
-		group: e.data.group as string,
-		order: e.data.order,
 		description: e.data.description,
-	}))
-	.sort((a, b) => {
-		const d = GROUP_ORDER.indexOf(a.group as never) - GROUP_ORDER.indexOf(b.group as never);
-		return d !== 0 ? d : a.order - b.order;
-	});
-const groups = GROUP_ORDER.filter((g) => chapters.some((c) => c.group === g));
-
-const GROUP_LEAD: Record<string, string> = {
-	入门: "先把它装上、跑起来，再回头了解细节。",
-	使用: "日常真正会用到的东西：看环境、加程序、起不来时怎么查。",
-	进阶: "让这台机器更好用：终端美化、会话与登录、远程管理、离线与内网源。",
-	参考: "常见问题、做不到的事，以及想改代码时需要知道的结构与发版流程。",
-	支持: "免费开源，赞助完全自愿；不花钱的支持方式其实更有用。",
-};
+	}));
 ---
-<MainGridLayout title="文档" description="Server Core Manager 使用文档：安装、上手、功能说明、排障与开发者指南">
-    <div class="card-base px-6 py-6 md:px-9 md:py-8">
-        <h1 class="text-3xl font-bold text-black/90 dark:text-white/90">文档</h1>
-        <p class="mt-3 max-w-3xl text-50 leading-relaxed">
-            这里写的是这个工具<b class="text-90">实际怎么做、以及为什么这么做</b>。所有结论都来自真机实测，
-            做不到的事也写在「已知限制」里，不含糊。
-        </p>
+<MainGridLayout title="文档" description="Server Core Manager 与 CraftDock 的使用文档：安装、上手、功能说明与排障">
+  <IconifyLoader />
+  <div class="card-base px-6 py-6 md:px-9 md:py-8">
+    <h1 class="text-3xl font-bold text-black/90 dark:text-white/90">文档</h1>
+    <p class="mt-3 max-w-3xl text-50 leading-relaxed">
+      按项目分开写：每个项目各有一套文档，从安装到排障都在这一个地方。
+      所有结论都来自真机实测，做不到的事也会写进「已知限制」。
+    </p>
 
-        {groups.map((g) => (
-            <section class="mt-9">
-                <div class="flex items-baseline gap-3">
-                    <h2 class="text-xl font-bold text-black/90 dark:text-white/90">{g}</h2>
-                    <span class="text-sm text-50">{GROUP_LEAD[g]}</span>
-                </div>
-                <div class="mt-4 grid gap-3 sm:grid-cols-2">
-                    {chapters.filter((c) => c.group === g).map((c) => (
-                        <a href={url(`/wiki/${c.slug}/`)}
-                           class="group flex h-full flex-col rounded-[var(--radius-large)] border border-[var(--line-divider)] bg-[var(--card-bg)] px-4 py-3.5 transition hover:border-[var(--primary)]">
-                            <div class="font-medium transition group-hover:text-[var(--primary)]">{c.title}</div>
-                            {c.description && <div class="mt-1.5 text-sm leading-relaxed text-50">{c.description}</div>}
-                        </a>
-                    ))}
-                </div>
-            </section>
-        ))}
-
-        <div class="mt-10 rounded-[var(--radius-large)] border border-[var(--line-divider)] px-4 py-3.5 text-sm text-50">
-            文档有问题、或者某一步在你机器上复现不出来？欢迎到
-            <a href="https://github.com/OrangeArtc0915/Server-core-manager/issues" target="_blank" rel="noopener noreferrer"
-               class="link font-medium text-[var(--primary)]">Issues</a>
-            说，或者加 QQ 群 <b>1034243331</b>。
-        </div>
+    <!-- 项目卡片 -->
+    <div class="mt-7 grid gap-4 sm:grid-cols-2">
+      {wikiProjects.map((project) => (
+        <a
+          href={url(`/wiki/${project.key}/`)}
+          class="group relative flex h-full flex-col rounded-[var(--radius-large)] border border-[var(--line-divider)] bg-[var(--card-bg)] px-5 py-5 transition hover:border-[var(--primary)] hover:shadow-lg"
+        >
+          <div class="flex items-start gap-3">
+            <div class="w-11 h-11 rounded-lg flex items-center justify-center shrink-0 bg-black/5 dark:bg-white/10">
+              <iconify-icon icon={project.icon} width="24" height="24" style="color: var(--primary)"></iconify-icon>
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center justify-between gap-2">
+                <h2 class="text-lg font-semibold text-black/90 dark:text-white/90 transition group-hover:text-[var(--primary)]">
+                  {project.name}
+                </h2>
+                <span class="text-xs text-50 shrink-0">{counts[project.key] ?? 0} 篇</span>
+              </div>
+              <p class="mt-1.5 text-sm leading-relaxed text-50">{project.subtitle}</p>
+            </div>
+          </div>
+          <div class="mt-4 flex flex-wrap gap-2">
+            {project.tags.map((tag) => (
+              <span class="px-2 py-1 text-xs bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 rounded">
+                {tag}
+              </span>
+            ))}
+          </div>
+          <div class="mt-4 flex items-center gap-1 text-sm font-medium text-[var(--primary)]">
+            <span>查看文档</span>
+            <span class="transition group-hover:translate-x-0.5">→</span>
+          </div>
+        </a>
+      ))}
     </div>
+
+    <!-- 支持卡片：保持原样，不分项目 -->
+    {supportChapters.length > 0 && (
+      <section class="mt-9">
+        <div class="flex items-baseline gap-3">
+          <h2 class="text-xl font-bold text-black/90 dark:text-white/90">支持</h2>
+          <span class="text-sm text-50">免费开源，赞助完全自愿；不花钱的支持方式其实更有用。</span>
+        </div>
+        <div class="mt-4 grid gap-3 sm:grid-cols-2">
+          {supportChapters.map((c) => (
+            <a href={url(`/wiki/${c.project}/${c.slug}/`)}
+               class="group flex h-full flex-col rounded-[var(--radius-large)] border border-[var(--line-divider)] bg-[var(--card-bg)] px-4 py-3.5 transition hover:border-[var(--primary)]">
+              <div class="font-medium text-90 transition group-hover:text-[var(--primary)]">{c.title}</div>
+              {c.description && <div class="mt-1.5 text-sm leading-relaxed text-50">{c.description}</div>}
+            </a>
+          ))}
+        </div>
+      </section>
+    )}
+
+    <div class="mt-10 rounded-[var(--radius-large)] border border-[var(--line-divider)] px-4 py-3.5 text-sm text-50">
+      文档有问题、或者某一步在你机器上复现不出来？欢迎到
+      <a href="https://github.com/OrangeArtc0915/Server-core-manager/issues" target="_blank" rel="noopener noreferrer"
+         class="link font-medium text-[var(--primary)]">Issues</a>
+      说，或者加 QQ 群 <b>1034243331</b>。
+    </div>
+  </div>
 </MainGridLayout>

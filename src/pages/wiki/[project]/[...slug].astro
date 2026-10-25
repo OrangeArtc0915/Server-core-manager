@@ -1,12 +1,16 @@
----
+﻿---
 import { getCollection, render } from "astro:content";
 import Markdown from "@components/misc/Markdown.astro";
 import WikiLayout from "@layouts/WikiLayout.astro";
+import { wikiSlug } from "@/data/wiki-projects";
 
 export async function getStaticPaths() {
 	const entries = await getCollection("wiki");
 	return entries.map((entry) => ({
-		params: { slug: entry.slug },
+		params: {
+			project: entry.data.project,
+			slug: wikiSlug(entry.slug, entry.data.project),
+		},
 		props: { entry },
 	}));
 }
@@ -17,7 +21,8 @@ const { Content, headings } = await render(entry);
 <WikiLayout
     title={entry.data.title}
     description={entry.data.description}
-    slug={entry.slug}
+    project={entry.data.project}
+    slug={wikiSlug(entry.slug, entry.data.project)}
     headings={headings}
 >
     <Markdown class="mt-2">

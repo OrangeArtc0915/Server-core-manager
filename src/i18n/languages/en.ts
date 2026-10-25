@@ -99,6 +99,8 @@ export const en: Translation = {
 	[Key.projectsWeb]: "Web Applications",
 	[Key.projectsMobile]: "Mobile Applications",
 	[Key.projectsDesktop]: "Desktop Applications",
+	[Key.projectsScm]: "SCM Add-on Tools",
+	[Key.projectsDownload]: "Download",
 	[Key.projectsOther]: "Other",
 	[Key.projectTechStack]: "Tech Stack",
 	[Key.projectLiveDemo]: "Live Demo",

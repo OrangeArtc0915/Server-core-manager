@@ -5,7 +5,6 @@ import { UNCATEGORIZED } from "../constants/constants";
 import {
 	getAllTechStack,
 	getFeaturedProjects,
-	getProjectStats,
 	getProjectsByCategory,
 	projectsData,
 } from "../data/projects";
@@ -13,6 +12,7 @@ import I18nKey from "../i18n/i18nKey";
 import { i18n } from "../i18n/translation";
 import MainGridLayout from "../layouts/MainGridLayout.astro";
 import { loadIconify } from "../utils/icon-loader";
+import { url } from "../utils/url-utils";
 // 页面里有 <iconify-icon> 元素，必须自己带加载器
 // （原先靠 MainGridLayout 全局那份，现在全局那份已移除，只在真正需要的页面加载）
 import IconifyLoader from "../components/misc/IconifyLoader.astro";
@@ -30,13 +30,16 @@ loadIconify().catch((error) => {
 });
 
 // 获取项目统计信息
-const stats = getProjectStats();
 const featuredProjects = getFeaturedProjects();
 const allTechStack = getAllTechStack();
 
-// 获取所有分类
+// 获取所有分类（只统计会出现在分类列表里的项目）
 const categories = [
-	...new Set(projectsData.map((project) => project.category)),
+	...new Set(
+		projectsData
+			.filter((project) => project.showInCategory !== false)
+			.map((project) => project.category),
+	),
 ];
 
 // 按分类获取项目
@@ -54,12 +57,10 @@ const subtitle = i18n(I18nKey.projectsSubtitle);
 // 获取分类文本的国际化翻译
 const getCategoryText = (category: string) => {
 	switch (category) {
-		case "web":
-			return i18n(I18nKey.projectsWeb);
+		case "scm":
+			return i18n(I18nKey.projectsScm);
 		case "mobile":
 			return i18n(I18nKey.projectsMobile);
-		case "desktop":
-			return i18n(I18nKey.projectsDesktop);
 		case "other":
 			return i18n(I18nKey.projectsOther);
 		case UNCATEGORIZED:
@@ -67,6 +68,12 @@ const getCategoryText = (category: string) => {
 		default:
 			return category;
 	}
+};
+
+// 项目卡片的目标地址：站内介绍页优先，其次外部链接
+const projectHref = (project: (typeof projectsData)[number]) => {
+	if (project.internalPage) return url(project.internalPage);
+	return project.visitUrl ?? project.sourceCode ?? "";
 };
 ---
 
@@ -86,26 +93,6 @@ const getCategoryText = (category: string) => {
         </p>
       </div>
 
-      <!-- 统计信息 -->
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <div class="bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 rounded-lg p-4">
-          <div class="text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.total}</div>
-          <div class="text-sm text-blue-600/70 dark:text-blue-400/70">{i18n(I18nKey.projectsTotal)}</div>
-        </div>
-        <div class="bg-gradient-to-br from-green-50 to-green-100 dark:from-green-900/20 dark:to-green-800/20 rounded-lg p-4">
-          <div class="text-2xl font-bold text-green-600 dark:text-green-400">{stats.byStatus.completed}</div>
-          <div class="text-sm text-green-600/70 dark:text-green-400/70">{i18n(I18nKey.projectsCompleted)}</div>
-        </div>
-        <div class="bg-gradient-to-br from-yellow-50 to-yellow-100 dark:from-yellow-900/20 dark:to-yellow-800/20 rounded-lg p-4">
-          <div class="text-2xl font-bold text-yellow-600 dark:text-yellow-400">{stats.byStatus.inProgress}</div>
-          <div class="text-sm text-yellow-600/70 dark:text-yellow-400/70">{i18n(I18nKey.projectsInProgress)}</div>
-        </div>
-        <div class="bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-900/20 dark:to-purple-800/20 rounded-lg p-4">
-          <div class="text-2xl font-bold text-purple-600 dark:text-purple-400">{allTechStack.length}</div>
-          <div class="text-sm text-purple-600/70 dark:text-purple-400/70">{i18n(I18nKey.projectsTechStack)}</div>
-        </div>
-      </div>
-
       <!-- 特色项目 -->
       {featuredProjects.length > 0 && (
         <div class="mb-8">
@@ -116,7 +103,7 @@ const getCategoryText = (category: string) => {
           </h2>
           <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
             {featuredProjects.map((project) => (
-              <div class="bg-white dark:bg-transparent rounded-lg border border-black/10 dark:border-white/10 overflow-hidden hover:shadow-lg transition-shadow duration-300">
+              <div class="relative bg-white dark:bg-transparent rounded-lg border border-black/10 dark:border-white/10 overflow-hidden hover:shadow-lg transition-shadow duration-300">
                 {project.image && (
                   <div class="aspect-video overflow-hidden">
                     <img 
@@ -129,7 +116,12 @@ const getCategoryText = (category: string) => {
                 <div class="p-6">
                   <div class="flex items-start justify-between mb-3">
                     <h3 class="text-xl font-semibold text-black/90 dark:text-white/90">
-                      {project.title}
+                      <a
+                        href={projectHref(project)}
+                        class="hover:text-[var(--primary)] transition-colors after:absolute after:inset-0 after:content-['']"
+                      >
+                        {project.title}
+                      </a>
                     </h3>
                     <span class={`px-2 py-1 text-xs rounded-full ${
                       project.status === 'completed' 
@@ -158,16 +150,27 @@ const getCategoryText = (category: string) => {
                       </span>
                     )}
                   </div>
-                  <div class="flex flex-wrap gap-2 text-sm">
-                    {project.visitUrl && (
+                  <div class="relative z-10 flex flex-wrap gap-2 text-sm">
+                    {projectHref(project) && (
                       <a 
-                        href={project.visitUrl} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
+                        href={projectHref(project)} 
+                        target={project.internalPage ? undefined : "_blank"}
+                        rel={project.internalPage ? undefined : "noopener noreferrer"}
                         class="btn-gradient btn-gradient-primary btn-gradient-md"
                       >
                         <iconify-icon icon="material-symbols:open-in-new" width="18" height="18"></iconify-icon>
                         {i18n(I18nKey.projectsVisit)}
+                      </a>
+                    )}
+                    {project.downloadUrl && (
+                      <a 
+                        href={project.downloadUrl} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        class="btn-gradient btn-gradient-primary btn-gradient-md"
+                      >
+                        <iconify-icon icon="material-symbols:download" width="18" height="18"></iconify-icon>
+                        {i18n(I18nKey.projectsDownload)}
                       </a>
                     )}
                     {project.sourceCode && (
@@ -207,7 +210,7 @@ const getCategoryText = (category: string) => {
               </h2>
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {categoryProjects.map((project) => (
-                  <div class="bg-white dark:bg-transparent rounded-lg border border-black/10 dark:border-white/10 overflow-hidden hover:shadow-lg transition-shadow duration-300">
+                  <div class="relative bg-white dark:bg-transparent rounded-lg border border-black/10 dark:border-white/10 overflow-hidden hover:shadow-lg transition-shadow duration-300">
                     {project.image && (
                       <div class="aspect-video overflow-hidden">
                         <img 
@@ -220,7 +223,16 @@ const getCategoryText = (category: string) => {
                     <div class="p-4">
                       <div class="flex items-start justify-between mb-2">
                         <h3 class="text-lg font-semibold text-black/90 dark:text-white/90 line-clamp-1">
-                          {project.title}
+                          {projectHref(project) ? (
+                            <a
+                              href={projectHref(project)}
+                              class="hover:text-[var(--primary)] transition-colors after:absolute after:inset-0 after:content-['']"
+                            >
+                              {project.title}
+                            </a>
+                          ) : (
+                            project.title
+                          )}
                         </h3>
                         <span class={`px-2 py-1 text-xs rounded-full shrink-0 ml-2 ${
                           project.status === 'completed' 
@@ -249,16 +261,27 @@ const getCategoryText = (category: string) => {
                           </span>
                         )}
                       </div>
-                      <div class="flex flex-wrap gap-2 text-sm">
-                        {project.visitUrl && (
+                      <div class="relative z-10 flex flex-wrap gap-2 text-sm">
+                        {projectHref(project) && (
                           <a 
-                            href={project.visitUrl} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
+                            href={projectHref(project)} 
+                            target={project.internalPage ? undefined : "_blank"}
+                            rel={project.internalPage ? undefined : "noopener noreferrer"}
                             class="btn-gradient btn-gradient-primary btn-gradient-md"
                           >
                             <iconify-icon icon="material-symbols:open-in-new" width="18" height="18"></iconify-icon>
                             {i18n(I18nKey.projectsVisit)}
+                          </a>
+                        )}
+                        {project.downloadUrl && (
+                          <a 
+                            href={project.downloadUrl} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            class="btn-gradient btn-gradient-primary btn-gradient-md"
+                          >
+                            <iconify-icon icon="material-symbols:download" width="18" height="18"></iconify-icon>
+                            {i18n(I18nKey.projectsDownload)}
                           </a>
                         )}
                         {project.sourceCode && (
