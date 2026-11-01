@@ -29,12 +29,3 @@ if errorlevel 1 (
   pause
 )
 endlocal
-setlocal
-cd /d "%~dp0"
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0Start-GuiReadyApp.ps1"
-if errorlevel 1 (
-  echo.
-  echo [!] The launcher returned an error. Details: logs\launcher.log
-  pause
-)
-endlocal

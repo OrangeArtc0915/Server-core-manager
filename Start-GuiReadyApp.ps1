@@ -3,11 +3,17 @@
 
 param(
     [switch]$Console,
-    [switch]$KeepConsole
+    [switch]$KeepConsole,
+    # 强制走 PowerShell 版界面（原生界面出问题时的手动开关）
+    [switch]$PowerShellGui
 )
 
 $ErrorActionPreference = 'Continue'
 $here = $PSScriptRoot
+
+# 提权重启会拉起一个新进程；用环境变量把「这次要走 PowerShell 版界面」带过去
+# （Start-Process -Verb RunAs 不会带命令行参数，只有环境会被继承）。
+if ($PowerShellGui) { $env:SCM_FORCE_PS_GUI = '1' }
 
 # 提权放在这里做，不放在 .bat 里。理由（也是这次"双击打不开"的根因）：
 #   .bat 只能看到 Start-Process 的返回码，UAC 被取消时它不可靠，于是用户只会看到
@@ -38,6 +44,40 @@ function Start-GuiReadyConsoleMenu {
 if ($Console) {
     Start-GuiReadyConsoleMenu
     exit 0
+}
+
+# ---------------------------------------------------------------- 原生界面优先
+# ui\bin\ScmUi.exe 是 C# 版界面（启动 ~150ms，PowerShell 版约 2s）。
+# 原则：能开就开；开不起来就安静回退到 PowerShell 版 —— 两条路都在包里，用户不会打不开。
+# 手动跳过原生界面：-PowerShellGui 或环境变量 SCM_FORCE_PS_GUI=1
+$nativeExe = Join-Path $here 'ui\bin\ScmUi.exe'
+$forcePs = $PowerShellGui -or ($env:SCM_FORCE_PS_GUI -eq '1')
+if (-not $forcePs -and (Test-Path -LiteralPath $nativeExe)) {
+    $nativeCode = $null
+    $nativeError = ''
+    try {
+        $proc = Start-Process -FilePath $nativeExe -PassThru
+        $proc.WaitForExit()
+        $nativeCode = $proc.ExitCode
+    } catch {
+        $nativeError = $_.Exception.Message
+    }
+
+    if (-not $nativeError -and $nativeCode -eq 0) { exit 0 }
+
+    if ($nativeError) {
+        Write-Host ('原生界面启动失败：' + $nativeError) -ForegroundColor Yellow
+    } else {
+        Write-Host ('原生界面异常退出（退出码 {0}），改用 PowerShell 版界面。' -f $nativeCode) -ForegroundColor Yellow
+        $errFile = Join-Path $here 'logs\ui-error.log'
+        # 老版本把崩溃日志写在 ui\bin\error.txt，这里兼容一下
+        if (-not (Test-Path -LiteralPath $errFile)) { $errFile = Join-Path $here 'ui\bin\error.txt' }
+        if (Test-Path -LiteralPath $errFile) {
+            Write-Host ('  最近一次错误（完整内容在 ' + $errFile + '）：') -ForegroundColor Yellow
+            Get-Content -LiteralPath $errFile -Tail 12 | ForEach-Object { Write-Host ('  ' + $_) -ForegroundColor DarkGray }
+        }
+    }
+    Write-Host ''
 }
 
 $gui = Join-Path $here 'gui\GuiReady.GuiApp.ps1'

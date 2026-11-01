@@ -10,6 +10,8 @@ param(
     [switch]$UiAudit,
     # 把窗口渲染成 PNG 后退出（给"界面长什么样"留证据，对齐参考文档 §六 的 SL_CAPTURE）
     [string]$UiShot = '',
+    # 截图前等待页面数据加载的毫秒数（0 = 旧行为，不等；列表要出内容时传 6000 左右）
+    [int]$UiShotWait = 0,
     [string]$StartPage = 'env',
     [switch]$KeepConsole
 )
@@ -44,9 +46,16 @@ foreach ($f in @('GuiReady.Common.ps1', 'GuiReady.Detect.ps1', 'GuiReady.PeInspe
                  'GuiReady.AutoLogon.ps1', 'GuiReady.Command.ps1', 'GuiReady.PhaseB.ps1', 'GuiReady.Wac.ps1',
                  'GuiReady.Console.ps1', 'GuiReady.Package.ps1', 'GuiReady.Role.ps1',
                  'GuiReady.Monitor.ps1', 'GuiReady.Security.ps1', 'GuiReady.Dsh.ps1',
-                 'GuiReady.Integrity.ps1', 'GuiReady.Store.ps1')) {
+                 'GuiReady.Files.ps1', 'GuiReady.Logs.ps1',
+                 'GuiReady.Integrity.ps1', 'GuiReady.Store.ps1', 'GuiReady.Tasks.ps1',
+                 'GuiReady.Hosts.ps1', 'GuiReady.Remote.ps1', 'GuiReady.Runtime.ps1', 'GuiReady.Database.ps1')) {
     $p = Join-Path $libDir $f
-    if (Test-Path -LiteralPath $p) { . $p }
+    if (Test-Path -LiteralPath $p) {
+        $__t0 = Get-Date
+        . $p
+        $__ms = [int]((Get-Date) - $__t0).TotalMilliseconds
+        if ($__ms -ge 25) { Add-BootTrace ('  lib ' + $f + ' = ' + $__ms + ' ms') }
+    }
 }
 . (Join-Path $guiDir 'GuiReady.Actions.ps1')
 # 设计系统组件库（卡片 / 输入框 / 胶囊 / 进度条 / 圆角路径），规范见 想法.md 第四节。
@@ -73,6 +82,7 @@ $script:CurrentAction = $null
 $script:ParamControls = @{}
 $script:ActiveParamMap = $null   # 非空 = 当前动作来自「高级设置」对话框自己的控件表
 $script:Proc          = $null
+$script:CurrentJobId  = ''       # 当前动作对应的任务编号（停止时用它把任务标记为已取消）
 $script:OutFile       = ''
 $script:ErrFile       = ''
 $script:RunLogFile    = ''
@@ -86,6 +96,12 @@ $script:Programs      = @()
 $script:Cards         = @()
 $script:NavButtons    = @()
 $script:Pages         = @{}
+# 页面内容按需构建（page lazy build）：
+#   $script:PageBuilders['<key>'] = '<函数名>'  —— 该页控件还没建时调用它
+#   $script:PageBuilt['<key>']    = $true       —— 已建过，不再重复
+# 启动时只建 Panel（1 个控件）；控件、事件绑定、首次数据填充都在第一次显示该页时做。
+$script:PageBuilders  = @{}
+$script:PageBuilt     = @{}
 $script:CurrentPage   = ''
 
 $script:HidConsole = [System.IntPtr]::Zero
@@ -197,70 +213,79 @@ function Convert-HexToColor {
 }
 
 $Pal = @{
-    # ---- 强调色（Default 预设的深色推导）----
-    Accent1   = Convert-HexToColor '#24315B'   # Deep   按下 / 深描边
-    Accent2   = Convert-HexToColor '#4F6FD8'   # Bright 主色（主按钮底）
-    Accent3   = Convert-HexToColor '#5D7BDB'   # Hover  提亮（悬停）
-    Accent4   = Convert-HexToColor '#2C3648'   # Nav.ItemActive 选中项底
-    Accent5   = Convert-HexToColor '#242B37'   # Nav.ItemHover  悬停底
-    # 浅底两档：HMOL 的 Accent.Faint / Accent.Soft（深色推导值原样搬）
-    # 用在 PageHeader 的图标块、提示条底色这类"淡色面"上
-    AccentFaint = Convert-HexToColor '#364C89' # Faint = Mix(#3B55A0, #20262F, 0.20)
-    AccentSoft  = Convert-HexToColor '#304170' # Soft  = Mix(#3B55A0, #20262F, 0.42)
-    AccentBase  = Convert-HexToColor '#5E74B1' # Base  = Lighten(#3B55A0, 0.18)
+    # ---- 强调色（直接采用 XMP 的 Element Plus 深色主题：#409EFF）----
+    Accent1   = Convert-HexToColor '#2B5F9E'   # Deep   按下
+    Accent2   = Convert-HexToColor '#409EFF'   # Bright 主色
+    Accent3   = Convert-HexToColor '#66B1FF'   # Hover  提亮
+    Accent4   = Convert-HexToColor '#1B2A3D'   # 选中底（蓝 14% 叠在卡片上）
+    Accent5   = Convert-HexToColor '#1A1C24'   # 悬停底
+    AccentFaint = Convert-HexToColor '#1B2A44'
+    AccentSoft  = Convert-HexToColor '#1A2537'
+    AccentBase  = Convert-HexToColor '#79BBFF'
 
-    # ---- 语义状态（HMOL 深色：Warn #E0A94A / Danger #E8735F / Success #6FAF63）----
-    Ok        = Convert-HexToColor '#6FAF63'   # Status.Success
-    Warn      = Convert-HexToColor '#E0A94A'
-    Err       = Convert-HexToColor '#E8735F'
-    OkBg      = Convert-HexToColor '#314439'   # Mix(Success, #20262F, 0.78)
-    WarnBg    = Convert-HexToColor '#33291A'   # Status.WarnSoft（HMOL 原值）
-    ErrBg     = Convert-HexToColor '#33211E'   # Status.DangerSoft（HMOL 原值）
+    # ---- 语义状态（Element Plus：#67C23A / #E6A23C / #F56C6C）----
+    Ok        = Convert-HexToColor '#67C23A'
+    Warn      = Convert-HexToColor '#E6A23C'
+    Err       = Convert-HexToColor '#F56C6C'
+    OkBg      = Convert-HexToColor '#1C2B1B'
+    WarnBg    = Convert-HexToColor '#2E2618'
+    ErrBg     = Convert-HexToColor '#2E1D1D'
 
-    # ---- 承载面（HMOL 深色：Window #161A22 / Panel #1D222C / Card #212833 / Sunken #1A1F28）----
-    Bg        = Convert-HexToColor '#161A22'   # Surface.Window
-    Sunken    = Convert-HexToColor '#1A1F28'   # Surface.Sunken：输入框底、进度条轨道
-    Card      = Convert-HexToColor '#212833'   # Surface.Card
-    CardHover = Convert-HexToColor '#283040'   # Surface.CardHover
-    Border    = Convert-HexToColor '#2E3745'   # Border.Default
-    BorderStrong = Convert-HexToColor '#414C5E'  # Border.Strong
-    NavBg     = Convert-HexToColor '#1D222C'   # Surface.Panel（侧栏）
+    # ---- 承载面（XMP 实测：--el-bg-color rgba(20,22,30,.98) / overlay rgba(26,28,36,.93)）----
+    # 页面底用 Element Plus 的 bg-color-page（近黑），卡片抬一档，层次立刻出来。
+    Bg        = Convert-HexToColor '#0A0A0C'   # 页面底
+    BgTop     = Convert-HexToColor '#08080A'
+    GlowBlue  = Convert-HexToColor '#1B2735'   # 星空径向渐变的内圈（XMP 的 starry-sky）
+    GlowTeal  = Convert-HexToColor '#1B2735'
+    Sunken    = Convert-HexToColor '#111116'   # 输入框底
+    Card      = Convert-HexToColor '#14161E'   # 卡片 / 侧栏（bg-color）
+    CardHover = Convert-HexToColor '#1A1C24'   # 悬停 / 浮层（bg-color-overlay）
+    Border    = Convert-HexToColor '#2B2B2C'   # border-color-extra-light
+    BorderStrong = Convert-HexToColor '#363637'  # border-color-lighter
+    NavBg     = Convert-HexToColor '#14161E'
 
-    # ---- 文字（HMOL 深色）----
-    Text      = Convert-HexToColor '#E9ECF2'   # Text.Primary
-    SubText   = Convert-HexToColor '#AEB6C6'   # Text.Secondary
-    Hint      = Convert-HexToColor '#7C8496'   # Text.Tertiary
+    # ---- 文字（Element Plus 深色：primary #E5EAF3 / regular #CFD3DC / secondary #A3A6AD）----
+    # 之前的 Hint 太暗（#767E8C），小字在深底上糊成一片 —— 这是"看着不如人家清爽"的主因之一。
+    Text      = Convert-HexToColor '#E5EAF3'
+    SubText   = Convert-HexToColor '#CFD3DC'
+    Hint      = Convert-HexToColor '#A3A6AD'
 
-    # ---- 日志面板：比页面更深，读起来是一块独立的"终端区域" ----
-    LogBg     = Convert-HexToColor '#12161D'
-    LogBarBg  = Convert-HexToColor '#1D222C'
-    LogText   = Convert-HexToColor '#D5DCE8'
+    # ---- 日志面板 ----
+    LogBg     = Convert-HexToColor '#0A0A0C'
+    LogBarBg  = Convert-HexToColor '#14161E'
+    LogText   = Convert-HexToColor '#E5EAF3'
 
     # ---- 外壳与导航 ----
-    # 留白（Frame）刻意比卡片亮一档：GDI+ 没有模糊阴影，只能叠一层层半透明黑，
-    # 黑叠在黑上什么都看不见 —— 必须让留白比卡片亮，那一圈投影才读得出来。
-    Frame     = Convert-HexToColor '#1B212B'
-    ShellBg   = Convert-HexToColor '#161A22'   # 圆角卡片本体（= Bg）
-    ShellLine = Convert-HexToColor '#2E3745'   # 卡片 1px 描边（Border.Default）
-    TitleBg   = Convert-HexToColor '#1D222C'   # 标题栏（Surface.Panel）
-    TitleLine = Convert-HexToColor '#2E3745'   # 标题栏下沿 1px
+    Frame     = Convert-HexToColor '#101016'
+    ShellBg   = Convert-HexToColor '#0A0A0C'
+    ShellLine = Convert-HexToColor '#2B2B2C'
+    TitleBg   = Convert-HexToColor '#14161E'
+    TitleLine = Convert-HexToColor '#2B2B2C'
 
-    # 导航项三态 + 左侧选中竖条（HMOL Nav.* 深色值）
-    NavActiveBg = Convert-HexToColor '#2C3648'   # Nav.ItemActive
-    NavHoverBg  = Convert-HexToColor '#242B37'   # Nav.ItemHover
-    NavText     = Convert-HexToColor '#9AA4B6'   # Nav.Text
-    NavTextHi   = Convert-HexToColor '#8DA1E5'   # Nav.TextActive = Lighten(#4F6FD8, 0.35)
-    NavBar      = Convert-HexToColor '#4F6FD8'   # Nav.Indicator
+    # 导航项三态 + 左侧选中竖条
+    NavActiveBg = Convert-HexToColor '#1B2A3D'
+    NavHoverBg  = Convert-HexToColor '#1A1C24'
+    NavText     = Convert-HexToColor '#CFD3DC'
+    NavTextHi   = Convert-HexToColor '#FFFFFF'
+    NavBar      = Convert-HexToColor '#409EFF'
 
     # 兼容旧命名
-    Accent    = Convert-HexToColor '#4F6FD8'
-    AccentHi  = Convert-HexToColor '#5D7BDB'
+    Accent    = Convert-HexToColor '#409EFF'
+    AccentHi  = Convert-HexToColor '#66B1FF'
 }
 
 function New-Font {
+    # 字体对象按 (字族, 字号, 字形) 缓存复用：16 个页面有几百个标签，逐个 New-Object Font
+    # 既慢又占 GDI 句柄（启动实测这一段是控件创建里最稳定的开销之一）。
+    # Font 实例是不可变的，多个控件共用同一个实例完全安全（控件 Dispose 不会释放它）。
     param([string]$Family = 'Microsoft YaHei UI', [double]$Size = 9.5, [string]$Style = 'Regular')
+    if (-not $script:FontCache) { $script:FontCache = @{} }
+    $key = $Family + '|' + $Size.ToString('0.##') + '|' + $Style
+    if ($script:FontCache.ContainsKey($key)) { return $script:FontCache[$key] }
     $st = [System.Drawing.FontStyle]::$Style
-    return New-Object System.Drawing.Font -ArgumentList $Family, $Size, $st
+    $f = New-Object System.Drawing.Font -ArgumentList $Family, $Size, $st
+    $script:FontCache[$key] = $f
+    return $f
 }
 
 # ---- 圆角 Region：可延迟 ----
@@ -535,28 +560,61 @@ function New-Label {
 function New-StatusCard {
     # 状态卡片：● + 标题 + 大值 + 副行。环境页（7 张）与仪表盘（4 张）共用。
     # 必须在页面创建之前定义 —— 仪表盘页在加载时就要用它建卡片。
-    param([string]$Title, [int]$Width = 208, [System.Windows.Forms.Control]$Parent = $null)
-    # 卡片统一走设计系统的 New-Card（Token 描边 + 圆角 10），不再用系统的 FixedSingle 灰边
-    $card = New-Card -Width $Width -Height 68 -Radius 10
-    $card.Margin = New-Object System.Windows.Forms.Padding(0, 0, 10, 10)
+    # -Big：仪表盘那种"大数字"卡片（对齐 XMP 的 40px 指标数字观感，96 高）。
+    param(
+        [string]$Title,
+        [int]$Width = 208,
+        [switch]$Big,
+        [string]$AccentHex = '',
+        [System.Windows.Forms.Control]$Parent = $null
+    )
+    $ch = $(if ($Big) { 104 } else { 76 })
+    $card = New-Card -Width $Width -Height $ch -Radius 8 -AccentHex $AccentHex
+    $card.Margin = New-Object System.Windows.Forms.Padding(0, 0, 12, 12)
+    $accent = $Pal.Accent2
+    if ($AccentHex) { try { $accent = Convert-HexToColor $AccentHex } catch { } }
 
-    $dot = New-Label -Text '●' -Size 11 -Color Hint
-    $dot.Location = New-Object System.Drawing.Point(10, 8)
-    $card.Controls.Add($dot)
+    if ($Big) {
+        # 标题在上、数字居中、说明在下：XMP 指标卡的"标签 → 大数 → 注释"三段式
+        $dot = New-Label -Text '●' -Size 11 -Color Text
+        $dot.ForeColor = $accent
+        $dot.Location = New-Object System.Drawing.Point(14, 10)
+        $card.Controls.Add($dot)
 
-    $lt = New-Label -Text $Title -Size 8.5 -Color Hint
-    $lt.Location = New-Object System.Drawing.Point(30, 10)
-    $card.Controls.Add($lt)
+        $lt = New-Label -Text $Title -Size 9 -Color Hint
+        $lt.Location = New-Object System.Drawing.Point(34, 12)
+        $card.Controls.Add($lt)
 
-    $lv = New-Label -Text '—' -Size 10 -Style Bold -Color Text -Width ($Width - 42)
-    $lv.Location = New-Object System.Drawing.Point(30, 28)
-    $lv.Height   = 22
-    $card.Controls.Add($lv)
+        $lv = New-Label -Text '—' -Size 17 -Style Bold -Color Text -Width ($Width - 28)
+        $lv.Font = New-Object System.Drawing.Font('Consolas', 17, [System.Drawing.FontStyle]::Bold)
+        $lv.Location = New-Object System.Drawing.Point(14, 33)
+        $lv.Height   = 40
+        $card.Controls.Add($lv)
 
-    $ls = New-Label -Text '' -Size 8.5 -Color SubText -Width ($Width - 42)
-    $ls.Location = New-Object System.Drawing.Point(30, 48)
-    $ls.Height   = 16
-    $card.Controls.Add($ls)
+        $ls = New-Label -Text '' -Size 8.5 -Color SubText -Width ($Width - 28)
+        $ls.Location = New-Object System.Drawing.Point(14, 78)
+        $ls.Height   = 16
+        $card.Controls.Add($ls)
+    } else {
+        $dot = New-Label -Text '●' -Size 11 -Color Text
+        $dot.ForeColor = $accent
+        $dot.Location = New-Object System.Drawing.Point(12, 10)
+        $card.Controls.Add($dot)
+
+        $lt = New-Label -Text $Title -Size 8.5 -Color Hint
+        $lt.Location = New-Object System.Drawing.Point(32, 12)
+        $card.Controls.Add($lt)
+
+        $lv = New-Label -Text '—' -Size 11 -Style Bold -Color Text -Width ($Width - 46)
+        $lv.Location = New-Object System.Drawing.Point(32, 32)
+        $lv.Height   = 24
+        $card.Controls.Add($lv)
+
+        $ls = New-Label -Text '' -Size 8.5 -Color SubText -Width ($Width - 46)
+        $ls.Location = New-Object System.Drawing.Point(32, 54)
+        $ls.Height   = 16
+        $card.Controls.Add($ls)
+    }
 
     # 默认挂在环境页的卡片区；仪表盘等其它页面用 -Parent 指定自己的容器
     $target = $pnlCards
@@ -565,6 +623,7 @@ function New-StatusCard {
     # 把内部文字与卡片一起登记进 Tag：窗口变窄时要连内部文字一起改宽，否则文字会被裁成半截
     #（真机 1024x768 实测：仪表盘 4 张指标卡挤成 3+1 两行，容器高度却是写死的 1 行，第 4 张整个看不见）
     $card.Tag.CardParts = @{ Title = $lt; Value = $lv; Sub = $ls; Dot = $dot }
+    $card.Tag.PadX = $(if ($Big) { 28 } else { 46 })
     return [pscustomobject]@{ Panel = $card; Title = $lt; Value = $lv; Sub = $ls; Dot = $dot }
 }
 
@@ -575,7 +634,7 @@ function Set-CardRowLayout {
     param(
         [System.Windows.Forms.FlowLayoutPanel]$Panel,
         [int]$Width,
-        [int]$Gap = 10,
+        [int]$Gap = 12,
         [int]$MinCardW = 150
     )
     try {
@@ -593,12 +652,14 @@ function Set-CardRowLayout {
 
         foreach ($cd in $cards) {
             $cd.Width = $cardW
+            $padX = 42
+            if ($cd.Tag.ContainsKey('PadX')) { $padX = [int]$cd.Tag.PadX }
             $parts = $cd.Tag.CardParts
             if ($parts) {
-                if ($parts.Value) { $parts.Value.Width = $cardW - 42 }
-                if ($parts.Sub)   { $parts.Sub.Width   = $cardW - 42 }
+                if ($parts.Value) { $parts.Value.Width = $cardW - $padX }
+                if ($parts.Sub)   { $parts.Sub.Width   = $cardW - $padX }
             }
-            Set-Rounded -Control $cd -Radius 10
+            Set-Rounded -Control $cd -Radius 8
         }
     } catch { }
 }
@@ -785,12 +846,12 @@ $pnlNav.BackColor = $Pal.NavBg
 $pnlShell.Controls.Add($pnlNav)
 
 # 导航项：行高 42、上下 Margin 2 → 步进 46（HMOL NavItem 模板高 42 / Margin=8,2）
-$script:NavItemH = 42
-$script:NavStep  = 46
+$script:NavItemH = 40
+$script:NavStep  = 44
 $pnlNavTop           = New-Object System.Windows.Forms.Panel
 $pnlNavTop.Dock      = 'Top'
-# 11 项 × 46 + 首项上边距 8 = 514，面板留 520
-$pnlNavTop.Height    = 520
+# 9 个模块 × 44 + 首项上边距 8 = 404，面板留 412
+$pnlNavTop.Height    = 412
 $pnlNavTop.BackColor = $Pal.NavBg
 $pnlNav.Controls.Add($pnlNavTop)
 
@@ -813,9 +874,9 @@ function New-NavItem {
     $p.BackColor = $Pal.NavBg
     $p.Cursor    = 'Hand'
     # Radius.Item = 10（HMOL）
-    $p.Tag       = @{ Page = $PageKey; Module = $ModuleKey; Act = $OnClick; Icon = $Icon; Text = $Text; Active = $false; Hover = $false; Radius = 10 }
+    $p.Tag       = @{ Page = $PageKey; Module = $ModuleKey; Act = $OnClick; Icon = $Icon; Text = $Text; Active = $false; Hover = $false; Radius = 8 }
     Enable-UiDoubleBuffer -Control $p
-    Set-Rounded -Control $p -Radius 10
+    Set-Rounded -Control $p -Radius 8
 
     $p.Add_Paint({
         param($s, $e)
@@ -844,8 +905,8 @@ function New-NavItem {
             }
 
             $fore = $(if ($t.Active) { $Pal.NavTextHi } else { $Pal.NavText })
-            # 图标 18、左边距 12（HMOL IconSize=18 / Margin=12,0,0,0；前面是 3px 指示条列）
-            $isz  = 18
+            # 图标 17、左边距 12（前面是 3px 指示条列）
+            $isz  = 17
             Draw-UiIcon -Graphics $g -Name ([string]$t.Icon) -X 15 -Y ([int](($s.Height - $isz) / 2)) -Size $isz -Color $fore
 
             # ⚠ 这里必须先把每个实参算进变量，再调用 DrawText。
@@ -882,7 +943,7 @@ function New-NavItem {
 function Add-PageAdvancedButton {
     # 在 PageHeader 右侧挂一个「高级设置」入口。
     # 点击后由 Show-ActionsDialog 按页面传入的分组过滤动作 —— 这样「更多」页就不再是
-    # 一个装着全部 45 个动作的大杂烩，各功能回到各自页面（用户第 37 条的要求）。
+    # 一个装着全部动作的大杂烩，各功能回到各自页面（用户第 37 条的要求）。
     param(
         [System.Windows.Forms.Control]$Header,
         [string]$Title = '高级设置',
@@ -903,11 +964,11 @@ function Add-PageAdvancedButton {
 }
 
 # HMOL NavItem 文字 13.5 DIP ≈ 10.1pt
-$script:NavFont     = New-Font -Size 10.1
-$script:NavFontBold = New-Font -Size 10.1 -Style Bold
+$script:NavFont     = New-Font -Size 10
+$script:NavFontBold = New-Font -Size 10 -Style Bold
 
-# ---- 5 大模块（路线图第二节：仪表盘 / 应用商店 / 环境管理 / 程序管理 / 设置）----
-# 11 个页面按模块归组；模块有多个子页时，点进去侧栏「顶替」成分类列表
+# ---- 7 大模块（路线图第二节 + 运维面板第一批）----
+# 16 个页面按模块归组；模块有多个子页时，点进去侧栏「顶替」成分类列表
 #（HMOL 的 PanNav ↔ PanSetupNav 那套：只翻 Visibility，不新建第二个侧栏）。
 $script:GuiPageMeta = @{
     'monitor'  = @{ Text = '总览';       Icon = 'monitor'  }
@@ -919,6 +980,10 @@ $script:GuiPageMeta = @{
     'tool'     = @{ Text = '系统工具';   Icon = 'tool'     }
     'beauty'   = @{ Text = '终端美化';   Icon = 'beauty'   }
     'dsh'      = @{ Text = 'AI 辅助';    Icon = 'dsh'      }
+    'logs'     = @{ Text = '日志中心';   Icon = 'logs'     }
+    'tasks'    = @{ Text = '任务中心';   Icon = 'tasks'    }
+    'audit'    = @{ Text = '结构审计';   Icon = 'audit'    }
+    'hosts'    = @{ Text = '远程主机';   Icon = 'hosts'    }
     'more'     = @{ Text = '全部功能';   Icon = 'more'     }
     'about'    = @{ Text = '关于';       Icon = 'about'    }
 }
@@ -928,6 +993,11 @@ $script:GuiModules = @(
     @{ Key = 'env';   Text = '环境管理'; Icon = 'env';     Pages = @('env', 'role', 'security') }
     # 程序管理：程序档案 / 系统工具 / 终端美化 / AI 辅助（美化与 AI 从「设置」挪过来 —— 它们都是"装东西"）
     @{ Key = 'prog';  Text = '程序管理'; Icon = 'app';     Pages = @('app', 'tool', 'beauty', 'dsh') }
+    # 运维面板第一批：日志 + 任务 + 审计（文件管理已移除：装过 FOD 的机器自带资源管理器）
+    @{ Key = 'ops';   Text = '运行日志'; Icon = 'logs';    Pages = @('logs') }
+    @{ Key = 'run';   Text = '任务与审计'; Icon = 'tasks'; Pages = @('tasks', 'audit') }
+    # 运维面板第二批：WinRM 多主机（后续批次的远程终端也挂在这一组）
+    @{ Key = 'remote'; Text = '远程运维'; Icon = 'hosts'; Pages = @('hosts') }
     @{ Key = 'set';   Text = '设置';     Icon = 'more';    Pages = @('more', 'about') }
 )
 $script:GuiModuleOfPage   = @{}
@@ -1027,7 +1097,7 @@ $script:CatsModule = ''      # 分类侧栏当前正在显示哪个模块（用�
 # 侧栏顶部的分类面板：与模块列表同处一格，靠显隐互斥（HMOL 的做法）
 $pnlNavCats           = New-Object System.Windows.Forms.Panel
 $pnlNavCats.Dock      = 'Top'
-$pnlNavCats.Height    = 246
+$pnlNavCats.Height    = 236
 $pnlNavCats.BackColor = $Pal.NavBg
 $pnlNavCats.Visible   = $false
 $pnlNav.Controls.Add($pnlNavCats)
@@ -1188,7 +1258,12 @@ $script:BtnLogToggle.Add_Click({ Set-LogCollapsed -On (-not $script:LogCollapsed
 
 $btnStopTop        = New-LogBtn -Text '停止当前动作' -OnClick {
     if ($script:Proc) {
+        $jid = [string]$script:CurrentJobId
         try { Stop-Process -Id $script:Proc.Id -Force -ErrorAction SilentlyContinue } catch { }
+        # 进程被杀后 runner 没有机会写结果，这里把任务记录补成“已取消”，任务页才不会一直显示运行中。
+        if ($jid) {
+            try { [void](Complete-GuiReadyTask -Id $jid -Status 'Canceled' -ExitCode (-1) -Message '用户停止当前动作' -Quiet) } catch { }
+        }
         Append-GuiLog -Line '[WARN] 已按你的要求停止动作。'
         Finish-GuiAction -ExitCode -1
     }
@@ -1287,7 +1362,8 @@ $pageApp.BackColor = $Pal.Bg
 $script:Pages['app'] = $pageApp
 $pnlContent.Controls.Add($pageApp)
 
-# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+# 软件页控件按需构建（首次显示本页时执行）：页头、程序列表、按钮区与提示条
+function Build-AppPage {
 $hdrApp = New-PageHeader -Title '软件管理' -Subtitle '把你需要的程序加进来，双击即可启动。加程序时会自动带入实测推荐参数（例如 Electron 类程序会带上禁用 GPU 的参数）。' -Icon 'app' -Width 900
 $pageApp.Controls.Add($hdrApp)
 $lblAppHead = $hdrApp.Tag.Title
@@ -1312,6 +1388,7 @@ $lstApps.ForeColor = $Pal.Text
 [void]$lstApps.Columns.Add('兼容结论', 120)
 [void]$lstApps.Columns.Add('命令', 90)
 $pageApp.Controls.Add($lstApps)
+Enable-GuiListViewSkin -List $lstApps
 
 $pnlAppActions           = New-Object System.Windows.Forms.FlowLayoutPanel
 $pnlAppActions.Location  = New-Object System.Drawing.Point(0, 300)
@@ -1356,6 +1433,26 @@ $pnlAppActions.Controls.Add($btnAppDel)
 $hintApp = New-HintBar -Text '说明：“后台常驻”会用 SYSTEM 计划任务启动，进程不会随远程会话断开被杀掉——守护类程序用这个。' -Kind Blue -Width 900
 $hintApp.Location = New-Object System.Drawing.Point(0, 404)
 $pageApp.Controls.Add($hintApp)
+
+# 写回脚本作用域：布局函数、Refresh-ProgramList、Get-SelectedProgram 以及本页事件绑定都要用
+$script:hdrApp         = $hdrApp
+$script:lstApps        = $lstApps
+$script:pnlAppActions  = $pnlAppActions
+$script:hintApp        = $hintApp
+$script:btnAppAdd      = $btnAppAdd
+$script:btnAppRun      = $btnAppRun
+$script:btnAppArgs     = $btnAppArgs
+$script:btnAppCmd      = $btnAppCmd
+$script:btnAppPersist  = $btnAppPersist
+$script:btnAppDiag     = $btnAppDiag
+$script:btnAppCatalog  = $btnAppCatalog
+$script:btnAppDel      = $btnAppDel
+Bind-AppEvents
+# 首次数据填充：启动时不再建这页的列表，切过来时读一次程序清单
+Load-Programs
+Refresh-ProgramList
+}
+$script:PageBuilders['app'] = 'Build-AppPage'
 
 # ============================ 系统工具页 ============================
 # Server Core 默认没有这些图形工具，装了官方 App Compatibility FOD 才会出现。
@@ -1689,7 +1786,8 @@ $pageMore.BackColor = $Pal.Bg
 $script:Pages['more'] = $pageMore
 $pnlContent.Controls.Add($pageMore)
 
-# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+# 设置页控件按需构建（首次显示本页时执行）：页头、左侧功能树、右侧参数面板与运行按钮
+function Build-MorePage {
 $hdrMore = New-PageHeader -Title '设置' -Subtitle '开机与登录、持久化启动、登录 Shell。其它高级功能已按功能域放到各自页面的「高级设置」里。' -Icon 'more' -Width 900
 $pageMore.Controls.Add($hdrMore)
 $lblMoreHead = $hdrMore.Tag.Title
@@ -1745,6 +1843,19 @@ $btnDry.Location = New-Object System.Drawing.Point(132, 216)
 $btnDry.Anchor   = 'Bottom,Left'
 $pnlMoreRight.Controls.Add($btnDry)
 
+# 写回脚本作用域：布局函数、Select-GuiAction、Start-GuiAction 都要用这些控件
+$script:hdrMore     = $hdrMore
+$script:tree        = $tree
+$script:pnlMoreRight = $pnlMoreRight
+$script:lblActTitle = $lblActTitle
+$script:lblActDesc  = $lblActDesc
+$script:pnlParams   = $pnlParams
+$script:btnRun      = $btnRun
+$script:btnDry      = $btnDry
+Bind-MoreEvents
+}
+$script:PageBuilders['more'] = 'Build-MorePage'
+
 # ============================ 应用商店页 ============================
 # 「应用商店 2.0」的第一步：Chocolatey 主线（搜索 / 安装 / 卸载），Scoop 只做安装与卸载，
 # npm / pip 先只做检测。能力在 lib\GuiReady.Package.ps1，规范见 想法.md 第三节、第四节。
@@ -1758,6 +1869,8 @@ $pageStore.BackColor    = $Pal.Bg
 $script:Pages['store']  = $pageStore
 $pnlContent.Controls.Add($pageStore)
 
+# 商店页控件按需构建（首次显示本页时执行）：页头、源状态行、搜索行、筛选行、结果区与轮询定时器
+function Build-StorePage {
 # HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
 $hdrStore = New-PageHeader -Title '应用商店' -Subtitle '从包管理器装工具。主线是 Chocolatey（搜索 / 安装 / 卸载）；Scoop 可安装与卸载（搜索未接入）；npm / pip 先只做检测。' -Icon 'store' -Width 900
 $pageStore.Controls.Add($hdrStore)
@@ -1827,13 +1940,11 @@ $pnlStoreFilter.Controls.Add($lblStoreFilter)
 $btnStoreQueue          = New-FlatButton -Text '安装选中' -Kind Primary -Width 104 -Height 30
 $btnStoreQueue.Location = New-Object System.Drawing.Point(460, 1)
 $btnStoreQueue.Enabled  = $false
-$btnStoreQueue.Add_Click({ Start-StoreQueue })
 $pnlStoreFilter.Controls.Add($btnStoreQueue)
 
 $btnStoreRetry          = New-FlatButton -Text '重试失败' -Width 96 -Height 30
 $btnStoreRetry.Location = New-Object System.Drawing.Point(572, 1)
 $btnStoreRetry.Visible  = $false
-$btnStoreRetry.Add_Click({ Retry-StoreQueue })
 $pnlStoreFilter.Controls.Add($btnStoreRetry)
 
 $hintStore = New-HintBar -Text '目标场景是刚装好的 Server Core（机上什么都没有），所以本机没有包管理器时**工具会自动先装 Chocolatey**（点搜索就会触发，装完接着搜）。搜索源选「全部源」会同时查 Chocolatey 与 npm（npm 走 registry、约 10 秒；Scoop 搜索与 pip search 未接入）。批量队列只收 Chocolatey 条目；npm 结果请逐条安装。所有安装动作都会写进下方日志；不确定就先按「仅预览」看要执行什么命令。' -Kind 'Blue' -Width 900
@@ -1887,6 +1998,27 @@ $script:StoreSourceIndex = @{ choco = 1; scoop = 2; npm = 3 }
 $script:StoreTimer = New-Object System.Windows.Forms.Timer
 $script:StoreTimer.Interval = 250
 $script:StoreTimer.Add_Tick({ Update-StoreTick })
+
+# 写回脚本作用域：布局函数、Show-StoreResult/Update-StoreSourceRow 以及本页事件绑定都要用这些控件
+$script:hdrStore        = $hdrStore
+$script:lblStoreDesc    = $lblStoreDesc
+$script:pnlStoreSrc     = $pnlStoreSrc
+$script:lblStoreSrcHint = $lblStoreSrcHint
+$script:pnlStoreSearch  = $pnlStoreSearch
+$script:txtStoreQuery   = $txtStoreQuery
+$script:cmbStoreSrc     = $cmbStoreSrc
+$script:btnStoreSearch  = $btnStoreSearch
+$script:pillStoreState  = $pillStoreState
+$script:pnlStoreFilter  = $pnlStoreFilter
+$script:btnStoreQueue   = $btnStoreQueue
+$script:btnStoreRetry   = $btnStoreRetry
+$script:hintStore       = $hintStore
+$script:barStore        = $barStore
+$script:pnlStoreResults = $pnlStoreResults
+$script:lblStoreEmpty   = $lblStoreEmpty
+Bind-StoreEvents
+}
+$script:PageBuilders['store'] = 'Build-StorePage'
 
 function Get-StoreSourceName {
     param([string]$Id)
@@ -2674,6 +2806,10 @@ function Confirm-GuiPackageManager {
     }
 }
 
+function Bind-StoreEvents {
+    # 商店页的事件绑定；页面首次显示时由 Build-StorePage 调用
+$btnStoreQueue.Add_Click({ Start-StoreQueue })
+$btnStoreRetry.Add_Click({ Retry-StoreQueue })
 $btnStoreSearch.Add_Click({
     $q = [string]$txtStoreQuery.Box.Text
     if ([string]::IsNullOrWhiteSpace($q)) { Set-Pill -Pill $pillStoreState -Text '先输入关键词' -Kind 'Warn'; return }
@@ -2711,6 +2847,7 @@ $txtStoreQuery.Box.Add_KeyDown({
     param($s, $e)
     if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Enter) { $btnStoreSearch.PerformClick() }
 })
+}
 
 # ============================ 角色与功能页 ============================
 # 「角色与功能管理」（想法.md 第三节 P0）：图形化封装 Install-WindowsFeature / Uninstall-WindowsFeature。
@@ -2727,7 +2864,8 @@ $pageRole.BackColor    = $Pal.Bg
 $script:Pages['role']  = $pageRole
 $pnlContent.Controls.Add($pageRole)
 
-# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+# 角色页控件按需构建（首次显示本页时执行）：页头、状态行、筛选行、结果区与轮询定时器
+function Build-RolePage {
 $hdrRole = New-PageHeader -Title '角色与功能' -Subtitle '图形化装 Windows Server 角色与功能（等价于 Install-WindowsFeature）。安装需要管理员；装完是否需要重启会写进下方日志。' -Icon 'role' -Width 900
 $pageRole.Controls.Add($hdrRole)
 $lblRoleHead = $hdrRole.Tag.Title
@@ -2779,13 +2917,11 @@ $pnlRoleFilter.Controls.Add($pillRoleCount)
 $btnRoleBatchIns          = New-FlatButton -Text '安装选中' -Kind Primary -Width 118 -Height 30
 $btnRoleBatchIns.Location = New-Object System.Drawing.Point(4, 44)
 $btnRoleBatchIns.Enabled  = $false
-$btnRoleBatchIns.Add_Click({ Start-RoleQueue -Mode 'install' })
 $pnlRoleFilter.Controls.Add($btnRoleBatchIns)
 
 $btnRoleBatchRem          = New-FlatButton -Text '移除选中' -Width 118 -Height 30
 $btnRoleBatchRem.Location = New-Object System.Drawing.Point(130, 44)
 $btnRoleBatchRem.Enabled  = $false
-$btnRoleBatchRem.Add_Click({ Start-RoleQueue -Mode 'remove' })
 $pnlRoleFilter.Controls.Add($btnRoleBatchRem)
 
 $lblRoleBatchHint          = New-Label -Text '勾选后可批量操作；安装会先按 DependsOn 自动补齐依赖。' -Size 8.5 -Color Hint
@@ -2832,7 +2968,26 @@ $script:RoleRowLimit = 120     # 一屏渲染上限，超出的让用户用筛�
 
 $script:RoleTimer = New-Object System.Windows.Forms.Timer
 $script:RoleTimer.Interval = 300
-$script:RoleTimer.Add_Tick({ Update-RoleTick })
+
+# 写回脚本作用域：布局函数、Show-RolePage/Show-RoleResult 以及本页事件绑定都要用这些控件
+$script:hdrRole           = $hdrRole
+$script:lblRoleDesc       = $lblRoleDesc
+$script:pnlRoleStatus     = $pnlRoleStatus
+$script:lblRoleStatusHint = $lblRoleStatusHint
+$script:pnlRoleFilter     = $pnlRoleFilter
+$script:txtRoleQuery      = $txtRoleQuery
+$script:cmbRoleFilter     = $cmbRoleFilter
+$script:btnRoleFilter     = $btnRoleFilter
+$script:pillRoleCount     = $pillRoleCount
+$script:btnRoleBatchIns   = $btnRoleBatchIns
+$script:btnRoleBatchRem   = $btnRoleBatchRem
+$script:hintRole          = $hintRole
+$script:barRole           = $barRole
+$script:pnlRoleResults    = $pnlRoleResults
+$script:lblRoleEmpty      = $lblRoleEmpty
+Bind-RoleEvents
+}
+$script:PageBuilders['role'] = 'Build-RolePage'
 
 function Set-RoleBusy {
     param([string]$Text, [string]$Kind = 'Info')
@@ -3281,12 +3436,19 @@ function Show-RolePage {
     }
 }
 
+function Bind-RoleEvents {
+    # 角色页的事件绑定；页面首次显示时由 Build-RolePage 调用
+    $btnRoleBatchIns.Add_Click({ Start-RoleQueue -Mode 'install' })
+    $btnRoleBatchRem.Add_Click({ Start-RoleQueue -Mode 'remove' })
+    $script:RoleTimer.Add_Tick({ Update-RoleTick })
+
 $btnRoleFilter.Add_Click({ Show-RoleResult })
 $txtRoleQuery.Box.Add_KeyDown({
     param($s, $e)
     if ($e.KeyCode -eq [System.Windows.Forms.Keys]::Enter) { Show-RoleResult }
 })
 $cmbRoleFilter.Add_SelectedIndexChanged({ Show-RoleResult })
+}
 
 # ============================ 仪表盘页 ============================
 # 「系统监控与诊断」（想法.md 第三节 P1）。数据全在子进程里采集：
@@ -3298,6 +3460,8 @@ $pageMon.BackColor      = $Pal.Bg
 $script:Pages['monitor'] = $pageMon
 $pnlContent.Controls.Add($pageMon)
 
+# 仪表盘页控件按需构建（首次显示本页时执行）：页头、指标卡、趋势图、控制行与结果区
+function Build-MonitorPage {
 # HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
 $hdrMon = New-PageHeader -Title '仪表盘' -Subtitle '本机资源、关键服务、最近的系统错误、占内存最多的进程。全只读；服务按钮走下面的动作机制（子进程执行，日志在下方）。' -Icon 'monitor' -Width 900
 $pageMon.Controls.Add($hdrMon)
@@ -3307,15 +3471,19 @@ $lblMonDesc = $hdrMon.Tag.Sub
 
 $pnlMonCards             = New-Object System.Windows.Forms.FlowLayoutPanel
 $pnlMonCards.Location    = New-Object System.Drawing.Point(0, 56)
-$pnlMonCards.Size        = New-Object System.Drawing.Size(896, 78)
+$pnlMonCards.Size        = New-Object System.Drawing.Size(896, 116)
 $pnlMonCards.Anchor      = 'Top,Left,Right'
 $pnlMonCards.WrapContents = $true
 $pnlMonCards.BackColor   = $Pal.Bg
 $pageMon.Controls.Add($pnlMonCards)
 
 $script:MonCards = @{}
-foreach ($spec in @(@{ K = 'cpu'; T = 'CPU' }, @{ K = 'mem'; T = '内存' }, @{ K = 'disk'; T = '系统盘' }, @{ K = 'svc'; T = '关键服务' })) {
-    $script:MonCards[$spec.K] = New-StatusCard -Title $spec.T -Width 208 -Parent $pnlMonCards
+foreach ($spec in @(
+        @{ K = 'cpu';  T = 'CPU 占用'; A = '#409EFF' },
+        @{ K = 'mem';  T = '内存占用'; A = '#22D3EE' },
+        @{ K = 'disk'; T = '系统盘';   A = '#FBBF24' },
+        @{ K = 'svc';  T = '关键服务'; A = '#34D399' })) {
+    $script:MonCards[$spec.K] = New-StatusCard -Title $spec.T -Width 208 -Big -AccentHex $spec.A -Parent $pnlMonCards
 }
 
 # ---- 趋势曲线（CPU / 内存 / 系统盘）----
@@ -3333,8 +3501,85 @@ $pnlMonTrend.Size      = New-Object System.Drawing.Size(896, 104)
 $pnlMonTrend.Anchor    = 'Top,Left,Right'
 $pnlMonTrend.BackColor = $Pal.Bg
 Enable-UiDoubleBuffer -Control $pnlMonTrend
-$pnlMonTrend.Add_Paint({ param($s, $e) Render-MonTrend -Graphics $e.Graphics -Width $s.Width -Height $s.Height })
 $pageMon.Controls.Add($pnlMonTrend)
+
+$pnlMonBar           = New-Object System.Windows.Forms.Panel
+$pnlMonBar.Location  = New-Object System.Drawing.Point(0, 252)
+$pnlMonBar.Size      = New-Object System.Drawing.Size(900, 34)
+$pnlMonBar.Anchor    = 'Top,Left,Right'
+$pnlMonBar.BackColor = $Pal.Bg
+$pageMon.Controls.Add($pnlMonBar)
+
+# 刷新按钮在左、状态胶囊在右 —— 两个都放 x=0 会叠在一起（UI 审计抓到的重叠）
+$btnMonRefresh          = New-FlatButton -Text '刷新' -Kind Primary -Width 76 -Height 30
+$btnMonRefresh.Location = New-Object System.Drawing.Point(0, 2)
+$pnlMonBar.Controls.Add($btnMonRefresh)
+
+$pillMonSum          = New-Pill -Text '还未采集' -Kind 'Neutral'
+$pillMonSum.Location = New-Object System.Drawing.Point(86, 6)
+$pnlMonBar.Controls.Add($pillMonSum)
+
+# TUI 监控：优先用本机已有的 pstop / htop / btm，没有就启动内置版（零依赖）。
+# 在后台起一个真实控制台窗口 —— TUI 需要真的控制台，不能画在 GUI 里。
+$btnMonTui          = New-FlatButton -Text 'TUI 监控' -Width 96 -Height 30
+$btnMonTui.Location = New-Object System.Drawing.Point(260, 2)
+$pnlMonBar.Controls.Add($btnMonTui)
+
+# 告警阈值：CPU / 内存 / 磁盘的百分比，存 state\monitor-thresholds.json
+$btnMonThresh          = New-FlatButton -Text '告警阈值' -Width 96 -Height 30
+$btnMonThresh.Location = New-Object System.Drawing.Point(366, 2)
+$pnlMonBar.Controls.Add($btnMonThresh)
+
+$hintMon = New-HintBar -Text '提示：服务名要填服务名而不是显示名（例如 WinRM / LanmanServer / TermService）。停关键服务可能断开你的远程会话，动作里会先警告。「TUI 监控」优先打开已装的 pstop / htop / btm，没有就用内置的 scm-top（零依赖，按 q 退出）。' -Kind 'Blue' -Width 900
+$hintMon.Location = New-Object System.Drawing.Point(0, 288)
+$pageMon.Controls.Add($hintMon)
+
+$barMon          = New-ProgressBar -Width 420 -Height 6 -Indeterminate
+$barMon.Location = New-Object System.Drawing.Point(0, 326)
+$barMon.Visible  = $false
+$pageMon.Controls.Add($barMon)
+
+$pnlMonRows              = New-Object System.Windows.Forms.FlowLayoutPanel
+$pnlMonRows.Location     = New-Object System.Drawing.Point(0, 340)
+$pnlMonRows.Size         = New-Object System.Drawing.Size(896, 220)
+$pnlMonRows.Anchor       = 'Top,Left,Right,Bottom'
+$pnlMonRows.FlowDirection = 'TopDown'
+$pnlMonRows.WrapContents = $false
+$pnlMonRows.AutoScroll   = $true
+$pnlMonRows.BackColor    = $Pal.Bg
+$pageMon.Controls.Add($pnlMonRows)
+
+$lblMonEmpty          = New-Label -Text '点「刷新」采集一次快照。' -Size 9.5 -Color Hint
+$lblMonEmpty.Location = New-Object System.Drawing.Point(4, 6)
+$pnlMonRows.Controls.Add($lblMonEmpty)
+
+$script:MonRows = @()
+
+# 写回脚本作用域：布局函数、Render-Monitor/Add-MonSection 以及本页事件绑定都要用这些控件
+$script:hdrMon       = $hdrMon
+$script:lblMonDesc   = $lblMonDesc
+$script:pnlMonCards  = $pnlMonCards
+$script:pnlMonTrend  = $pnlMonTrend
+$script:pnlMonBar    = $pnlMonBar
+$script:btnMonRefresh = $btnMonRefresh
+$script:pillMonSum   = $pillMonSum
+$script:btnMonTui    = $btnMonTui
+$script:btnMonThresh = $btnMonThresh
+$script:hintMon      = $hintMon
+$script:barMon       = $barMon
+$script:pnlMonRows   = $pnlMonRows
+$script:lblMonEmpty  = $lblMonEmpty
+Bind-MonitorEvents
+}
+$script:PageBuilders['monitor'] = 'Build-MonitorPage'
+
+function Bind-MonitorEvents {
+    # 仪表盘页的事件绑定；页面首次显示时由 Build-MonitorPage 调用
+    $pnlMonTrend.Add_Paint({ param($s, $e) Render-MonTrend -Graphics $e.Graphics -Width $s.Width -Height $s.Height })
+    $btnMonTui.Add_Click({ Start-MonitorTui })
+    $btnMonThresh.Add_Click({ Show-MonitorThresholdDialog })
+    $btnMonRefresh.Add_Click({ Start-GuiQueryHost -Query $script:QMon -Task 'snapshot' -BusyText '采集快照…' | Out-Null })
+}
 
 function Draw-MonTrendCell {
     # 一格：标题（左上）+ 最新值（右上）+ 0~100% 的曲线（含浅色填充）
@@ -3433,60 +3678,6 @@ function Render-MonTrend {
     Draw-MonTrendCell -Graphics $Graphics -X ($pad + $cellW + $gap) -Y 7 -W $cellW -H $cellH -Title '内存 %' -Values $memVals  -Color $Pal.Ok
     Draw-MonTrendCell -Graphics $Graphics -X ($pad + 2 * ($cellW + $gap)) -Y 7 -W $cellW -H $cellH -Title '系统盘 %' -Values $diskVals -Color $Pal.Warn
 }
-
-$pnlMonBar           = New-Object System.Windows.Forms.Panel
-$pnlMonBar.Location  = New-Object System.Drawing.Point(0, 252)
-$pnlMonBar.Size      = New-Object System.Drawing.Size(900, 34)
-$pnlMonBar.Anchor    = 'Top,Left,Right'
-$pnlMonBar.BackColor = $Pal.Bg
-$pageMon.Controls.Add($pnlMonBar)
-
-# 刷新按钮在左、状态胶囊在右 —— 两个都放 x=0 会叠在一起（UI 审计抓到的重叠）
-$btnMonRefresh          = New-FlatButton -Text '刷新' -Kind Primary -Width 76 -Height 30
-$btnMonRefresh.Location = New-Object System.Drawing.Point(0, 2)
-$pnlMonBar.Controls.Add($btnMonRefresh)
-
-$pillMonSum          = New-Pill -Text '还未采集' -Kind 'Neutral'
-$pillMonSum.Location = New-Object System.Drawing.Point(86, 6)
-$pnlMonBar.Controls.Add($pillMonSum)
-
-# TUI 监控：优先用本机已有的 pstop / htop / btm，没有就启动内置版（零依赖）。
-# 在后台起一个真实控制台窗口 —— TUI 需要真的控制台，不能画在 GUI 里。
-$btnMonTui          = New-FlatButton -Text 'TUI 监控' -Width 96 -Height 30
-$btnMonTui.Location = New-Object System.Drawing.Point(260, 2)
-$btnMonTui.Add_Click({ Start-MonitorTui })
-$pnlMonBar.Controls.Add($btnMonTui)
-
-# 告警阈值：CPU / 内存 / 磁盘的百分比，存 state\monitor-thresholds.json
-$btnMonThresh          = New-FlatButton -Text '告警阈值' -Width 96 -Height 30
-$btnMonThresh.Location = New-Object System.Drawing.Point(366, 2)
-$btnMonThresh.Add_Click({ Show-MonitorThresholdDialog })
-$pnlMonBar.Controls.Add($btnMonThresh)
-
-$hintMon = New-HintBar -Text '提示：服务名要填服务名而不是显示名（例如 WinRM / LanmanServer / TermService）。停关键服务可能断开你的远程会话，动作里会先警告。「TUI 监控」优先打开已装的 pstop / htop / btm，没有就用内置的 scm-top（零依赖，按 q 退出）。' -Kind 'Blue' -Width 900
-$hintMon.Location = New-Object System.Drawing.Point(0, 288)
-$pageMon.Controls.Add($hintMon)
-
-$barMon          = New-ProgressBar -Width 420 -Height 6 -Indeterminate
-$barMon.Location = New-Object System.Drawing.Point(0, 326)
-$barMon.Visible  = $false
-$pageMon.Controls.Add($barMon)
-
-$pnlMonRows              = New-Object System.Windows.Forms.FlowLayoutPanel
-$pnlMonRows.Location     = New-Object System.Drawing.Point(0, 340)
-$pnlMonRows.Size         = New-Object System.Drawing.Size(896, 220)
-$pnlMonRows.Anchor       = 'Top,Left,Right,Bottom'
-$pnlMonRows.FlowDirection = 'TopDown'
-$pnlMonRows.WrapContents = $false
-$pnlMonRows.AutoScroll   = $true
-$pnlMonRows.BackColor    = $Pal.Bg
-$pageMon.Controls.Add($pnlMonRows)
-
-$lblMonEmpty          = New-Label -Text '点「刷新」采集一次快照。' -Size 9.5 -Color Hint
-$lblMonEmpty.Location = New-Object System.Drawing.Point(4, 6)
-$pnlMonRows.Controls.Add($lblMonEmpty)
-
-$script:MonRows = @()
 
 function Add-MonSection {
     param([string]$Text)
@@ -3616,8 +3807,6 @@ $script:QMon = New-GuiQueryHost -Name 'monitor' -Runner (Join-Path $guiDir 'Run-
     -OnResult { param($obj) Render-Monitor -Obj $obj } `
     -OnBusyStart { param($t) Set-Pill -Pill $pillMonSum -Text $t -Kind 'Info'; $barMon.Visible = $true; $barMon.Invalidate() } `
     -OnBusyEnd { $barMon.Visible = $false }
-
-$btnMonRefresh.Add_Click({ Start-GuiQueryHost -Query $script:QMon -Task 'snapshot' -BusyText '采集快照…' | Out-Null })
 
 # ---- 趋势采样 ----
 # 独立的轻量查询（Mode=metrics），每 5 秒一次；只在仪表盘可见且窗口未最小化时跑。
@@ -3856,7 +4045,8 @@ $pageSec.BackColor      = $Pal.Bg
 $script:Pages['security'] = $pageSec
 $pnlContent.Controls.Add($pageSec)
 
-# HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
+# 安全页控件按需构建（首次显示本页时执行）：页头、状态/筛选行、结果区与进度条
+function Build-SecPage {
 $hdrSec = New-PageHeader -Title '安全与合规' -Subtitle '本地可验证的安全基线（10 项，每项都带原始证据）。修复只覆盖安全且可逆的项；改 UAC、删管理员这类可能把人锁在门外的操作只给建议。' -Icon 'security' -Width 900
 $pageSec.Controls.Add($hdrSec)
 $lblSecHead = $hdrSec.Tag.Title
@@ -3923,6 +4113,22 @@ $script:SecItems = @()
 $script:SecRows  = @()
 # 「修复」按钮的下拉索引（与 security-fix 动作里的 Options 顺序一致，1 基）
 $script:SecFixIndex = @{ 'firewall' = 1; 'defender-rt' = 2; 'smbv1' = 3; 'guest' = 4; 'rdp-nla' = 5; 'password-policy' = 6 }
+
+# 写回脚本作用域：布局函数、Render-Security 以及本页事件绑定都要用这些控件
+$script:hdrSec       = $hdrSec
+$script:lblSecDesc   = $lblSecDesc
+$script:pnlSecBar    = $pnlSecBar
+$script:lblSecHint   = $lblSecHint
+$script:pnlSecFilter = $pnlSecFilter
+$script:cmbSecFilter = $cmbSecFilter
+$script:pillSecSum   = $pillSecSum
+$script:hintSec      = $hintSec
+$script:barSec       = $barSec
+$script:pnlSecRows   = $pnlSecRows
+$script:lblSecEmpty  = $lblSecEmpty
+Bind-SecEvents
+}
+$script:PageBuilders['security'] = 'Build-SecPage'
 
 function Clear-SecRows {
     foreach ($r in $script:SecRows) { try { $pnlSecRows.Controls.Remove($r.Panel); $r.Panel.Dispose() } catch { } }
@@ -3991,9 +4197,12 @@ $script:QSec = New-GuiQueryHost -Name 'security' -Runner (Join-Path $guiDir 'Run
     -OnBusyStart { param($t) Set-Pill -Pill $pillSecSum -Text $t -Kind 'Info'; $barSec.Visible = $true; $barSec.Invalidate() } `
     -OnBusyEnd { $barSec.Visible = $false }
 
+function Bind-SecEvents {
+    # 安全页的事件绑定；页面首次显示时由 Build-SecPage 调用
 $cmbSecFilter.Add_SelectedIndexChanged({
     if ($script:SecItems.Count -gt 0) { Render-Security -Obj ([pscustomobject]@{ Items = $script:SecItems; Summary = $script:SecSummary }) }
 })
+}
 
 function Show-SecPage {
     if ($SkipPageHooks) { return }
@@ -4018,6 +4227,8 @@ $pageBeauty.BackColor    = $Pal.Bg
 $script:Pages['beauty']  = $pageBeauty
 $pnlContent.Controls.Add($pageBeauty)
 
+# 美化页控件按需构建（首次显示本页时执行）：页头、状态行、主题行、动作区与结果区
+function Build-BeautyPage {
 # HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
 $hdrBeauty = New-PageHeader -Title '美化与个性化' -Subtitle '把 Server Core 的 conhost 打扮好看：Nerd Font + Oh My Posh 提示符 + Fastfetch 首屏信息。素材随发布包内置，安装过程不联网。' -Icon 'beauty' -Width 900
 $pageBeauty.Controls.Add($hdrBeauty)
@@ -4091,6 +4302,41 @@ $pageBeauty.Controls.Add($pnlBeautyRows)
 $script:BeautyRows = @()
 $script:QBeauty    = $null      # 美化页不用子进程查询；动作跑完只刷新状态
 
+# 动作按钮：都是既有动作，参数与「更多 → 终端美化」里的一致
+[void](New-BeautyButton -Text '一键美化终端' -ActionId 'console-install' -Kind 'Primary' -Params @{ Theme = 1 })
+[void](New-BeautyButton -Text '打开美化终端' -ActionId 'console-open'    -Params @{})
+[void](New-BeautyButton -Text '状态检查（实测）' -ActionId 'console-status' -Params @{ DeepProbe = $true })
+[void](New-BeautyButton -Text '安装 PowerShell 7' -ActionId 'console-ps7' -Params @{})
+[void](New-BeautyButton -Text '一键还原' -ActionId 'console-restore' -Params @{})
+
+# 写回脚本作用域：布局函数、Update-BeautyView 以及本页事件绑定都要用这些控件
+$script:hdrBeauty        = $hdrBeauty
+$script:lblBeautyDesc    = $lblBeautyDesc
+$script:pnlBeautyStatus  = $pnlBeautyStatus
+$script:lblBeautyHint    = $lblBeautyHint
+$script:pnlBeautyTheme   = $pnlBeautyTheme
+$script:lblBeautyTheme   = $lblBeautyTheme
+$script:cmbBeautyTheme   = $cmbBeautyTheme
+$script:lblBeautyThemeNote = $lblBeautyThemeNote
+$script:pnlBeautyActions = $pnlBeautyActions
+$script:hintBeauty       = $hintBeauty
+$script:pnlBeautyRows    = $pnlBeautyRows
+Bind-BeautyEvents
+}
+$script:PageBuilders['beauty'] = 'Build-BeautyPage'
+
+function Bind-BeautyEvents {
+    # 美化页的事件绑定；页面首次显示时由 Build-BeautyPage 调用
+    $cmbBeautyTheme.Add_SelectedIndexChanged({
+        # 让「一键美化终端」按当前选中的主题跑（索引与动作里的 Options 一致）
+        $idx = 1
+        try { $idx = [int]$cmbBeautyTheme.SelectedIndex + 1 } catch { }
+        foreach ($b in @($pnlBeautyActions.Controls)) {
+            if ($b.Tag -and $b.Tag.Id -eq 'console-install') { $b.Tag.Params = @{ Theme = $idx } }
+        }
+    })
+}
+
 function Clear-BeautyRows {
     foreach ($r in $script:BeautyRows) { try { $pnlBeautyRows.Controls.Remove($r.Panel); $r.Panel.Dispose() } catch { } }
     $script:BeautyRows = @()
@@ -4158,21 +4404,6 @@ function New-BeautyButton {
     return $b
 }
 
-[void](New-BeautyButton -Text '一键美化终端' -ActionId 'console-install' -Kind 'Primary' -Params @{ Theme = 1 })
-[void](New-BeautyButton -Text '打开美化终端' -ActionId 'console-open'    -Params @{})
-[void](New-BeautyButton -Text '状态检查（实测）' -ActionId 'console-status' -Params @{ DeepProbe = $true })
-[void](New-BeautyButton -Text '安装 PowerShell 7' -ActionId 'console-ps7' -Params @{})
-[void](New-BeautyButton -Text '一键还原' -ActionId 'console-restore' -Params @{})
-
-$cmbBeautyTheme.Add_SelectedIndexChanged({
-    # 让「一键美化终端」按当前选中的主题跑（索引与动作里的 Options 一致）
-    $idx = 1
-    try { $idx = [int]$cmbBeautyTheme.SelectedIndex + 1 } catch { }
-    foreach ($b in @($pnlBeautyActions.Controls)) {
-        if ($b.Tag -and $b.Tag.Id -eq 'console-install') { $b.Tag.Params = @{ Theme = $idx } }
-    }
-})
-
 function Show-BeautyPage {
     if ($SkipPageHooks) { return }
     Update-BeautyView
@@ -4188,6 +4419,8 @@ $pageDsh.BackColor      = $Pal.Bg
 $script:Pages['dsh']    = $pageDsh
 $pnlContent.Controls.Add($pageDsh)
 
+# AI 页控件按需构建（首次显示本页时执行）：页头、状态行、提示条、动作区与结果区
+function Build-DshPage {
 # HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
 $hdrDsh = New-PageHeader -Title 'AI 辅助（DeepSeek Harness）' -Subtitle '指定的集成是 ccch1mneyyy/dsh-TUI（npm 包 @deepseek-harness-tui/dsh-tui），依赖 Node.js ≥ 22.19 / pnpm ≥ 10 / 官方 CLI @deepseek-ai/dsh。' -Icon 'dsh' -Width 900
 $pageDsh.Controls.Add($hdrDsh)
@@ -4239,6 +4472,24 @@ $lblDshEmpty.Location = New-Object System.Drawing.Point(4, 6)
 $pnlDshRows.Controls.Add($lblDshEmpty)
 
 $script:DshRows = @()
+
+# 动作按钮（按钮的点击回调在 New-DshButton 里绑定，随控件一起建）
+[void](New-DshButton -Text '一键安装依赖' -ActionId 'dsh-install' -Kind 'Primary' -Params @{ SkipPnpm = $false })
+[void](New-DshButton -Text '启动 dsh-TUI'  -ActionId 'dsh-launch'   -Params @{ Resume = $false })
+[void](New-DshButton -Text '重新检查'      -ActionId 'dsh-status'   -Params @{})
+
+# 写回脚本作用域：布局函数、Render-Dsh 以及查询宿主的忙碌回调都要用这些控件
+$script:hdrDsh        = $hdrDsh
+$script:lblDshDesc    = $lblDshDesc
+$script:pnlDshStatus  = $pnlDshStatus
+$script:pillDshSum    = $pillDshSum
+$script:hintDsh       = $hintDsh
+$script:barDsh        = $barDsh
+$script:pnlDshActions = $pnlDshActions
+$script:pnlDshRows    = $pnlDshRows
+$script:lblDshEmpty   = $lblDshEmpty
+}
+$script:PageBuilders['dsh'] = 'Build-DshPage'
 
 function Clear-DshRows {
     foreach ($r in $script:DshRows) { try { $pnlDshRows.Controls.Remove($r.Panel); $r.Panel.Dispose() } catch { } }
@@ -4309,10 +4560,6 @@ function New-DshButton {
     return $b
 }
 
-[void](New-DshButton -Text '一键安装依赖' -ActionId 'dsh-install' -Kind 'Primary' -Params @{ SkipPnpm = $false })
-[void](New-DshButton -Text '启动 dsh-TUI'  -ActionId 'dsh-launch'   -Params @{ Resume = $false })
-[void](New-DshButton -Text '重新检查'      -ActionId 'dsh-status'   -Params @{})
-
 function Show-DshPage {
     if ($SkipPageHooks) { return }
     if (-not $script:DshLoaded) {
@@ -4352,95 +4599,106 @@ function Update-PageLayout {
         # ---- 环境页 ----
         # 每行几张、卡片多宽、容器多高，全部由 Set-CardRowLayout + Get-FlowWrappedHeight 按实际
         # 可用宽度算（仪表盘走的是同一套）。写死宽度/高度在窄屏下必然溢出或被裁 —— 真机踩过。
-        $w = [Math]::Max(360, $pageEnv.ClientSize.Width)
-        if ($script:Cards.Count -gt 0) {
-            Set-CardRowLayout -Panel $pnlCards -Width $w
-            $rowsN = Get-FlowWrappedHeight -Panel $pnlCards -Width $w
-            $pnlCards.Width  = $w
-            if ($rowsN -gt 0) { $pnlCards.Height = $rowsN }
-            $pnlEnvActions.Top = $pnlCards.Top + $pnlCards.Height + 8
-        }
+        # 每页独立 try：某页控件还没建（懒加载）时只跳过它自己那一段，后面的页面照常布局。
+        try {
+            $w = [Math]::Max(360, $pageEnv.ClientSize.Width)
+            if ($script:Cards.Count -gt 0) {
+                Set-CardRowLayout -Panel $pnlCards -Width $w
+                $rowsN = Get-FlowWrappedHeight -Panel $pnlCards -Width $w
+                $pnlCards.Width  = $w
+                if ($rowsN -gt 0) { $pnlCards.Height = $rowsN }
+                $pnlEnvActions.Top = $pnlCards.Top + $pnlCards.Height + 8
+            }
 
-        # 按钮区高度也要按实际换行算（窄窗口下按钮会换行，写死高度会裁掉第二行）
-        $pnlEnvActions.Width = $w
-        $rowsBtn = 1
-        $rowW = 0
-        foreach ($b in $pnlEnvActions.Controls) {
-            $need = $b.Width + $b.Margin.Left + $b.Margin.Right
-            if ($rowW -gt 0 -and ($rowW + $need) -gt $w) { $rowsBtn++; $rowW = $need }
-            else { $rowW += $need }
-        }
-        $pnlEnvActions.Height = [int]($rowsBtn * 50) + 6
+            # 按钮区高度也要按实际换行算（窄窗口下按钮会换行，写死高度会裁掉第二行）
+            $pnlEnvActions.Width = $w
+            $rowsBtn = 1
+            $rowW = 0
+            foreach ($b in $pnlEnvActions.Controls) {
+                $need = $b.Width + $b.Margin.Left + $b.Margin.Right
+                if ($rowW -gt 0 -and ($rowW + $need) -gt $w) { $rowsBtn++; $rowW = $need }
+                else { $rowW += $need }
+            }
+            $pnlEnvActions.Height = [int]($rowsBtn * 50) + 6
 
-        $hintEnv.Width = $w
-        if ($hintEnv.Tag) { $hintEnv.Tag.Width = $w - 20 }
-        $hintEnv.Top   = $pnlEnvActions.Top + $pnlEnvActions.Height + 4
+            $hintEnv.Width = $w
+            if ($hintEnv.Tag) { $hintEnv.Tag.Width = $w - 20 }
+            $hintEnv.Top   = $pnlEnvActions.Top + $pnlEnvActions.Height + 4
+        } catch { }
 
         # ---- 软件页 ----
-        $w2 = [Math]::Max(360, $pageApp.ClientSize.Width)
-        $lstApps.Width       = $w2
-        $pnlAppActions.Width = $w2
-        # 按钮区高度按实际换行算，窄窗口下不会被裁
-        $rowsAppBtn = 1
-        $rowW2 = 0
-        foreach ($b in $pnlAppActions.Controls) {
-            $need = $b.Width + $b.Margin.Left + $b.Margin.Right
-            if ($rowW2 -gt 0 -and ($rowW2 + $need) -gt $w2) { $rowsAppBtn++; $rowW2 = $need }
-            else { $rowW2 += $need }
-        }
-        $pnlAppActions.Height = [int]($rowsAppBtn * 46) + 8
-        $lstApps.Height      = [Math]::Max(120, ($pnlAppActions.Top - $lstApps.Top) - 12)
-        $hintApp.Width = $w2
-        if ($hintApp.Tag) { $hintApp.Tag.Width = $w2 - 20 }
-        $hintApp.Top   = $pnlAppActions.Top + $pnlAppActions.Height + 4
-        if ($lstApps.Columns.Count -ge 4 -and $w2 -gt 620) {
-            $lstApps.Columns[0].Width = 170
-            $lstApps.Columns[2].Width = 200
-            $lstApps.Columns[3].Width = 110
-            $lstApps.Columns[1].Width = [Math]::Max(220, ($w2 - 170 - 200 - 110 - 24))
+        # 这一页按需构建：控件还没建时跳过本段，别让后面的页面布局一起被跳掉
+        if ($lstApps) {
+            $w2 = [Math]::Max(360, $pageApp.ClientSize.Width)
+            $lstApps.Width       = $w2
+            $pnlAppActions.Width = $w2
+            # 按钮区高度按实际换行算，窄窗口下不会被裁
+            $rowsAppBtn = 1
+            $rowW2 = 0
+            foreach ($b in $pnlAppActions.Controls) {
+                $need = $b.Width + $b.Margin.Left + $b.Margin.Right
+                if ($rowW2 -gt 0 -and ($rowW2 + $need) -gt $w2) { $rowsAppBtn++; $rowW2 = $need }
+                else { $rowW2 += $need }
+            }
+            $pnlAppActions.Height = [int]($rowsAppBtn * 46) + 8
+            $lstApps.Height      = [Math]::Max(120, ($pnlAppActions.Top - $lstApps.Top) - 12)
+            $hintApp.Width = $w2
+            if ($hintApp.Tag) { $hintApp.Tag.Width = $w2 - 20 }
+            $hintApp.Top   = $pnlAppActions.Top + $pnlAppActions.Height + 4
+            if ($lstApps.Columns.Count -ge 4 -and $w2 -gt 620) {
+                $lstApps.Columns[0].Width = 170
+                $lstApps.Columns[2].Width = 200
+                $lstApps.Columns[3].Width = 110
+                $lstApps.Columns[1].Width = [Math]::Max(220, ($w2 - 170 - 200 - 110 - 24))
+            }
         }
 
         # ---- 更多页 ----
-        $w3 = [Math]::Max(600, $pageMore.ClientSize.Width)
-        $h3 = [Math]::Max(240, $pageMore.ClientSize.Height)
-        $tree.Height         = [Math]::Max(140, ($h3 - $tree.Top) - 4)
-        $pnlMoreRight.Left   = $tree.Width + 12
-        $pnlMoreRight.Width  = [Math]::Max(360, $w3 - $pnlMoreRight.Left)
-        $pnlMoreRight.Height = [Math]::Max(200, ($h3 - $pnlMoreRight.Top) - 4)
-        $innerW = $pnlMoreRight.ClientSize.Width
-        $innerH = $pnlMoreRight.ClientSize.Height
-        $lblActDesc.Width  = [Math]::Max(200, $innerW - 32)
-        $pnlParams.Width   = [Math]::Max(200, $innerW - 28)
-        $pnlParams.Height  = [Math]::Max(48, $innerH - 88 - 52)
-        $btnRun.Top        = $innerH - 46
-        $btnDry.Top        = $btnRun.Top
-        # 参数控件右对齐到新的宽度
-        foreach ($k in $script:ParamControls.Keys) {
-            $ctl = $script:ParamControls[$k]
-            if ($null -eq $ctl) { continue }
-            $pw = 320
-            if ($ctl.Tag -ne $null) { $pw = [int]$ctl.Tag }
-            $nx = [Math]::Max(230, ($pnlParams.Width - $pw - 50))
-            $ctl.Left = $nx
-            foreach ($sib in $pnlParams.Controls) {
-                if ($sib -is [System.Windows.Forms.Button] -and $sib.Tag -eq $ctl) { $sib.Left = $nx + $pw + 6 }
+        # 同上：设置页按需构建，未建过时跳过
+        if ($tree) {
+            $w3 = [Math]::Max(600, $pageMore.ClientSize.Width)
+            $h3 = [Math]::Max(240, $pageMore.ClientSize.Height)
+            $tree.Height         = [Math]::Max(140, ($h3 - $tree.Top) - 4)
+            $pnlMoreRight.Left   = $tree.Width + 12
+            $pnlMoreRight.Width  = [Math]::Max(360, $w3 - $pnlMoreRight.Left)
+            $pnlMoreRight.Height = [Math]::Max(200, ($h3 - $pnlMoreRight.Top) - 4)
+            $innerW = $pnlMoreRight.ClientSize.Width
+            $innerH = $pnlMoreRight.ClientSize.Height
+            $lblActDesc.Width  = [Math]::Max(200, $innerW - 32)
+            $pnlParams.Width   = [Math]::Max(200, $innerW - 28)
+            $pnlParams.Height  = [Math]::Max(48, $innerH - 88 - 52)
+            $btnRun.Top        = $innerH - 46
+            $btnDry.Top        = $btnRun.Top
+            # 参数控件右对齐到新的宽度
+            foreach ($k in $script:ParamControls.Keys) {
+                $ctl = $script:ParamControls[$k]
+                if ($null -eq $ctl) { continue }
+                $pw = 320
+                if ($ctl.Tag -ne $null) { $pw = [int]$ctl.Tag }
+                $nx = [Math]::Max(230, ($pnlParams.Width - $pw - 50))
+                $ctl.Left = $nx
+                foreach ($sib in $pnlParams.Controls) {
+                    if ($sib -is [System.Windows.Forms.Button] -and $sib.Tag -eq $ctl) { $sib.Left = $nx + $pw + 6 }
+                }
             }
         }
 
         # ---- 工具页 ----
-        $w4 = [Math]::Max(600, $pageTool.ClientSize.Width)
-        # 说明文字限宽：AutoSize 的标签直接改 Width 无效，先关掉自动尺寸再限宽，
-        # 超长就用省略号收尾 —— 否则窄屏下这句话会顶出客户区被硬切（真机 1024 宽实测 908 > 754）。
-        if ($lblToolDesc.AutoSize) { $lblToolDesc.AutoSize = $false; $lblToolDesc.AutoEllipsis = $true }
-        $lblToolDesc.Width = $w4 - 12
-        $hintTool.Width = $w4
-        if ($hintTool.Tag) { $hintTool.Tag.Width = $w4 - 20 }
-        $perRowTool = [Math]::Max(1, [Math]::Floor(($w4 - 12) / 140))
-        foreach ($tr in $script:ToolRows) {
-            $tr.Row.Width  = [Math]::Max(200, $w4 - 16)
-            $rowsNeeded    = [Math]::Ceiling($tr.Count / $perRowTool)
-            $tr.Row.Height = [int]($rowsNeeded * 40) + 2
-        }
+        try {
+            $w4 = [Math]::Max(600, $pageTool.ClientSize.Width)
+            # 说明文字限宽：AutoSize 的标签直接改 Width 无效，先关掉自动尺寸再限宽，
+            # 超长就用省略号收尾 —— 否则窄屏下这句话会顶出客户区被硬切（真机 1024 宽实测 908 > 754）。
+            if ($lblToolDesc.AutoSize) { $lblToolDesc.AutoSize = $false; $lblToolDesc.AutoEllipsis = $true }
+            $lblToolDesc.Width = $w4 - 12
+            $hintTool.Width = $w4
+            if ($hintTool.Tag) { $hintTool.Tag.Width = $w4 - 20 }
+            $perRowTool = [Math]::Max(1, [Math]::Floor(($w4 - 12) / 140))
+            foreach ($tr in $script:ToolRows) {
+                $tr.Row.Width  = [Math]::Max(200, $w4 - 16)
+                $rowsNeeded    = [Math]::Ceiling($tr.Count / $perRowTool)
+                $tr.Row.Height = [int]($rowsNeeded * 40) + 2
+            }
+        } catch { }
 
         # ---- 关于页 ----
         # 卡片宽度跟着内容区走；卡片里的文字与按钮都在左侧固定位置，不受影响。
@@ -4452,23 +4710,208 @@ function Update-PageLayout {
         } catch { }
 
         # ---- 商店页 ----
-        Update-StoreLayout
+        # 商店页按需构建：单独 try，未建过时只跳过本页
+        try { Update-StoreLayout } catch { }
 
         # ---- 角色页 ----
-        Update-RoleLayout
+        try { Update-RoleLayout } catch { }
 
         # ---- 仪表盘 / 安全 / 美化 / AI（四页骨架一样，统一走一个函数）----
-        Update-RayPageLayout -Page $pageMon -Rows $pnlMonRows -Wide @($lblMonDesc, $pnlMonCards, $pnlMonTrend, $pnlMonBar, $hintMon)
-        Update-RayPageLayout -Page $pageSec -Rows $pnlSecRows -Wide @($lblSecDesc, $pnlSecBar, $pnlSecFilter, $hintSec)
-        Update-RayPageLayout -Page $pageBeauty -Rows $pnlBeautyRows -Wide @($lblBeautyDesc, $pnlBeautyStatus, $pnlBeautyTheme, $pnlBeautyActions, $hintBeauty)
-        Update-RayPageLayout -Page $pageDsh -Rows $pnlDshRows -Wide @($lblDshDesc, $pnlDshStatus, $hintDsh, $pnlDshActions)
+        # 四页各自按需构建：结果区（Rows）为 $null 说明该页还没建过，跳过它这一页即可，
+        # 不能因为前一页没建就把后面几页一起漏掉。
+        if ($pnlMonRows) { Update-RayPageLayout -Page $pageMon -Rows $pnlMonRows -Wide @($lblMonDesc, $pnlMonCards, $pnlMonTrend, $pnlMonBar, $hintMon) }
+        if ($pnlSecRows) { Update-RayPageLayout -Page $pageSec -Rows $pnlSecRows -Wide @($lblSecDesc, $pnlSecBar, $pnlSecFilter, $hintSec) }
+        if ($pnlBeautyRows) { Update-RayPageLayout -Page $pageBeauty -Rows $pnlBeautyRows -Wide @($lblBeautyDesc, $pnlBeautyStatus, $pnlBeautyTheme, $pnlBeautyActions, $hintBeauty) }
+        if ($pnlDshRows) { Update-RayPageLayout -Page $pageDsh -Rows $pnlDshRows -Wide @($lblDshDesc, $pnlDshStatus, $hintDsh, $pnlDshActions) }
+
+        # ---- 文件页 ----
+        # 左列 = 路径栏(40) + 列表(Fill) + 工具栏(Bottom)，右列 = 信息栏(40) + 预览(Fill) + 保存栏(42)。
+        # 拆分条按可用宽度取 55%，下限 280 且右列至少留 240 —— 窄屏（1024）下预览不能被挤没。
+        try {
+            $wF = [Math]::Max(560, $pageFiles.ClientSize.Width)
+            $hF = [Math]::Max(320, $pageFiles.ClientSize.Height)
+            $pnlFilesBody.Width  = $wF
+            $pnlFilesBody.Height = [Math]::Max(200, ($hF - $pnlFilesBody.Top - 8))
+
+            $fBodyW  = [Math]::Max(320, $pnlFilesBody.ClientSize.Width)
+            $fSplit  = [int][Math]::Round($fBodyW * 0.55)
+            $fSplit  = [Math]::Max(280, [Math]::Min(($fBodyW - 240), $fSplit))
+            $splitFiles.SplitterDistance = $fSplit
+
+            # 路径栏：三个按钮贴右，输入框吃掉剩下的宽度
+            $fBarW = [Math]::Max(300, $splitFiles.Panel1.ClientSize.Width)
+            $fBtnW = 64; $fGap = 6
+            $txtFilePath.Width   = [Math]::Max(120, ($fBarW - ($fBtnW * 3) - ($fGap * 3) - 4))
+            $btnFileUp.Left      = [Math]::Max(0, ($fBarW - $fBtnW - 2))
+            $btnFileRefresh.Left = [Math]::Max(0, ($fBarW - ($fBtnW * 2) - $fGap - 2))
+            $btnFileGo.Left      = [Math]::Max(0, ($fBarW - ($fBtnW * 3) - ($fGap * 2) - 2))
+            foreach ($b in @($btnFileGo, $btnFileRefresh, $btnFileUp)) { $b.Top = 6 }
+
+            # 预览栏：编辑按钮贴右，说明文字收住不压按钮
+            $fPrevW = [Math]::Max(240, $splitFiles.Panel2.ClientSize.Width)
+            $btnFileEdit.Left  = [Math]::Max(0, ($fPrevW - $btnFileEdit.Width - 2))
+            $lblFileInfo.Width = [Math]::Max(80, ($fPrevW - $btnFileEdit.Width - 14))
+
+            $lstFiles.Columns[0].Width = [Math]::Max(150, ($fSplit - 84 - 104 - 132 - 66 - 24))
+            $lstFiles.Columns[1].Width = 84
+            $lstFiles.Columns[2].Width = 104
+            $lstFiles.Columns[3].Width = 132
+            $lstFiles.Columns[4].Width = 66
+        } catch { }
+
+        # ---- 日志页 ----
+        # 筛选行固定 58 高；列表与详情按剩余高度 68:32 分配，最低各留 100 / 90。
+        try {
+            $wL = [Math]::Max(560, $pageLogs.ClientSize.Width)
+            $hL = [Math]::Max(320, $pageLogs.ClientSize.Height)
+
+            $pnlLogFilter.Width  = [Math]::Max(400, ($wL - 4))
+            $pnlLogFilter.Height = 58
+            # TableLayoutPanel 不会把 Dock=Fill 的 FlowLayoutPanel 纵向拉伸（实测停在默认 100 高），
+            # 必须显式给高度；两行合计 58，扣掉上下 Margin 2+2 后留 34。
+            $pnlLogButtons.Height = 34
+
+            $lListTop = $pnlLogFilter.Top + $pnlLogFilter.Height + 8
+            $lDetailH = [Math]::Max(90, [int](($hL - $lListTop - 16) * 0.32))
+            $lListH   = [Math]::Max(100, ($hL - $lListTop - $lDetailH - 12))
+
+            $lstLogs.Left   = 0
+            $lstLogs.Top    = $lListTop
+            $lstLogs.Width  = [Math]::Max(400, ($wL - 4))
+            $lstLogs.Height = $lListH
+
+            $txtLogDetail.Left   = 0
+            $txtLogDetail.Top    = $lstLogs.Top + $lstLogs.Height + 4
+            $txtLogDetail.Width  = [Math]::Max(400, ($wL - 4))
+            $txtLogDetail.Height = [Math]::Max(80, ($hL - $txtLogDetail.Top - 8))
+
+            $lstLogs.Columns[0].Width = 136
+            $lstLogs.Columns[1].Width = 56
+            $lstLogs.Columns[2].Width = [Math]::Max(120, [int](($wL - 4) * 0.18))
+            $lstLogs.Columns[3].Width = 60
+            $lstLogs.Columns[4].Width = [Math]::Max(160, ($wL - 4 - 136 - 56 - $lstLogs.Columns[2].Width - 60 - 24))
+        } catch { }
+
+        # ---- 任务页 ----
+        # 筛选行 58 高；列表与详情按剩余高度 68:32 分配，和日志页保持同一套比例。
+        try {
+            $wT = [Math]::Max(560, $pageTasks.ClientSize.Width)
+            $hT = [Math]::Max(320, $pageTasks.ClientSize.Height)
+
+            $pnlTaskFilter.Width   = [Math]::Max(400, ($wT - 4))
+            $pnlTaskFilter.Height  = 58
+            $pnlTaskButtons.Height = 34
+
+            $tListTop = $pnlTaskFilter.Top + $pnlTaskFilter.Height + 8
+            $tDetailH = [Math]::Max(90, [int](($hT - $tListTop - 16) * 0.32))
+            $tListH   = [Math]::Max(100, ($hT - $tListTop - $tDetailH - 12))
+
+            $lstTasks.Left   = 0
+            $lstTasks.Top    = $tListTop
+            $lstTasks.Width  = [Math]::Max(400, ($wT - 4))
+            $lstTasks.Height = $tListH
+
+            $txtTaskDetail.Left   = 0
+            $txtTaskDetail.Top    = $lstTasks.Top + $lstTasks.Height + 4
+            $txtTaskDetail.Width  = [Math]::Max(400, ($wT - 4))
+            $txtTaskDetail.Height = [Math]::Max(80, ($hT - $txtTaskDetail.Top - 8))
+
+            $lstTasks.Columns[0].Width = 126
+            $lstTasks.Columns[1].Width = [Math]::Max(140, ($wT - 4 - 126 - 64 - 60 - 56 - 130 - 150 - 24))
+            $lstTasks.Columns[2].Width = 64
+            $lstTasks.Columns[3].Width = 60
+            $lstTasks.Columns[4].Width = 56
+            $lstTasks.Columns[5].Width = 130
+            $lstTasks.Columns[6].Width = 150
+        } catch { }
+
+        # ---- 审计页 ----
+        try {
+            $wA = [Math]::Max(560, $pageAudit.ClientSize.Width)
+            $hA = [Math]::Max(320, $pageAudit.ClientSize.Height)
+
+            $pnlAuditFilter.Width   = [Math]::Max(400, ($wA - 4))
+            $pnlAuditFilter.Height  = 58
+            $pnlAuditButtons.Height = 34
+
+            $aListTop = $pnlAuditFilter.Top + $pnlAuditFilter.Height + 8
+            $aDetailH = [Math]::Max(90, [int](($hA - $aListTop - 16) * 0.32))
+            $aListH   = [Math]::Max(100, ($hA - $aListTop - $aDetailH - 12))
+
+            $lstAudit.Left   = 0
+            $lstAudit.Top    = $aListTop
+            $lstAudit.Width  = [Math]::Max(400, ($wA - 4))
+            $lstAudit.Height = $aListH
+
+            $txtAuditDetail.Left   = 0
+            $txtAuditDetail.Top    = $lstAudit.Top + $lstAudit.Height + 4
+            $txtAuditDetail.Width  = [Math]::Max(400, ($wA - 4))
+            $txtAuditDetail.Height = [Math]::Max(80, ($hA - $txtAuditDetail.Top - 8))
+
+            $lstAudit.Columns[0].Width = 126
+            $lstAudit.Columns[1].Width = 84
+            $lstAudit.Columns[2].Width = 52
+            $lstAudit.Columns[3].Width = 120
+            $lstAudit.Columns[4].Width = 150
+            $lstAudit.Columns[5].Width = [Math]::Max(160, ($wA - 4 - 126 - 84 - 52 - 120 - 150 - 24))
+        } catch { }
+
+        # ---- 远程主机页 ----
+        # 筛选行 58 + 工具行 34；列表与详情按剩余高度 68:32 分配。
+        try {
+            $wH = [Math]::Max(560, $pageHosts.ClientSize.Width)
+            $hH = [Math]::Max(320, $pageHosts.ClientSize.Height)
+
+            $pnlHostFilter.Width  = [Math]::Max(400, ($wH - 4))
+            $pnlHostFilter.Height = 58
+            $pnlHostButtons.Height = 34
+
+            $pnlHostBar.Left   = 0
+            $pnlHostBar.Top    = $pnlHostFilter.Top + $pnlHostFilter.Height + 4
+            $pnlHostBar.Width  = [Math]::Max(400, ($wH - 4))
+            $pnlHostBar.Height = 34
+
+            $hListTop = $pnlHostBar.Top + $pnlHostBar.Height + 6
+            $hDetailH = [Math]::Max(90, [int](($hH - $hListTop - 16) * 0.32))
+            $hListH   = [Math]::Max(100, ($hH - $hListTop - $hDetailH - 12))
+
+            $lstHosts.Left   = 0
+            $lstHosts.Top    = $hListTop
+            $lstHosts.Width  = [Math]::Max(400, ($wH - 4))
+            $lstHosts.Height = $hListH
+
+            $txtHostDetail.Left   = 0
+            $txtHostDetail.Top    = $lstHosts.Top + $lstHosts.Height + 4
+            $txtHostDetail.Width  = [Math]::Max(400, ($wH - 4))
+            $txtHostDetail.Height = [Math]::Max(80, ($hH - $txtHostDetail.Top - 8))
+
+            $lstHosts.Columns[0].Width = 150
+            $lstHosts.Columns[1].Width = 150
+            $lstHosts.Columns[2].Width = 56
+            $lstHosts.Columns[3].Width = 60
+            $lstHosts.Columns[4].Width = 76
+            $lstHosts.Columns[5].Width = 56
+            $lstHosts.Columns[6].Width = 110
+            $lstHosts.Columns[7].Width = 126
+            $lstHosts.Columns[8].Width = 60
+            $lstHosts.Columns[9].Width = [Math]::Max(120, ($wH - 4 - 150 - 150 - 56 - 60 - 76 - 56 - 110 - 126 - 60 - 24))
+        } catch { }
+
+        # 控制行 34 + 状态框 110 + 日志尾撑满剩余；窄屏只压宽度，不动纵向节奏。
+        try {
+
+
+
+
+        } catch { }
 
         # ---- PageHeader 收尾同步（必须放在最后）----
         # 上面各页的 -Wide 列表会按"页面宽度"去撑副标题，而副标题现在是页头的子控件，
         # 撑过头就会画出页头右边界（实测 962 > 900）。这里按页头的实际宽度重算一次：
         # 页头横贯内容区，副标题在它内部收住（超出部分省略号）。
         foreach ($h in @($hdrEnv, $hdrApp, $hdrTool, $hdrMore, $hdrStore, $hdrRole,
-                         $hdrMon, $hdrSec, $hdrBeauty, $hdrDsh, $hdrAbout)) {
+                         $hdrMon, $hdrSec, $hdrBeauty, $hdrDsh, $hdrAbout, $hdrFiles, $hdrLogs,
+                         $hdrTasks, $hdrAudit, $hdrHosts)) {
             if (-not $h -or -not $h.Parent) { continue }
             $hw = [Math]::Max(240, $h.Parent.ClientSize.Width)
             $h.Width = $hw
@@ -4484,6 +4927,29 @@ function Update-PageLayout {
                 $h.Tag.Sub.Width = [Math]::Max(80, ($hw - [int]$h.Tag.GapX - 10))
             }
         }
+        # 日志页的汇总胶囊挂在页头右侧，跟着页头宽度贴右边；副标题要让出胶囊的位置
+        try {
+            $pillLogSum.Left = [Math]::Max(0, ($hdrLogs.Width - $pillLogSum.Width - 8))
+            $lblLogsDesc.Width = [Math]::Max(80, ($hdrLogs.Width - [int]$hdrLogs.Tag.GapX - $pillLogSum.Width - 16))
+        } catch { }
+        # 任务页右侧同时挂了「高级设置」「通知」「汇总胶囊」，从右往左依次排；
+        # 副标题右边界跟着最左边那个控件收住，窄屏下不会被压住。
+        try {
+            $tRight = $hdrTasks.Width - 2
+            foreach ($c in @($btnTaskAdv, $btnTaskNotify, $pillTaskSum)) {
+                if (-not $c) { continue }
+                $c.Left = [Math]::Max(0, ($tRight - $c.Width))
+                $tRight = $c.Left - 6
+            }
+            $lblTasksDesc.Width = [Math]::Max(80, ($pillTaskSum.Left - [int]$hdrTasks.Tag.GapX - 12))
+            $pillAuditSum.Left = [Math]::Max(0, ($hdrAudit.Width - $pillAuditSum.Width - 8))
+            $lblAuditDesc.Width = [Math]::Max(80, ($hdrAudit.Width - [int]$hdrAudit.Tag.GapX - $pillAuditSum.Width - 16))
+        } catch { }
+        # 远程主机页：汇总胶囊靠右，副标题让位。
+        try {
+            $pillHostSum.Left = [Math]::Max(0, ($hdrHosts.Width - $pillHostSum.Width - 8))
+            $lblHostsDesc.Width = [Math]::Max(80, ($hdrHosts.Width - [int]$hdrHosts.Tag.GapX - $pillHostSum.Width - 16))
+        } catch { }
     } catch { }
 }
 
@@ -4538,7 +5004,12 @@ function Update-RayPageLayout {
         if ($y -gt 0 -and ($y - 6) -gt $Rows.Top) { $Rows.Top = $y }
 
         $Rows.Width  = $w - 4
-        $Rows.Height = [Math]::Max(120, ($h - $Rows.Top - 10))
+        # 下限只留一行提示的高度：矮窗口（LayoutDump 的 1024x600 客户区只有 524 高）里，
+        # 指标卡加高后结果区 Top 会被推到 472，此时 80 的下限会让它探出底边（真机扫描报越界）。
+        # 正常高度（1240x820）下这条分支根本走不到，结果区仍然是"撑满剩余"。
+        $avail = $h - $Rows.Top - 8
+        if ($avail -lt 32) { $avail = 32 }
+        $Rows.Height = [int]$avail
     } catch { }
 }
 
@@ -4632,10 +5103,26 @@ function Show-GuiPage {
     param([string]$Key, [switch]$SkipCards)
     if (-not $script:Pages.ContainsKey($Key)) { return }
     $script:CurrentPage = $Key
+    # 这一页的控件还没建过：先建（builder 由各页面段末尾注册），再走显示与布局。
+    $__builder = [string]$script:PageBuilders[$Key]
+    if ($__builder -and -not $script:PageBuilt[$Key]) {
+        $script:PageBuilt[$Key] = $true
+        & $__builder
+    }
     foreach ($k in $script:Pages.Keys) { $script:Pages[$k].Visible = ($k -eq $Key) }
     # 这一页第一次显示时，把它里面登记过的圆角 Region 补上（延迟 Region 的兑现点）。
     # 必须是"页面已可见"之后：控件的实际宽高要到这时才是最终值。
     Apply-DeferredRounds -Root $script:Pages[$Key]
+    # 同一时机给页面铺氛围底、把系统部件刷成深色（滚动条/下拉/文本框）。
+    # 只做一次：之后切页不再重复遍历控件树。
+    try {
+        if (-not $script:UiPreparedPages) { $script:UiPreparedPages = New-Object 'System.Collections.Generic.HashSet[System.Windows.Forms.Control]' }
+        if (-not $script:UiPreparedPages.Contains($script:Pages[$Key])) {
+            [void]$script:UiPreparedPages.Add($script:Pages[$Key])
+            Add-UiAmbientBackdrop -Control $script:Pages[$Key]
+            Enable-UiDarkChildren -Root $script:Pages[$Key]
+        }
+    } catch { }
     # 导航：记住模块归属 → 侧栏按需要顶替成分类列 → 同步两边选中态。
     # 导航项都是自绘面板，只改 Tag 里的状态再重画，不做控件重建。
     $__modKey = Get-GuiModuleOfPage -PageKey $Key
@@ -4651,6 +5138,11 @@ function Show-GuiPage {
     if ($Key -eq 'security') { Show-SecPage }
     if ($Key -eq 'beauty') { Show-BeautyPage }
     if ($Key -eq 'dsh') { Show-DshPage }
+    if ($Key -eq 'files') { Show-FilesPage }
+    if ($Key -eq 'logs') { Show-LogsPage }
+    if ($Key -eq 'tasks') { Show-TasksPage }
+    if ($Key -eq 'audit') { Show-AuditPage }
+    if ($Key -eq 'hosts') { Show-HostsPage }
     if ($Key -eq 'tool') { Update-ToolButtons; Update-WacToolGroup }
     # 页头错峰淡入（HMOL：单块 280ms、步长 22ms、OutFluent）
     if (-not $SkipPageHooks) {
@@ -4973,6 +5465,13 @@ function Select-GuiAction {
         $DryButton  = $null,
         $ParamMap   = $null
     )
+    # 默认参数面板/运行按钮都在「设置」页。设置页是按需构建的，从别的页触发动作时先把它建出来，
+    # 否则 $pnlParams / $btnRun 还是 $null，动作界面点不出来（只在用户点动作时发生，不影响启动）。
+    $__moreBuilder = [string]$script:PageBuilders['more']
+    if ($__moreBuilder -and -not $script:PageBuilt['more']) {
+        $script:PageBuilt['more'] = $true
+        & $__moreBuilder
+    }
     if (-not $TitleLabel) { $TitleLabel = $lblActTitle }
     if (-not $DescLabel)  { $DescLabel  = $lblActDesc }
     if (-not $ParamPanel) { $ParamPanel = $pnlParams }
@@ -4998,6 +5497,12 @@ function Select-GuiAction {
         $w = 320
         if ($pd.ContainsKey('Width')) { $w = [int]$pd.Width }
         $x = [Math]::Max(230, ($ParamPanel.Width - $w - 60))
+        # 标签限宽：AutoSize 的长标签会压到右侧输入框上（审计实测 244 > 230-8）。
+        # 关掉自动尺寸、超长用省略号收住，右边界让到输入框左侧 8px。
+        $lb.AutoSize     = $false
+        $lb.AutoEllipsis = $true
+        $lb.Width        = [Math]::Max(60, ($x - 16))
+        $lb.Height       = 20
         $ctl = $null
         switch ([string]$pd.Type) {
             'Check' {
@@ -5018,6 +5523,15 @@ function Select-GuiAction {
                 $ctl = New-Object System.Windows.Forms.TextBox
                 $ctl.UseSystemPasswordChar = $true
                 $ctl.Size = New-Object System.Drawing.Size($w, 24)
+                if ($pd.ContainsKey('Default')) { $ctl.Text = [string]$pd.Default }
+            }
+            'Multi' {
+                # 多行参数（例如整段文件内容）：单行 TextBox 装不下，也不便于核对。
+                $ctl = New-Object System.Windows.Forms.TextBox
+                $ctl.Multiline   = $true
+                $ctl.AcceptsReturn = $true
+                $ctl.ScrollBars  = 'Vertical'
+                $ctl.Size        = New-Object System.Drawing.Size($w, 120)
                 if ($pd.ContainsKey('Default')) { $ctl.Text = [string]$pd.Default }
             }
             default {
@@ -5062,7 +5576,7 @@ function Select-GuiAction {
             }.GetNewClosure())
             $ParamPanel.Controls.Add($bb)
         }
-        $y += 30
+        if ([string]$pd.Type -eq 'Multi') { $y += 126 } else { $y += 30 }
     }
     $DryButton.Enabled = [bool]$Action.DryRun
 }
@@ -5176,10 +5690,15 @@ function Finish-GuiAction {
     $btnFill.Enabled = $true
     $btnRun.Enabled = $true
     $script:Proc = $null
+    $script:CurrentJobId = ''
     Clear-EnvCache          # 动作可能改了环境状态
     # 只有正在看「环境」页时才重新探测；探测在后台跑，界面不卡
     if ($script:CurrentPage -eq 'env') { Start-EnvProbe }
     Refresh-ProgramList
+    # 任务 / 审计页正开着就刷新一次，动作结束后不用手点「刷新」。
+    if ($script:CurrentPage -eq 'tasks') { Start-TasksQuery }
+    if ($script:CurrentPage -eq 'audit') { Start-AuditQuery }
+    if ($script:CurrentPage -eq 'tasks') { Update-NotifyButton }
 }
 
 $script:Timer.Add_Tick({
@@ -5198,7 +5717,7 @@ function Start-GuiActionById {
 }
 
 function Start-GuiAction {
-    param([bool]$DryRun = $false)
+    param([bool]$DryRun = $false, [string]$RetryOf = '')
 
     if (-not $script:CurrentAction) { return }
     # UI 审计模式：只走一遍回调，不真的执行动作（审计要能安全地"点"每一个按钮）
@@ -5249,8 +5768,13 @@ function Start-GuiAction {
     }
 
     Close-GuiOutReader          # 新动作会写新的 stdout.txt，重新开流从头读
+    $jobId = ''
+    try { $jobId = New-GuiReadyTaskId } catch { $jobId = ('task-' + $stamp) }
+    $script:CurrentJobId = $jobId
     Append-GuiLog -Line ''
     Append-GuiLog -Line ('[STEP] ==== {0} {1} ====' -f $script:CurrentAction.Name, $(if ($DryRun) { '（仅预览）' } else { '' }))
+    Append-GuiLog -Line ('[INFO] 任务编号: ' + $jobId)
+    if ($RetryOf) { Append-GuiLog -Line ('[INFO] 重试来源: ' + $RetryOf) }
     $btnFill.Enabled = $false
     $btnRun.Enabled  = $false
     $script:RunStart = Get-Date
@@ -5259,7 +5783,9 @@ function Start-GuiAction {
         $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"' + $script:RunnerPath + '"'),
                      '-Action', $script:CurrentAction.Id,
                      '-ArgsFile', ('"' + $argsFile + '"'),
-                     '-LogFile', ('"' + $script:RunLogFile + '"'))
+                     '-LogFile', ('"' + $script:RunLogFile + '"'),
+                     '-JobId', ('"' + $jobId + '"'))
+        if ($RetryOf) { $argList += @('-RetryOf', ('"' + $RetryOf + '"')) }
         $script:Proc = Start-Process -FilePath 'powershell.exe' -ArgumentList $argList -PassThru -WindowStyle Hidden `
                         -RedirectStandardOutput $script:OutFile -RedirectStandardError $script:ErrFile
         $script:Timer.Start()
@@ -5267,11 +5793,37 @@ function Start-GuiAction {
         Append-GuiLog -Line ('[ERROR] 无法启动动作进程: ' + $_.Exception.Message)
         $btnFill.Enabled = $true; $btnRun.Enabled = $true
         $script:Proc = $null
+        $script:CurrentJobId = ''
     }
 }
 
-$btnRun.Add_Click({ Start-GuiAction -DryRun $false })
-$btnDry.Add_Click({ Start-GuiAction -DryRun $true })
+function Bind-MoreEvents {
+    # 设置页的事件绑定 + 左侧功能树填充；页面首次显示时由 Build-MorePage 调用
+    $btnRun.Add_Click({ Start-GuiAction -DryRun $false })
+    $btnDry.Add_Click({ Start-GuiAction -DryRun $true })
+
+    $tree.Add_AfterSelect({
+        $n = $tree.SelectedNode
+        if ($n -and $n.Tag) { Select-GuiAction -Action $n.Tag }
+    })
+
+    # 设置页只保留「开机与登录」这类系统级设置（用户要求：设置里改成开机自启动之类的）。
+    # 其余动作按功能域拆到各页的「高级设置」对话框里，见 Add-PageAdvancedButton。
+    $script:SettingsGroups = @('会话与登录', '使用与工具')
+    $groups = @($script:Actions | Group-Object Group |
+        Where-Object { $script:SettingsGroups -contains [string]$_.Name })
+    foreach ($g in $groups) {
+        $node = New-Object System.Windows.Forms.TreeNode($g.Name)
+        $node.NodeFont = New-Font -Size 9.5 -Style Bold
+        foreach ($a in $g.Group) {
+            $child = New-Object System.Windows.Forms.TreeNode($a.Name)
+            $child.Tag = $a
+            [void]$node.Nodes.Add($child)
+        }
+        [void]$tree.Nodes.Add($node)
+        $node.Expand()
+    }
+}
 
 $script:AdvDialog = $null
 function Show-ActionsDialog {
@@ -5280,7 +5832,7 @@ function Show-ActionsDialog {
 
     # 自检 / 布局导出 / UI 审计时不真开窗：审计会"点"每个按钮，
     # 真开一个窗口会让它在模态循环里卡住，而且也没必要。
-    if ($SkipPageHooks) { return }
+    if ($SkipPageHooks -or $script:AuditMode) { return }
     if ($script:AdvDialog -and -not $script:AdvDialog.IsDisposed) {
         try { $script:AdvDialog.Activate() } catch { }
         return
@@ -5384,28 +5936,6 @@ function Show-ActionsDialog {
     $dlg.Show()
 }
 
-$tree.Add_AfterSelect({
-    $n = $tree.SelectedNode
-    if ($n -and $n.Tag) { Select-GuiAction -Action $n.Tag }
-})
-
-# 设置页只保留「开机与登录」这类系统级设置（用户要求：设置里改成开机自启动之类的）。
-# 其余动作按功能域拆到各页的「高级设置」对话框里，见 Add-PageAdvancedButton。
-$script:SettingsGroups = @('会话与登录', '使用与工具')
-$groups = @($script:Actions | Group-Object Group |
-    Where-Object { $script:SettingsGroups -contains [string]$_.Name })
-foreach ($g in $groups) {
-    $node = New-Object System.Windows.Forms.TreeNode($g.Name)
-    $node.NodeFont = New-Font -Size 9.5 -Style Bold
-    foreach ($a in $g.Group) {
-        $child = New-Object System.Windows.Forms.TreeNode($a.Name)
-        $child.Tag = $a
-        [void]$node.Nodes.Add($child)
-    }
-    [void]$tree.Nodes.Add($node)
-    $node.Expand()
-}
-
 # ============================ 软件管理逻辑 ============================
 
 function Load-Programs {
@@ -5439,11 +5969,15 @@ function Get-ProgramCmd {
 }
 
 function Refresh-ProgramList {
+    if (-not $lstApps) { return }   # 软件页还没按需构建：没有列表可刷，等页面建好时自己会填
     $lstApps.BeginUpdate()
     $lstApps.Items.Clear()
     foreach ($p in $script:Programs) {
         $verdict = ''
-        $exists = Test-Path -LiteralPath ([string]$p.Path)
+        # 只绑了命令、没有 exe 路径的条目 Path 是空串：Test-Path -LiteralPath '' 会直接抛
+        # （界面自检就是这么挂的），这里必须先判空。
+        $exePath = ([string]$p.Path).Trim()
+        $exists = if ($exePath) { Test-Path -LiteralPath $exePath } else { $false }
         if (-not $exists) {
             $verdict = '文件不存在'
         } else {
@@ -5514,6 +6048,8 @@ function Start-ProgramItem {
     }
 }
 
+function Bind-AppEvents {
+    # 软件页的事件绑定；页面首次显示时由 Build-AppPage 调用
 $lstApps.Add_DoubleClick({ $it = Get-SelectedProgram; if ($it) { Start-ProgramItem -Item $it } })
 
 $btnAppAdd.Add_Click({
@@ -5677,6 +6213,2559 @@ $btnAppDel.Add_Click({
     Refresh-ProgramList
     Append-GuiLog -Line ('[OK] 已移除: ' + $it.Name)
 })
+}
+
+# ============================ 文件管理页 ============================
+# 浏览 / 预览 / 编辑 / 新建 / 重命名 / 复制 / 移动 / 删除 / 压缩 / 解压。
+# 读取走查询宿主，写操作走动作机制：两边都是子进程，UI 线程只负责画结果。
+
+$pageFiles             = New-Object System.Windows.Forms.Panel
+$pageFiles.Dock        = 'Fill'
+$pageFiles.BackColor   = $Pal.Bg
+$script:Pages['files'] = $pageFiles
+$pnlContent.Controls.Add($pageFiles)
+
+# 文件页控件按需构建（首次显示本页时执行）：页头、左右分栏、列表、预览栏与右键菜单
+function Build-FilesPage {
+$hdrFiles = New-PageHeader -Title '文件管理' -Subtitle '浏览服务器文件系统，预览/编辑文本，压缩解压与整理目录。所有写操作都会记入全局日志。' -Icon 'files' -Width 900
+$pageFiles.Controls.Add($hdrFiles)
+$lblFilesHead = $hdrFiles.Tag.Title
+$lblFilesDesc = $hdrFiles.Tag.Sub
+
+$script:FilesPath          = $toolRoot
+$script:FilesItems         = @()
+$script:FilesPreviewPath   = ''
+$script:FilesPreviewBinary = $false
+$script:FilesPreviewTrunc  = $false
+$script:FilesPreviewDirty  = $false
+$script:FilesRefreshPending = $false
+$script:FilesReloadPreview  = $false
+
+$pnlFilesBody = New-Object System.Windows.Forms.Panel
+$pnlFilesBody.Location  = New-Object System.Drawing.Point(0, 56)
+$pnlFilesBody.BackColor = $Pal.Bg
+$pageFiles.Controls.Add($pnlFilesBody)
+
+$splitFiles                  = New-Object System.Windows.Forms.SplitContainer
+$splitFiles.Dock             = 'Fill'
+$splitFiles.Orientation      = 'Vertical'
+$splitFiles.SplitterWidth    = 8
+$splitFiles.BackColor        = $Pal.Bg
+$splitFiles.Panel1.BackColor = $Pal.Bg
+$splitFiles.Panel2.BackColor = $Pal.Bg
+$pnlFilesBody.Controls.Add($splitFiles)
+
+# ---- 左：路径栏 + 列表 + 工具栏 ----
+$lstFiles                 = New-Object System.Windows.Forms.ListView
+$lstFiles.Dock            = 'Fill'
+$lstFiles.View            = 'Details'
+$lstFiles.FullRowSelect   = $true
+$lstFiles.HideSelection   = $false
+$lstFiles.MultiSelect     = $false
+$lstFiles.GridLines       = $false
+$lstFiles.BorderStyle     = 'None'
+$lstFiles.BackColor       = $Pal.Card
+$lstFiles.ForeColor       = $Pal.Text
+$lstFiles.Font            = New-Font -Size 9.5
+[void]$lstFiles.Columns.Add('名称', 240)
+[void]$lstFiles.Columns.Add('大小', 84)
+[void]$lstFiles.Columns.Add('类型', 104)
+[void]$lstFiles.Columns.Add('修改时间', 132)
+[void]$lstFiles.Columns.Add('属性', 66)
+$splitFiles.Panel1.Controls.Add($lstFiles)
+Enable-GuiListViewSkin -List $lstFiles -RowHeight 40
+
+$pnlFileTools             = New-Object System.Windows.Forms.FlowLayoutPanel
+$pnlFileTools.Dock        = 'Bottom'
+$pnlFileTools.AutoSize    = $true
+$pnlFileTools.AutoSizeMode = 'GrowAndShrink'
+$pnlFileTools.WrapContents = $true
+$pnlFileTools.FlowDirection = 'LeftToRight'
+$pnlFileTools.BackColor   = $Pal.Bg
+$pnlFileTools.Padding     = New-Object System.Windows.Forms.Padding(0, 6, 0, 0)
+$splitFiles.Panel1.Controls.Add($pnlFileTools)
+
+$btnFileNew     = New-FlatButton -Text '新建文件夹' -Width 96 -Height 30
+$btnFileRename  = New-FlatButton -Text '重命名' -Width 76 -Height 30
+$btnFileDelete  = New-FlatButton -Text '删除' -Width 64 -Height 30 -Kind Danger
+$btnFileCopy    = New-FlatButton -Text '复制到' -Width 76 -Height 30
+$btnFileMove    = New-FlatButton -Text '移动到' -Width 76 -Height 30
+$btnFileZip     = New-FlatButton -Text '压缩' -Width 64 -Height 30
+$btnFileUnzip   = New-FlatButton -Text '解压' -Width 64 -Height 30
+foreach ($b in @($btnFileNew, $btnFileRename, $btnFileDelete, $btnFileCopy, $btnFileMove, $btnFileZip, $btnFileUnzip)) {
+    $b.Margin = New-Object System.Windows.Forms.Padding(0, 0, 6, 6)
+    $pnlFileTools.Controls.Add($b)
+}
+
+$pnlFilePath             = New-Object System.Windows.Forms.Panel
+$pnlFilePath.Dock        = 'Top'
+$pnlFilePath.Height      = 40
+$pnlFilePath.BackColor   = $Pal.Bg
+$splitFiles.Panel1.Controls.Add($pnlFilePath)
+
+$txtFilePath             = New-Object System.Windows.Forms.TextBox
+$txtFilePath.Location    = New-Object System.Drawing.Point(0, 5)
+$txtFilePath.Size        = New-Object System.Drawing.Size(340, 26)
+$txtFilePath.Anchor      = 'Top,Left,Right'
+$txtFilePath.BackColor   = $Pal.Sunken
+$txtFilePath.ForeColor   = $Pal.Text
+$txtFilePath.BorderStyle = 'FixedSingle'
+$txtFilePath.Font        = New-Font -Size 9.5
+$pnlFilePath.Controls.Add($txtFilePath)
+
+$btnFileGo      = New-FlatButton -Text '转到' -Width 64 -Height 28
+$btnFileRefresh = New-FlatButton -Text '刷新' -Width 64 -Height 28
+$btnFileUp      = New-FlatButton -Text '上级' -Width 64 -Height 28
+foreach ($b in @($btnFileGo, $btnFileRefresh, $btnFileUp)) {
+    $b.Anchor = 'Top,Right'
+    $pnlFilePath.Controls.Add($b)
+}
+
+# ---- 右：预览 + 信息 ----
+$txtFilePreview           = New-Object System.Windows.Forms.TextBox
+$txtFilePreview.Dock      = 'Fill'
+$txtFilePreview.Multiline = $true
+$txtFilePreview.ReadOnly  = $true
+$txtFilePreview.ScrollBars = 'Both'
+$txtFilePreview.WordWrap  = $false
+$txtFilePreview.BackColor = $Pal.Sunken
+$txtFilePreview.ForeColor = $Pal.Text
+$txtFilePreview.BorderStyle = 'None'
+$txtFilePreview.Font      = New-Font -Size 9.5
+$splitFiles.Panel2.Controls.Add($txtFilePreview)
+
+$pnlFilePreviewBar             = New-Object System.Windows.Forms.Panel
+$pnlFilePreviewBar.Dock        = 'Top'
+$pnlFilePreviewBar.Height      = 40
+$pnlFilePreviewBar.BackColor   = $Pal.Bg
+$splitFiles.Panel2.Controls.Add($pnlFilePreviewBar)
+
+$lblFileInfo = New-Label -Text '选择文件查看预览' -Size 8.8 -Color SubText -Width 220
+$lblFileInfo.Location   = New-Object System.Drawing.Point(2, 10)
+$lblFileInfo.AutoEllipsis = $true
+$pnlFilePreviewBar.Controls.Add($lblFileInfo)
+
+$btnFileEdit = New-FlatButton -Text '编辑' -Width 64 -Height 28
+$btnFileEdit.Anchor = 'Top,Right'
+$btnFileEdit.Location = New-Object System.Drawing.Point(226, 4)
+$pnlFilePreviewBar.Controls.Add($btnFileEdit)
+$btnFileEdit.Enabled = $false
+
+$pnlFilePreviewBottom             = New-Object System.Windows.Forms.Panel
+$pnlFilePreviewBottom.Dock        = 'Bottom'
+$pnlFilePreviewBottom.Height      = 42
+$pnlFilePreviewBottom.BackColor   = $Pal.Bg
+$splitFiles.Panel2.Controls.Add($pnlFilePreviewBottom)
+
+$btnFileSave = New-FlatButton -Text '保存修改' -Width 96 -Height 30 -Kind Primary
+$btnFileSave.Location = New-Object System.Drawing.Point(0, 5)
+$pnlFilePreviewBottom.Controls.Add($btnFileSave)
+$btnFileSave.Enabled = $false
+
+# ---- 右键菜单 ----
+$menuFiles                = New-Object System.Windows.Forms.ContextMenuStrip
+$menuFiles.BackColor      = $Pal.Card
+$menuFiles.ForeColor      = $Pal.Text
+$menuFiles.ShowImageMargin = $false
+foreach ($spec in @(
+    @{ T = '预览/编辑'; K = 'preview' }, @{ T = '重命名'; K = 'rename' },
+    @{ T = '删除'; K = 'delete' }, @{ T = '复制到…'; K = 'copy' },
+    @{ T = '移动到…'; K = 'move' }, @{ T = '压缩为 ZIP…'; K = 'zip' },
+    @{ T = '解压 ZIP…'; K = 'unzip' }, @{ T = '属性'; K = 'props' }
+)) {
+    $mi = New-Object System.Windows.Forms.ToolStripMenuItem($spec.T)
+    $mi.BackColor = $Pal.Card
+    $mi.ForeColor = $Pal.Text
+    $mi.Tag = $spec.K
+    $menuFiles.Items.Add($mi) | Out-Null
+}
+$lstFiles.ContextMenuStrip = $menuFiles
+
+# 写回脚本作用域：布局函数、列表/预览渲染函数以及本页事件绑定都要用这些控件
+$script:hdrFiles       = $hdrFiles
+$script:pnlFilesBody   = $pnlFilesBody
+$script:splitFiles     = $splitFiles
+$script:lstFiles       = $lstFiles
+$script:btnFileNew     = $btnFileNew
+$script:btnFileRename  = $btnFileRename
+$script:btnFileDelete  = $btnFileDelete
+$script:btnFileCopy    = $btnFileCopy
+$script:btnFileMove    = $btnFileMove
+$script:btnFileZip     = $btnFileZip
+$script:btnFileUnzip   = $btnFileUnzip
+$script:pnlFilePath    = $pnlFilePath
+$script:txtFilePath    = $txtFilePath
+$script:btnFileGo      = $btnFileGo
+$script:btnFileRefresh = $btnFileRefresh
+$script:btnFileUp      = $btnFileUp
+$script:txtFilePreview = $txtFilePreview
+$script:lblFileInfo    = $lblFileInfo
+$script:btnFileEdit    = $btnFileEdit
+$script:btnFileSave    = $btnFileSave
+$script:menuFiles      = $menuFiles
+Bind-FilesEvents
+}
+$script:PageBuilders['files'] = 'Build-FilesPage'
+
+function Get-FilesSelectedItem {
+    if ($lstFiles.SelectedItems.Count -eq 0) { return $null }
+    return $lstFiles.SelectedItems[0].Tag
+}
+
+function Update-FilesButtons {
+    $it = Get-FilesSelectedItem
+    $has = ($null -ne $it)
+    $btnFileRename.Enabled = $has
+    $btnFileDelete.Enabled = $has
+    $btnFileCopy.Enabled   = $has
+    $btnFileMove.Enabled   = $has
+    $btnFileZip.Enabled    = $has
+    $btnFileUnzip.Enabled  = [bool]($has -and (-not $it.IsDir) -and ([string]$it.Name).ToLowerInvariant().EndsWith('.zip'))
+    $btnFileEdit.Enabled   = [bool]($script:FilesPreviewPath -and -not $script:FilesPreviewBinary -and -not $script:FilesPreviewTrunc -and $txtFilePreview.ReadOnly)
+    $btnFileSave.Enabled   = [bool]($script:FilesPreviewDirty -and -not $txtFilePreview.ReadOnly)
+}
+
+function Start-FilesQuery {
+    param([string]$Mode, [hashtable]$Params)
+    [void](Start-GuiQueryHost -Query $script:QFiles -Task $Mode -ArgsJson $Params -BusyText '读取文件…')
+}
+
+function Start-FilesAction {
+    # 写操作统一走动作机制：参数先填进全局参数控件，再启动动作子进程；
+    # 动作跑完后盯住 QFiles 拿到回调，自动刷新列表与预览。
+    param([string]$Id, [hashtable]$Params)
+
+    $a = @($script:Actions | Where-Object { $_.Id -eq $Id })
+    if ($a.Count -eq 0) {
+        Append-GuiLog -Line ('[ERROR] 未找到功能: ' + $Id)
+        return
+    }
+    if ($script:Proc) {
+        [System.Windows.Forms.MessageBox]::Show('上一个动作还在运行，请稍后再试。', '提示', 'OK', 'Information') | Out-Null
+        return
+    }
+    Select-GuiAction -Action $a[0]
+    Set-ParamValues -Values $Params
+    Start-GuiAction -DryRun $false
+    if ($script:Proc) {
+        if (-not $script:QFiles.Task) { Start-GuiQueryWatch -Query $script:QFiles }
+        else { $script:FilesRefreshPending = $true }
+    }
+}
+
+function Set-FilesLocation {
+    param([string]$Path)
+
+    $txtFilePreview.ReadOnly = $true
+    $txtFilePreview.Text     = ''
+    $btnFileEdit.Text        = '编辑'
+    $script:FilesPreviewPath   = ''
+    $script:FilesPreviewDirty  = $false
+    $script:FilesPreviewBinary = $false
+    $script:FilesPreviewTrunc  = $false
+    $lblFileInfo.Text          = '读取中…'
+    Start-FilesQuery -Mode 'list' -Params @{ Path = $Path; ShowHidden = $false }
+}
+
+function Show-FilesList {
+    $lstFiles.BeginUpdate()
+    try {
+        $lstFiles.Items.Clear()
+        foreach ($it in @($script:FilesItems)) {
+            $li = New-Object System.Windows.Forms.ListViewItem([string]$it.Name)
+            [void]$li.SubItems.Add([string]$it.SizeText)
+            [void]$li.SubItems.Add([string]$it.Type)
+            [void]$li.SubItems.Add([string]$it.Modified)
+            [void]$li.SubItems.Add([string]$it.Attributes)
+            $li.Tag = $it
+            if ($it.IsDir) { $li.ForeColor = $Pal.Accent3 } else { $li.ForeColor = $Pal.Text }
+            [void]$lstFiles.Items.Add($li)
+        }
+    } finally { $lstFiles.EndUpdate() }
+    Update-FilesButtons
+}
+
+function Show-FilePreview {
+    param([string]$Path)
+
+    $script:FilesPreviewPath = $Path
+    $txtFilePreview.ReadOnly = $true
+    $btnFileEdit.Text        = '编辑'
+    $script:FilesPreviewDirty = $false
+    $lblFileInfo.Text        = '读取预览…'
+    Start-FilesQuery -Mode 'read' -Params @{ Path = $Path; MaxKB = 256 }
+}
+
+function Receive-FilesResult {
+    param($Obj)
+
+    if ($null -eq $Obj) {
+        # 动作结束的回调：刷新列表；之前若因查询忙而挂起，这里一并补上。
+        $script:FilesRefreshPending = $false
+        $script:FilesReloadPreview  = [bool]$script:FilesPreviewPath
+        Start-FilesQuery -Mode 'list' -Params @{ Path = $script:FilesPath; ShowHidden = $false }
+        return
+    }
+
+    if ($Obj.Error) {
+        $lblFileInfo.Text = ('读取失败：' + [string]$Obj.Error)
+        Append-GuiLog -Line ('[WARN] 文件查询: ' + [string]$Obj.Error)
+        return
+    }
+
+    if ($Obj.Mode -eq 'list') {
+        $data = $Obj.Data
+        $script:FilesPath  = [string]$data.Path
+        $script:FilesItems = @($data.Items)
+        $txtFilePath.Text  = $script:FilesPath
+        $lblFileInfo.Text  = ('{0} 项{1}' -f $data.Total, $(if ($data.Truncated) { '（仅显示前 2000 项）' } else { '' }))
+        Show-FilesList
+        if ($script:FilesRefreshPending) {
+            $script:FilesRefreshPending = $false
+            Start-FilesQuery -Mode 'list' -Params @{ Path = $script:FilesPath; ShowHidden = $false }
+        } elseif ($script:FilesReloadPreview -and $script:FilesPreviewPath) {
+            $script:FilesReloadPreview = $false
+            Start-FilesQuery -Mode 'read' -Params @{ Path = $script:FilesPreviewPath; MaxKB = 256 }
+        }
+        return
+    }
+
+    if ($Obj.Mode -eq 'read') {
+        $data = $Obj.Data
+        $script:FilesPreviewPath   = [string]$data.Path
+        $script:FilesPreviewBinary = [bool]$data.Binary
+        $script:FilesPreviewTrunc  = [bool]$data.Truncated
+        $script:FilesPreviewDirty  = $false
+        $script:FilesPreviewSize   = [long]$data.Size
+        $txtFilePreview.ReadOnly   = $true
+        $btnFileEdit.Text          = '编辑'
+        if ($data.Binary) {
+            $txtFilePreview.Text = ('[二进制文件，不提供文本预览]' + "`r`n" + '大小：' + (Format-GuiReadyByteSize -Bytes $data.Size))
+            $lblFileInfo.Text    = '二进制文件'
+        } else {
+            $txtFilePreview.Text = [string]$data.Text
+            $tail = ''
+            if ($data.Truncated) { $tail = ' · 已截断（仅预览前 256 KB，编辑已禁用）' }
+            $lblFileInfo.Text = ('{0} · {1} · {2} 行 · {3}{4}' -f [System.IO.Path]::GetFileName($data.Path), $data.Encoding, $data.Lines, (Format-GuiReadyByteSize -Bytes $data.Size), $tail)
+        }
+        $txtFilePreview.SelectionStart = 0
+        Update-FilesButtons
+    }
+}
+
+$script:QFiles = New-GuiQueryHost -Name 'files' -Runner (Join-Path $guiDir 'Run-GuiReadyFiles.ps1') -TimeoutSec 60 `
+    -OnResult { param($obj) Receive-FilesResult -Obj $obj } `
+    -OnBusyStart { param($t) $lblFileInfo.Text = $t } `
+    -OnBusyEnd { }
+
+function Bind-FilesEvents {
+    # 文件页的事件绑定；页面首次显示时由 Build-FilesPage 调用
+$btnFileGo.Add_Click({ Set-FilesLocation -Path $txtFilePath.Text })
+$btnFileRefresh.Add_Click({ Set-FilesLocation -Path $script:FilesPath })
+$btnFileUp.Add_Click({
+    $parent = [System.IO.Path]::GetDirectoryName($script:FilesPath)
+    if ($parent) { Set-FilesLocation -Path $parent }
+})
+$txtFilePath.Add_KeyDown({
+    if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Enter) { Set-FilesLocation -Path $txtFilePath.Text }
+})
+$lstFiles.Add_SelectedIndexChanged({
+    $it = Get-FilesSelectedItem
+    Update-FilesButtons
+    if ($it -and -not $it.IsDir) {
+        $lblFileInfo.Text = ('{0} · {1} · {2}' -f $it.Name, $it.SizeText, $it.Modified)
+    }
+})
+$lstFiles.Add_DoubleClick({
+    $it = Get-FilesSelectedItem
+    if (-not $it) { return }
+    if ($it.IsDir) { Set-FilesLocation -Path $it.FullName } else { Show-FilePreview -Path $it.FullName }
+})
+$lstFiles.Add_KeyDown({
+    if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Enter) {
+        $it = Get-FilesSelectedItem
+        if (-not $it) { return }
+        if ($it.IsDir) { Set-FilesLocation -Path $it.FullName } else { Show-FilePreview -Path $it.FullName }
+    }
+})
+$txtFilePreview.Add_TextChanged({
+    if (-not $txtFilePreview.ReadOnly) {
+        $script:FilesPreviewDirty = $true
+        $btnFileSave.Enabled = $true
+    }
+})
+
+$btnFileNew.Add_Click({
+    $name = Show-GuiInputDialog -Title '新建文件夹' -Label ('在以下目录新建：' + $script:FilesPath) -Default '新建文件夹'
+    if ($null -eq $name -or -not $name.Trim()) { return }
+    Start-FilesAction -Id 'file-mkdir' -Params @{ Path = $script:FilesPath; Name = $name.Trim() }
+})
+$btnFileRename.Add_Click({
+    $it = Get-FilesSelectedItem
+    if (-not $it) { return }
+    $name = Show-GuiInputDialog -Title '重命名' -Label ('当前名称：' + $it.Name) -Default $it.Name
+    if ($null -eq $name -or -not $name.Trim()) { return }
+    Start-FilesAction -Id 'file-rename' -Params @{ Path = $it.FullName; NewName = $name.Trim() }
+})
+$btnFileDelete.Add_Click({
+    $it = Get-FilesSelectedItem
+    if (-not $it) { return }
+    $kind = $(if ($it.IsDir) { '文件夹（含其中全部内容）' } else { '文件' })
+    $r = [System.Windows.Forms.MessageBox]::Show(('确定删除这个{0}吗？`r`n`r`n{1}' -f $kind, $it.FullName), '确认删除', 'YesNo', 'Warning')
+    if ($r -ne 'Yes') { return }
+    Start-FilesAction -Id 'file-delete' -Params @{ Path = $it.FullName; Recurse = [bool]$it.IsDir }
+})
+$btnFileCopy.Add_Click({
+    $it = Get-FilesSelectedItem
+    if (-not $it) { return }
+    $dest = Show-GuiInputDialog -Title '复制到' -Label '目标路径或已存在的目标目录：' -Default $script:FilesPath
+    if ($null -eq $dest -or -not $dest.Trim()) { return }
+    Start-FilesAction -Id 'file-copy' -Params @{ Path = $it.FullName; Destination = $dest.Trim(); Overwrite = $false }
+})
+$btnFileMove.Add_Click({
+    $it = Get-FilesSelectedItem
+    if (-not $it) { return }
+    $dest = Show-GuiInputDialog -Title '移动到' -Label '目标路径或已存在的目标目录：' -Default $script:FilesPath
+    if ($null -eq $dest -or -not $dest.Trim()) { return }
+    Start-FilesAction -Id 'file-move' -Params @{ Path = $it.FullName; Destination = $dest.Trim(); Overwrite = $false }
+})
+$btnFileZip.Add_Click({
+    $it = Get-FilesSelectedItem
+    if (-not $it) { return }
+    $leaf = [System.IO.Path]::GetFileName($it.FullName.TrimEnd('\'))
+    $dlg = New-Object System.Windows.Forms.SaveFileDialog
+    $dlg.Title = '压缩为 ZIP'
+    $dlg.Filter = 'ZIP 压缩包|*.zip'
+    $dlg.InitialDirectory = [System.IO.Path]::GetDirectoryName($it.FullName)
+    $dlg.FileName = $(if ($leaf.ToLowerInvariant().EndsWith('.zip')) { $leaf } else { $leaf + '.zip' })
+    if ($dlg.ShowDialog() -ne 'OK') { return }
+    Start-FilesAction -Id 'file-compress' -Params @{ Path = $it.FullName; Destination = $dlg.FileName }
+})
+$btnFileUnzip.Add_Click({
+    $it = Get-FilesSelectedItem
+    if (-not $it) { return }
+    $fbd = New-Object System.Windows.Forms.FolderBrowserDialog
+    $fbd.Description = '选择解压目标目录'
+    $fbd.SelectedPath = $script:FilesPath
+    $fbd.ShowNewFolderButton = $true
+    if ($fbd.ShowDialog() -ne 'OK') { return }
+    Start-FilesAction -Id 'file-expand' -Params @{ Path = $it.FullName; Destination = $fbd.SelectedPath; Overwrite = $false }
+})
+$btnFileEdit.Add_Click({
+    if (-not $script:FilesPreviewPath) { return }
+    if ($txtFilePreview.ReadOnly) {
+        if ($script:FilesPreviewBinary -or $script:FilesPreviewTrunc) { return }
+        $txtFilePreview.ReadOnly = $false
+        $btnFileEdit.Text = '取消编辑'
+        $btnFileSave.Enabled = $false
+        $script:FilesPreviewDirty = $false
+        $txtFilePreview.Focus()
+    } else {
+        $txtFilePreview.ReadOnly = $true
+        $btnFileEdit.Text = '编辑'
+        $btnFileSave.Enabled = $false
+        $script:FilesPreviewDirty = $false
+        Start-FilesQuery -Mode 'read' -Params @{ Path = $script:FilesPreviewPath; MaxKB = 256 }
+    }
+})
+$btnFileSave.Add_Click({
+    if (-not $script:FilesPreviewPath) { return }
+    Start-FilesAction -Id 'file-save' -Params @{ Path = $script:FilesPreviewPath; Text = $txtFilePreview.Text }
+    $script:FilesPreviewDirty = $false
+    $btnFileSave.Enabled = $false
+})
+
+$menuFiles.Add_ItemClicked({
+    param($s, $e)
+    $it = Get-FilesSelectedItem
+    switch ([string]$e.ClickedItem.Tag) {
+        'preview' { if ($it -and -not $it.IsDir) { Show-FilePreview -Path $it.FullName } }
+        'rename'  { if ($it) { $btnFileRename.PerformClick() } }
+        'delete'  { if ($it) { $btnFileDelete.PerformClick() } }
+        'copy'    { if ($it) { $btnFileCopy.PerformClick() } }
+        'move'    { if ($it) { $btnFileMove.PerformClick() } }
+        'zip'     { if ($it) { $btnFileZip.PerformClick() } }
+        'unzip'   { if ($it -and $btnFileUnzip.Enabled) { $btnFileUnzip.PerformClick() } }
+        'props'   {
+            if (-not $it) { return }
+            try {
+                $info = Get-GuiReadyFilePathInfo -Path $it.FullName
+                $msg = ("路径：{0}`r`n类型：{1}`r`n大小：{2}`r`n创建：{3}`r`n修改：{4}`r`n访问：{5}`r`n属性：{6}`r`n所有者：{7}" -f
+                    $info.FullName, $(if ($info.IsDir) { '文件夹' } else { '文件' }), $info.SizeText,
+                    $info.Created, $info.Modified, $info.Accessed, $info.Attributes, $info.Owner)
+                [System.Windows.Forms.MessageBox]::Show($msg, '属性', 'OK', 'Information') | Out-Null
+            } catch { Append-GuiLog -Line ('[WARN] 读取属性失败: ' + $_.Exception.Message) }
+        }
+    }
+})
+}
+
+function Show-FilesPage {
+    if ($SkipPageHooks) { return }
+    $txtFilePath.Text = $script:FilesPath
+    if ($script:FilesItems.Count -eq 0 -and -not $script:QFiles.Task) {
+        Start-FilesQuery -Mode 'list' -Params @{ Path = $script:FilesPath; ShowHidden = $false }
+    } else {
+        Show-FilesList
+    }
+}
+
+# ============================ 日志中心页 ============================
+# 事件日志（System/Application/Setup/Security）与工具自身 logs 目录下的文件日志统一查看。
+
+$pageLogs             = New-Object System.Windows.Forms.Panel
+$pageLogs.Dock        = 'Fill'
+$pageLogs.BackColor   = $Pal.Bg
+$script:Pages['logs'] = $pageLogs
+$pnlContent.Controls.Add($pageLogs)
+
+# 日志页控件按需构建（首次显示本页时执行）：页头、筛选栏、日志列表与详情框
+function Build-LogsPage {
+$hdrLogs = New-PageHeader -Title '日志中心' -Subtitle '统一查看 Windows 事件日志与工具自身日志，按级别/时间/关键词筛选后可导出 CSV 或文本。' -Icon 'logs' -Width 900
+$pageLogs.Controls.Add($hdrLogs)
+$lblLogsHead = $hdrLogs.Tag.Title
+$lblLogsDesc = $hdrLogs.Tag.Sub
+
+$pillLogSum = New-Pill -Text '待查询' -Kind 'Neutral'
+$pillLogSum.Anchor = 'Top,Right'
+$pillLogSum.Location = New-Object System.Drawing.Point(816, 11)
+$hdrLogs.Controls.Add($pillLogSum)
+
+$script:LogSourceIds    = @()
+$script:LogSourcesReady = $false
+$script:LogEntries      = @()
+$script:LogsRefreshPending = $false
+$script:LogLastParams   = @{ Source = 'event:System'; Max = 300; Level = 'All'; Since = '24h'; Keyword = '' }
+
+$pnlLogFilter             = New-Object System.Windows.Forms.TableLayoutPanel
+$pnlLogFilter.Location    = New-Object System.Drawing.Point(0, 56)
+$pnlLogFilter.BackColor   = $Pal.Bg
+$pnlLogFilter.ColumnCount = 5
+$pnlLogFilter.RowCount    = 2
+$pnlLogFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 40))) | Out-Null
+$pnlLogFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 96))) | Out-Null
+$pnlLogFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 110))) | Out-Null
+$pnlLogFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 60))) | Out-Null
+$pnlLogFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 176))) | Out-Null
+$pnlLogFilter.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 18))) | Out-Null
+$pnlLogFilter.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 40))) | Out-Null
+$pageLogs.Controls.Add($pnlLogFilter)
+
+foreach ($spec in @(
+    @{ C = 0; T = '日志源' }, @{ C = 1; T = '级别' }, @{ C = 2; T = '时间范围' }, @{ C = 3; T = '关键词' }
+)) {
+    $l = New-Label -Text $spec.T -Size 8.5 -Color Hint
+    $l.Dock = 'Fill'
+    $l.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 0)
+    $pnlLogFilter.Controls.Add($l, $spec.C, 0)
+}
+
+$cmbLogSource             = New-Object System.Windows.Forms.ComboBox
+$cmbLogSource.Dock        = 'Fill'
+$cmbLogSource.DropDownStyle = 'DropDownList'
+$cmbLogSource.FlatStyle   = 'Flat'
+$cmbLogSource.BackColor   = $Pal.Sunken
+$cmbLogSource.ForeColor   = $Pal.Text
+$cmbLogSource.Font        = New-Font -Size 9
+$cmbLogSource.Margin      = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+$pnlLogFilter.Controls.Add($cmbLogSource, 0, 1)
+
+$cmbLogLevel              = New-Object System.Windows.Forms.ComboBox
+$cmbLogLevel.Dock         = 'Fill'
+$cmbLogLevel.DropDownStyle = 'DropDownList'
+$cmbLogLevel.FlatStyle    = 'Flat'
+$cmbLogLevel.BackColor    = $Pal.Sunken
+$cmbLogLevel.ForeColor    = $Pal.Text
+$cmbLogLevel.Font         = New-Font -Size 9
+$cmbLogLevel.Margin       = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+foreach ($x in @('全部', '错误', '警告', '信息')) { [void]$cmbLogLevel.Items.Add($x) }
+$cmbLogLevel.SelectedIndex = 0
+$pnlLogFilter.Controls.Add($cmbLogLevel, 1, 1)
+
+$cmbLogSince              = New-Object System.Windows.Forms.ComboBox
+$cmbLogSince.Dock         = 'Fill'
+$cmbLogSince.DropDownStyle = 'DropDownList'
+$cmbLogSince.FlatStyle    = 'Flat'
+$cmbLogSince.BackColor    = $Pal.Sunken
+$cmbLogSince.ForeColor    = $Pal.Text
+$cmbLogSince.Font         = New-Font -Size 9
+$cmbLogSince.Margin       = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+foreach ($x in @('1 小时', '6 小时', '24 小时', '7 天', '30 天', '全部')) { [void]$cmbLogSince.Items.Add($x) }
+$cmbLogSince.SelectedIndex = 2
+$pnlLogFilter.Controls.Add($cmbLogSince, 2, 1)
+
+$txtLogKeyword             = New-Object System.Windows.Forms.TextBox
+$txtLogKeyword.Dock        = 'Fill'
+$txtLogKeyword.BackColor   = $Pal.Sunken
+$txtLogKeyword.ForeColor   = $Pal.Text
+$txtLogKeyword.BorderStyle = 'FixedSingle'
+$txtLogKeyword.Font        = New-Font -Size 9
+$txtLogKeyword.Margin      = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+$pnlLogFilter.Controls.Add($txtLogKeyword, 3, 1)
+
+$pnlLogButtons             = New-Object System.Windows.Forms.FlowLayoutPanel
+$pnlLogButtons.Dock        = 'Fill'
+$pnlLogButtons.FlowDirection = 'LeftToRight'
+$pnlLogButtons.WrapContents = $false
+$pnlLogButtons.BackColor   = $Pal.Bg
+$pnlLogButtons.Margin      = New-Object System.Windows.Forms.Padding(0, 2, 0, 2)
+$btnLogQuery  = New-FlatButton -Text '查询' -Width 76 -Height 30 -Kind Primary
+$btnLogExport = New-FlatButton -Text '导出' -Width 76 -Height 30
+foreach ($b in @($btnLogQuery, $btnLogExport)) {
+    $b.Margin = New-Object System.Windows.Forms.Padding(0, 0, 6, 0)
+    $pnlLogButtons.Controls.Add($b)
+}
+$pnlLogFilter.Controls.Add($pnlLogButtons, 4, 1)
+$pnlLogFilter.SetRowSpan($pnlLogButtons, 2)
+
+$lstLogs                 = New-Object System.Windows.Forms.ListView
+$lstLogs.Location        = New-Object System.Drawing.Point(0, 150)
+$lstLogs.View            = 'Details'
+$lstLogs.FullRowSelect   = $true
+$lstLogs.HideSelection   = $false
+$lstLogs.MultiSelect     = $false
+$lstLogs.GridLines       = $false
+$lstLogs.BorderStyle     = 'None'
+$lstLogs.BackColor       = $Pal.Card
+$lstLogs.ForeColor       = $Pal.Text
+$lstLogs.Font            = New-Font -Size 9
+$lstLogs.Anchor          = 'Top,Left,Right'
+[void]$lstLogs.Columns.Add('时间', 136)
+[void]$lstLogs.Columns.Add('级别', 56)
+[void]$lstLogs.Columns.Add('来源', 170)
+[void]$lstLogs.Columns.Add('事件ID', 60)
+[void]$lstLogs.Columns.Add('消息', 380)
+$pageLogs.Controls.Add($lstLogs)
+Enable-GuiListViewSkin -List $lstLogs
+
+$txtLogDetail             = New-Object System.Windows.Forms.TextBox
+$txtLogDetail.Location    = New-Object System.Drawing.Point(0, 400)
+$txtLogDetail.Multiline   = $true
+$txtLogDetail.ReadOnly    = $true
+$txtLogDetail.ScrollBars  = 'Vertical'
+$txtLogDetail.BackColor   = $Pal.Sunken
+$txtLogDetail.ForeColor   = $Pal.Text
+$txtLogDetail.BorderStyle = 'FixedSingle'
+$txtLogDetail.Font        = New-Font -Size 9
+$txtLogDetail.Anchor      = 'Top,Bottom,Left,Right'
+$pageLogs.Controls.Add($txtLogDetail)
+
+# 写回脚本作用域：布局函数、日志渲染函数以及本页事件绑定都要用这些控件
+$script:hdrLogs       = $hdrLogs
+$script:lblLogsDesc   = $lblLogsDesc
+$script:pillLogSum    = $pillLogSum
+$script:pnlLogFilter  = $pnlLogFilter
+$script:pnlLogButtons = $pnlLogButtons
+$script:cmbLogSource  = $cmbLogSource
+$script:cmbLogLevel   = $cmbLogLevel
+$script:cmbLogSince   = $cmbLogSince
+$script:txtLogKeyword = $txtLogKeyword
+$script:btnLogQuery   = $btnLogQuery
+$script:btnLogExport  = $btnLogExport
+$script:lstLogs       = $lstLogs
+$script:txtLogDetail  = $txtLogDetail
+Bind-LogsEvents
+}
+$script:PageBuilders['logs'] = 'Build-LogsPage'
+
+function Start-LogsQuerySources {
+    [void](Start-GuiQueryHost -Query $script:QLogs -Task 'sources' -BusyText '读取日志源…')
+}
+
+function Start-LogsQuery {
+    $idx = $cmbLogSource.SelectedIndex
+    $src = 'event:System'
+    if ($idx -ge 0 -and $idx -lt $script:LogSourceIds.Count) { $src = [string]$script:LogSourceIds[$idx] }
+
+    $levels = @('All', 'Error', 'Warning', 'Information')
+    $ranges = @('1h', '6h', '24h', '7d', '30d', 'all')
+    $li = [Math]::Max(0, [Math]::Min(3, $cmbLogLevel.SelectedIndex))
+    $si = [Math]::Max(0, [Math]::Min(5, $cmbLogSince.SelectedIndex))
+
+    $p = @{
+        Source  = $src
+        Max     = 300
+        Level   = $levels[$li]
+        Since   = $ranges[$si]
+        Keyword = $txtLogKeyword.Text.Trim()
+    }
+    $script:LogLastParams = $p
+    [void](Start-GuiQueryHost -Query $script:QLogs -Task 'read' -ArgsJson $p -BusyText '读取日志…')
+}
+
+function Start-LogsExport {
+    $p = $script:LogLastParams
+    $levels = @('All', 'Error', 'Warning', 'Information')
+    $ranges = @('1h', '6h', '24h', '7d', '30d', 'all')
+    $li = [Array]::IndexOf($levels, [string]$p.Level)
+    if ($li -lt 0) { $li = 0 }
+    $si = [Array]::IndexOf($ranges, [string]$p.Since)
+    if ($si -lt 0) { $si = 2 }
+
+    $dlg = New-Object System.Windows.Forms.SaveFileDialog
+    $dlg.Title = '导出日志'
+    $dlg.Filter = 'CSV|*.csv|文本|*.txt'
+    $dlg.FileName = ('scm-logs-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.csv')
+    if ($dlg.ShowDialog() -ne 'OK') { return }
+
+    $fmt = $(if ($dlg.FileName.ToLowerInvariant().EndsWith('.txt')) { 2 } else { 1 })
+    Start-LogsAction -Id 'log-export' -Params @{
+        Source = $p.Source; Level = ($li + 1); Since = ($si + 1)
+        Keyword = $p.Keyword; Path = $dlg.FileName; Format = $fmt
+    }
+}
+
+function Start-LogsAction {
+    param([string]$Id, [hashtable]$Params)
+
+    $a = @($script:Actions | Where-Object { $_.Id -eq $Id })
+    if ($a.Count -eq 0) { Append-GuiLog -Line ('[ERROR] 未找到功能: ' + $Id); return }
+    if ($script:Proc) {
+        [System.Windows.Forms.MessageBox]::Show('上一个动作还在运行，请稍后再试。', '提示', 'OK', 'Information') | Out-Null
+        return
+    }
+    Select-GuiAction -Action $a[0]
+    Set-ParamValues -Values $Params
+    Start-GuiAction -DryRun $false
+    if ($script:Proc) {
+        if (-not $script:QLogs.Task) { Start-GuiQueryWatch -Query $script:QLogs }
+        else { $script:LogsRefreshPending = $true }
+    }
+}
+
+function Show-LogsList {
+    $lstLogs.BeginUpdate()
+    try {
+        $lstLogs.Items.Clear()
+        foreach ($e in @($script:LogEntries)) {
+            $li = New-Object System.Windows.Forms.ListViewItem([string]$e.Time)
+            [void]$li.SubItems.Add([string]$e.Level)
+            [void]$li.SubItems.Add([string]$e.Source)
+            [void]$li.SubItems.Add([string]$e.Id)
+            [void]$li.SubItems.Add((([string]$e.Message) -replace "`r?`n", ' '))
+            $li.Tag = $e
+            switch ([string]$e.Level) {
+                '错误' { $li.ForeColor = $Pal.Err }
+                '警告' { $li.ForeColor = $Pal.Warn }
+                default { $li.ForeColor = $Pal.Text }
+            }
+            [void]$lstLogs.Items.Add($li)
+        }
+    } finally { $lstLogs.EndUpdate() }
+}
+
+function Receive-LogsResult {
+    param($Obj)
+
+    if ($null -eq $Obj) {
+        $script:LogsRefreshPending = $false
+        Start-LogsQuery
+        return
+    }
+
+    if ($Obj.Error) {
+        Set-Pill -Pill $pillLogSum -Text '读取失败' -Kind 'Danger'
+        $txtLogDetail.Text = [string]$Obj.Error
+        Append-GuiLog -Line ('[WARN] 日志查询: ' + [string]$Obj.Error)
+        return
+    }
+
+    if ($Obj.Mode -eq 'sources') {
+        $list = @($Obj.Data)
+        $cmbLogSource.Items.Clear()
+        $script:LogSourceIds = @()
+        foreach ($s in $list) {
+            $script:LogSourceIds += [string]$s.Id
+            $label = [string]$s.Name
+            if ([string]$s.Kind -eq 'file') { $label = '[文件] ' + $label }
+            [void]$cmbLogSource.Items.Add($label)
+        }
+        $script:LogSourcesReady = $true
+        if ($script:LogSourceIds.Count -eq 0) {
+            Set-Pill -Pill $pillLogSum -Text '没有可用日志源' -Kind 'Warn'
+            return
+        }
+        $pref = [Array]::IndexOf($script:LogSourceIds, [string]$script:LogLastParams.Source)
+        if ($pref -lt 0) { $pref = [Array]::IndexOf($script:LogSourceIds, 'event:System') }
+        if ($pref -lt 0) { $pref = 0 }
+        $cmbLogSource.SelectedIndex = $pref
+        Start-LogsQuery
+        return
+    }
+
+    if ($Obj.Mode -eq 'read') {
+        $data = $Obj.Data
+        $script:LogEntries = @($data.Entries)
+        Show-LogsList
+        $txtLogDetail.Text = ''
+        $tail = ''
+        if ($data.Truncated) { $tail = '（已截断）' }
+        Set-Pill -Pill $pillLogSum -Text ('{0} 条{1}' -f $data.Count, $tail) -Kind $(if ($data.Count -gt 0) { 'Success' } else { 'Neutral' })
+        if ($script:LogsRefreshPending) {
+            $script:LogsRefreshPending = $false
+            Start-LogsQuery
+        }
+    }
+}
+
+$script:QLogs = New-GuiQueryHost -Name 'logs' -Runner (Join-Path $guiDir 'Run-GuiReadyLogs.ps1') -TimeoutSec 120 `
+    -OnResult { param($obj) Receive-LogsResult -Obj $obj } `
+    -OnBusyStart { param($t) Set-Pill -Pill $pillLogSum -Text $t -Kind 'Info' } `
+    -OnBusyEnd { }
+
+function Bind-LogsEvents {
+    # 日志页的事件绑定；页面首次显示时由 Build-LogsPage 调用
+$btnLogQuery.Add_Click({ Start-LogsQuery })
+$btnLogExport.Add_Click({ Start-LogsExport })
+$txtLogKeyword.Add_KeyDown({
+    if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Enter) { Start-LogsQuery }
+})
+$cmbLogSource.Add_SelectedIndexChanged({
+    # 只切源不自动查：避免用户用方向键浏览时连续拉起 Get-WinEvent。
+})
+$lstLogs.Add_SelectedIndexChanged({
+    if ($lstLogs.SelectedItems.Count -eq 0) { return }
+    $e = $lstLogs.SelectedItems[0].Tag
+    if (-not $e) { return }
+    $txtLogDetail.Text = ("时间：{0}`r`n级别：{1}`r`n来源：{2}`r`n事件 ID：{3}`r`n{4}`r`n{5}" -f
+        $e.Time, $e.Level, $e.Source, $e.Id, ('-' * 60), $e.Message)
+    $txtLogDetail.SelectionStart = 0
+})
+}
+
+function Show-LogsPage {
+    if ($SkipPageHooks) { return }
+    if (-not $script:LogSourcesReady) {
+        if (-not $script:QLogs.Task) { Start-LogsQuerySources }
+    } elseif ($script:LogEntries.Count -eq 0 -and -not $script:QLogs.Task) {
+        Start-LogsQuery
+    }
+}
+
+# ============================ 任务中心 / 结构审计 ============================
+# 任务中心：每次动作执行都有编号、状态、耗时、退出码和日志路径，支持取消与重试。
+# 结构审计：提交 / 开始 / 结束 / 配置备份恢复等事件只追加记录，可筛选、可导出。
+# 两个列表都交给独立查询进程（Run-GuiReadyTasks.ps1）读，界面线程只负责渲染。
+
+$script:TaskItems           = @()
+$script:TaskStats           = $null
+$script:TaskUnread          = 0
+$script:TaskRefreshPending  = $false
+$script:AuditItems          = @()
+$script:AuditRefreshPending = $false
+
+$pageTasks             = New-Object System.Windows.Forms.Panel
+$pageTasks.Dock        = 'Fill'
+$pageTasks.BackColor   = $Pal.Bg
+$script:Pages['tasks'] = $pageTasks
+$pnlContent.Controls.Add($pageTasks)
+
+# 任务页控件按需构建（首次显示本页时执行）：页头、筛选栏、任务列表与详情框
+function Build-TasksPage {
+$hdrTasks = New-PageHeader -Title '任务中心' -Subtitle '每个动作都有编号、状态、耗时、退出码和日志；失败的会进入通知收件箱，可直接重试或取消。' -Icon 'tasks' -Width 900
+$pageTasks.Controls.Add($hdrTasks)
+$lblTasksHead = $hdrTasks.Tag.Title
+$lblTasksDesc = $hdrTasks.Tag.Sub
+
+$pillTaskSum = New-Pill -Text '待查询' -Kind 'Neutral'
+$pillTaskSum.Anchor = 'Top,Right'
+$pillTaskSum.Location = New-Object System.Drawing.Point(816, 11)
+$hdrTasks.Controls.Add($pillTaskSum)
+
+$btnTaskNotify = New-FlatButton -Text '通知 0' -Width 86 -Height 30
+$btnTaskNotify.Location = New-Object System.Drawing.Point(700, 5)
+$btnTaskNotify.Anchor = 'Top,Right'
+$hdrTasks.Controls.Add($btnTaskNotify)
+
+$btnTaskAdv = New-FlatButton -Text '高级设置' -Width 96 -Height 30
+$btnTaskAdv.Location = New-Object System.Drawing.Point(794, 5)
+$btnTaskAdv.Anchor = 'Top,Right'
+$hdrTasks.Controls.Add($btnTaskAdv)
+
+$pnlTaskFilter             = New-Object System.Windows.Forms.TableLayoutPanel
+$pnlTaskFilter.Location    = New-Object System.Drawing.Point(0, 56)
+$pnlTaskFilter.BackColor   = $Pal.Bg
+$pnlTaskFilter.ColumnCount = 4
+$pnlTaskFilter.RowCount    = 2
+$pnlTaskFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 124))) | Out-Null
+$pnlTaskFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 110))) | Out-Null
+$pnlTaskFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+$pnlTaskFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 330))) | Out-Null
+$pnlTaskFilter.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 18))) | Out-Null
+$pnlTaskFilter.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 40))) | Out-Null
+$pageTasks.Controls.Add($pnlTaskFilter)
+
+foreach ($spec in @(@{ C = 0; T = '状态' }, @{ C = 1; T = '时间范围' }, @{ C = 2; T = '关键词' })) {
+    $l = New-Label -Text $spec.T -Size 8.5 -Color Hint
+    $l.Dock = 'Fill'
+    $l.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 0)
+    $pnlTaskFilter.Controls.Add($l, $spec.C, 0)
+}
+
+$cmbTaskStatus              = New-Object System.Windows.Forms.ComboBox
+$cmbTaskStatus.Dock         = 'Fill'
+$cmbTaskStatus.DropDownStyle = 'DropDownList'
+$cmbTaskStatus.FlatStyle    = 'Flat'
+$cmbTaskStatus.BackColor    = $Pal.Sunken
+$cmbTaskStatus.ForeColor    = $Pal.Text
+$cmbTaskStatus.Font         = New-Font -Size 9
+$cmbTaskStatus.Margin       = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+foreach ($x in @('全部', '运行中', '成功', '失败', '已取消', '已中断')) { [void]$cmbTaskStatus.Items.Add($x) }
+$cmbTaskStatus.SelectedIndex = 0
+$pnlTaskFilter.Controls.Add($cmbTaskStatus, 0, 1)
+
+$cmbTaskSince               = New-Object System.Windows.Forms.ComboBox
+$cmbTaskSince.Dock          = 'Fill'
+$cmbTaskSince.DropDownStyle = 'DropDownList'
+$cmbTaskSince.FlatStyle     = 'Flat'
+$cmbTaskSince.BackColor     = $Pal.Sunken
+$cmbTaskSince.ForeColor     = $Pal.Text
+$cmbTaskSince.Font          = New-Font -Size 9
+$cmbTaskSince.Margin        = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+foreach ($x in @('今天', '7 天', '30 天', '全部')) { [void]$cmbTaskSince.Items.Add($x) }
+$cmbTaskSince.SelectedIndex = 1
+$pnlTaskFilter.Controls.Add($cmbTaskSince, 1, 1)
+
+$txtTaskKeyword             = New-Object System.Windows.Forms.TextBox
+$txtTaskKeyword.Dock        = 'Fill'
+$txtTaskKeyword.BackColor   = $Pal.Sunken
+$txtTaskKeyword.ForeColor   = $Pal.Text
+$txtTaskKeyword.BorderStyle = 'FixedSingle'
+$txtTaskKeyword.Font        = New-Font -Size 9
+$txtTaskKeyword.Margin      = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+$pnlTaskFilter.Controls.Add($txtTaskKeyword, 2, 1)
+
+$pnlTaskButtons             = New-Object System.Windows.Forms.FlowLayoutPanel
+$pnlTaskButtons.Dock        = 'Fill'
+$pnlTaskButtons.FlowDirection = 'LeftToRight'
+$pnlTaskButtons.WrapContents = $false
+$pnlTaskButtons.BackColor   = $Pal.Bg
+$pnlTaskButtons.Margin      = New-Object System.Windows.Forms.Padding(0, 2, 0, 2)
+$btnTaskRefresh = New-FlatButton -Text '刷新' -Width 72 -Height 30 -Kind Primary
+$btnTaskRetry   = New-FlatButton -Text '重试' -Width 72 -Height 30
+$btnTaskCancel  = New-FlatButton -Text '取消' -Width 72 -Height 30
+$btnTaskLog     = New-FlatButton -Text '查看日志' -Width 88 -Height 30
+foreach ($b in @($btnTaskRefresh, $btnTaskRetry, $btnTaskCancel, $btnTaskLog)) {
+    $b.Margin = New-Object System.Windows.Forms.Padding(0, 0, 6, 0)
+    $pnlTaskButtons.Controls.Add($b)
+}
+$pnlTaskFilter.Controls.Add($pnlTaskButtons, 3, 1)
+$pnlTaskFilter.SetRowSpan($pnlTaskButtons, 2)
+
+$lstTasks                 = New-Object System.Windows.Forms.ListView
+$lstTasks.Location        = New-Object System.Drawing.Point(0, 150)
+$lstTasks.View            = 'Details'
+$lstTasks.FullRowSelect   = $true
+$lstTasks.HideSelection   = $false
+$lstTasks.MultiSelect     = $false
+$lstTasks.GridLines       = $false
+$lstTasks.BorderStyle     = 'None'
+$lstTasks.BackColor       = $Pal.Card
+$lstTasks.ForeColor       = $Pal.Text
+$lstTasks.Font            = New-Font -Size 9
+$lstTasks.Anchor          = 'Top,Left,Right'
+[void]$lstTasks.Columns.Add('开始时间', 126)
+[void]$lstTasks.Columns.Add('任务', 220)
+[void]$lstTasks.Columns.Add('状态', 64)
+[void]$lstTasks.Columns.Add('耗时', 60)
+[void]$lstTasks.Columns.Add('退出码', 56)
+[void]$lstTasks.Columns.Add('用户', 130)
+[void]$lstTasks.Columns.Add('任务编号', 150)
+$pageTasks.Controls.Add($lstTasks)
+Enable-GuiListViewSkin -List $lstTasks
+
+$txtTaskDetail             = New-Object System.Windows.Forms.TextBox
+$txtTaskDetail.Location    = New-Object System.Drawing.Point(0, 400)
+$txtTaskDetail.Multiline   = $true
+$txtTaskDetail.ReadOnly    = $true
+$txtTaskDetail.ScrollBars  = 'Vertical'
+$txtTaskDetail.BackColor   = $Pal.Sunken
+$txtTaskDetail.ForeColor   = $Pal.Text
+$txtTaskDetail.BorderStyle = 'FixedSingle'
+$txtTaskDetail.Font        = New-Object System.Drawing.Font('Consolas', 9)
+$txtTaskDetail.Anchor      = 'Top,Bottom,Left,Right'
+$pageTasks.Controls.Add($txtTaskDetail)
+
+# 写回脚本作用域：布局函数、任务渲染/通知函数以及本页事件绑定都要用这些控件
+$script:hdrTasks      = $hdrTasks
+$script:lblTasksDesc  = $lblTasksDesc
+$script:pillTaskSum   = $pillTaskSum
+$script:btnTaskNotify = $btnTaskNotify
+$script:btnTaskAdv    = $btnTaskAdv
+$script:pnlTaskFilter = $pnlTaskFilter
+$script:cmbTaskStatus = $cmbTaskStatus
+$script:cmbTaskSince  = $cmbTaskSince
+$script:txtTaskKeyword = $txtTaskKeyword
+$script:pnlTaskButtons = $pnlTaskButtons
+$script:btnTaskRefresh = $btnTaskRefresh
+$script:btnTaskRetry   = $btnTaskRetry
+$script:btnTaskCancel  = $btnTaskCancel
+$script:btnTaskLog     = $btnTaskLog
+$script:lstTasks      = $lstTasks
+$script:txtTaskDetail = $txtTaskDetail
+Bind-TasksEvents
+}
+$script:PageBuilders['tasks'] = 'Build-TasksPage'
+
+# ---- 结构审计页 ----
+
+$pageAudit             = New-Object System.Windows.Forms.Panel
+$pageAudit.Dock        = 'Fill'
+$pageAudit.BackColor   = $Pal.Bg
+$script:Pages['audit'] = $pageAudit
+$pnlContent.Controls.Add($pageAudit)
+
+# 结构审计页控件按需构建（首次显示本页时执行）：页头、筛选行、列表与详情
+function Build-AuditPage {
+$hdrAudit = New-PageHeader -Title '结构审计' -Subtitle '提交、执行、配置备份与恢复全在这里留痕；审计只追加、不修改，可按级别/时间/关键词筛选后导出。' -Icon 'audit' -Width 900
+$pageAudit.Controls.Add($hdrAudit)
+$lblAuditHead = $hdrAudit.Tag.Title
+$lblAuditDesc = $hdrAudit.Tag.Sub
+
+$pillAuditSum = New-Pill -Text '待查询' -Kind 'Neutral'
+$pillAuditSum.Anchor = 'Top,Right'
+$pillAuditSum.Location = New-Object System.Drawing.Point(816, 11)
+$hdrAudit.Controls.Add($pillAuditSum)
+
+$pnlAuditFilter             = New-Object System.Windows.Forms.TableLayoutPanel
+$pnlAuditFilter.Location    = New-Object System.Drawing.Point(0, 56)
+$pnlAuditFilter.BackColor   = $Pal.Bg
+$pnlAuditFilter.ColumnCount = 4
+$pnlAuditFilter.RowCount    = 2
+$pnlAuditFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 110))) | Out-Null
+$pnlAuditFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 110))) | Out-Null
+$pnlAuditFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+$pnlAuditFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 176))) | Out-Null
+$pnlAuditFilter.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 18))) | Out-Null
+$pnlAuditFilter.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 40))) | Out-Null
+$pageAudit.Controls.Add($pnlAuditFilter)
+
+foreach ($spec in @(@{ C = 0; T = '级别' }, @{ C = 1; T = '时间范围' }, @{ C = 2; T = '关键词' })) {
+    $l = New-Label -Text $spec.T -Size 8.5 -Color Hint
+    $l.Dock = 'Fill'
+    $l.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 0)
+    $pnlAuditFilter.Controls.Add($l, $spec.C, 0)
+}
+
+$cmbAuditLevel              = New-Object System.Windows.Forms.ComboBox
+$cmbAuditLevel.Dock         = 'Fill'
+$cmbAuditLevel.DropDownStyle = 'DropDownList'
+$cmbAuditLevel.FlatStyle    = 'Flat'
+$cmbAuditLevel.BackColor    = $Pal.Sunken
+$cmbAuditLevel.ForeColor    = $Pal.Text
+$cmbAuditLevel.Font         = New-Font -Size 9
+$cmbAuditLevel.Margin       = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+foreach ($x in @('全部', '成功', '信息', '警告', '错误')) { [void]$cmbAuditLevel.Items.Add($x) }
+$cmbAuditLevel.SelectedIndex = 0
+$pnlAuditFilter.Controls.Add($cmbAuditLevel, 0, 1)
+
+$cmbAuditSince               = New-Object System.Windows.Forms.ComboBox
+$cmbAuditSince.Dock          = 'Fill'
+$cmbAuditSince.DropDownStyle = 'DropDownList'
+$cmbAuditSince.FlatStyle     = 'Flat'
+$cmbAuditSince.BackColor     = $Pal.Sunken
+$cmbAuditSince.ForeColor     = $Pal.Text
+$cmbAuditSince.Font          = New-Font -Size 9
+$cmbAuditSince.Margin        = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+foreach ($x in @('今天', '7 天', '30 天', '全部')) { [void]$cmbAuditSince.Items.Add($x) }
+$cmbAuditSince.SelectedIndex = 1
+$pnlAuditFilter.Controls.Add($cmbAuditSince, 1, 1)
+
+$txtAuditKeyword             = New-Object System.Windows.Forms.TextBox
+$txtAuditKeyword.Dock        = 'Fill'
+$txtAuditKeyword.BackColor   = $Pal.Sunken
+$txtAuditKeyword.ForeColor   = $Pal.Text
+$txtAuditKeyword.BorderStyle = 'FixedSingle'
+$txtAuditKeyword.Font        = New-Font -Size 9
+$txtAuditKeyword.Margin      = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+$pnlAuditFilter.Controls.Add($txtAuditKeyword, 2, 1)
+
+$pnlAuditButtons             = New-Object System.Windows.Forms.FlowLayoutPanel
+$pnlAuditButtons.Dock        = 'Fill'
+$pnlAuditButtons.FlowDirection = 'LeftToRight'
+$pnlAuditButtons.WrapContents = $false
+$pnlAuditButtons.BackColor   = $Pal.Bg
+$pnlAuditButtons.Margin      = New-Object System.Windows.Forms.Padding(0, 2, 0, 2)
+$btnAuditRefresh = New-FlatButton -Text '刷新' -Width 72 -Height 30 -Kind Primary
+$btnAuditExport  = New-FlatButton -Text '导出' -Width 88 -Height 30
+foreach ($b in @($btnAuditRefresh, $btnAuditExport)) {
+    $b.Margin = New-Object System.Windows.Forms.Padding(0, 0, 6, 0)
+    $pnlAuditButtons.Controls.Add($b)
+}
+$pnlAuditFilter.Controls.Add($pnlAuditButtons, 3, 1)
+$pnlAuditFilter.SetRowSpan($pnlAuditButtons, 2)
+
+$lstAudit                 = New-Object System.Windows.Forms.ListView
+$lstAudit.Location        = New-Object System.Drawing.Point(0, 150)
+$lstAudit.View            = 'Details'
+$lstAudit.FullRowSelect   = $true
+$lstAudit.HideSelection   = $false
+$lstAudit.MultiSelect     = $false
+$lstAudit.GridLines       = $false
+$lstAudit.BorderStyle     = 'None'
+$lstAudit.BackColor       = $Pal.Card
+$lstAudit.ForeColor       = $Pal.Text
+$lstAudit.Font            = New-Font -Size 9
+$lstAudit.Anchor          = 'Top,Left,Right'
+[void]$lstAudit.Columns.Add('时间', 126)
+[void]$lstAudit.Columns.Add('事件', 84)
+[void]$lstAudit.Columns.Add('级别', 52)
+[void]$lstAudit.Columns.Add('动作', 120)
+[void]$lstAudit.Columns.Add('任务编号', 150)
+[void]$lstAudit.Columns.Add('详情', 380)
+$pageAudit.Controls.Add($lstAudit)
+Enable-GuiListViewSkin -List $lstAudit
+
+$txtAuditDetail             = New-Object System.Windows.Forms.TextBox
+$txtAuditDetail.Location    = New-Object System.Drawing.Point(0, 400)
+$txtAuditDetail.Multiline   = $true
+$txtAuditDetail.ReadOnly    = $true
+$txtAuditDetail.ScrollBars  = 'Vertical'
+$txtAuditDetail.BackColor   = $Pal.Sunken
+$txtAuditDetail.ForeColor   = $Pal.Text
+$txtAuditDetail.BorderStyle = 'FixedSingle'
+$txtAuditDetail.Font        = New-Object System.Drawing.Font('Consolas', 9)
+$txtAuditDetail.Anchor      = 'Top,Bottom,Left,Right'
+$pageAudit.Controls.Add($txtAuditDetail)
+
+# 写回脚本作用域：布局函数、Show-AuditList/Update-AuditChrome 以及本页事件绑定都要用这些控件
+$script:hdrAudit        = $hdrAudit
+$script:lblAuditDesc    = $lblAuditDesc
+$script:pillAuditSum    = $pillAuditSum
+$script:pnlAuditFilter  = $pnlAuditFilter
+$script:cmbAuditLevel   = $cmbAuditLevel
+$script:cmbAuditSince   = $cmbAuditSince
+$script:txtAuditKeyword = $txtAuditKeyword
+$script:pnlAuditButtons = $pnlAuditButtons
+$script:btnAuditRefresh = $btnAuditRefresh
+$script:btnAuditExport  = $btnAuditExport
+$script:lstAudit        = $lstAudit
+$script:txtAuditDetail  = $txtAuditDetail
+Bind-AuditEvents
+}
+$script:PageBuilders['audit'] = 'Build-AuditPage'
+
+# ============================ 远程主机 ============================
+# 主机清单、连通性测试、批量命令、TrustedHosts。凭据只在 GUI 进程内经 DPAPI 落盘，
+# 密码不进参数文件、不进日志、不进任务记录；测试/批量分别走查询子进程和动作 runner。
+
+$script:HostItems            = @()
+$script:HostTags             = @()
+$script:HostTrusted          = @()
+$script:HostTrustedError     = ''
+$script:HostRefreshPending   = $false
+$script:HostTagLoading       = $false
+$script:HostLastInfo         = ''
+$script:HostBatch            = $null
+$script:HostBatchJobId       = ''
+$script:HostBatchBusy        = $false
+$script:HostBatchPendingWatch = $false
+
+$pageHosts             = New-Object System.Windows.Forms.Panel
+$pageHosts.Dock        = 'Fill'
+$pageHosts.BackColor   = $Pal.Bg
+$script:Pages['hosts'] = $pageHosts
+$pnlContent.Controls.Add($pageHosts)
+
+# 远程主机页控件按需构建（首次显示本页时执行）：页头、筛选行、工具行、列表与详情
+function Build-HostsPage {
+$hdrHosts = New-PageHeader -Title '远程主机' -Subtitle '维护 WinRM 主机清单、测试连通性、对多台主机批量执行 PowerShell 命令；保存的凭据用 DPAPI 加密在本机，测试与批量都不占用界面线程。' -Icon 'hosts' -Width 900
+$pageHosts.Controls.Add($hdrHosts)
+$lblHostsHead = $hdrHosts.Tag.Title
+$lblHostsDesc = $hdrHosts.Tag.Sub
+
+$pillHostSum = New-Pill -Text '待查询' -Kind 'Neutral'
+$pillHostSum.Anchor = 'Top,Right'
+$pillHostSum.Location = New-Object System.Drawing.Point(816, 11)
+$hdrHosts.Controls.Add($pillHostSum)
+
+$pnlHostFilter             = New-Object System.Windows.Forms.TableLayoutPanel
+$pnlHostFilter.Location    = New-Object System.Drawing.Point(0, 56)
+$pnlHostFilter.BackColor   = $Pal.Bg
+$pnlHostFilter.ColumnCount = 3
+$pnlHostFilter.RowCount    = 2
+$pnlHostFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Percent, 100))) | Out-Null
+$pnlHostFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 150))) | Out-Null
+$pnlHostFilter.ColumnStyles.Add((New-Object System.Windows.Forms.ColumnStyle([System.Windows.Forms.SizeType]::Absolute, 372))) | Out-Null
+$pnlHostFilter.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 18))) | Out-Null
+$pnlHostFilter.RowStyles.Add((New-Object System.Windows.Forms.RowStyle([System.Windows.Forms.SizeType]::Absolute, 40))) | Out-Null
+$pageHosts.Controls.Add($pnlHostFilter)
+
+foreach ($spec in @(@{ C = 0; T = '关键词（名称/地址/备注）' }, @{ C = 1; T = '标签' }, @{ C = 2; T = '操作' })) {
+    $l = New-Label -Text $spec.T -Size 8.5 -Color Hint
+    $l.Dock = 'Fill'
+    $l.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 0)
+    $pnlHostFilter.Controls.Add($l, $spec.C, 0)
+}
+
+$txtHostKeyword             = New-Object System.Windows.Forms.TextBox
+$txtHostKeyword.Dock        = 'Fill'
+$txtHostKeyword.BackColor   = $Pal.Sunken
+$txtHostKeyword.ForeColor   = $Pal.Text
+$txtHostKeyword.BorderStyle = 'FixedSingle'
+$txtHostKeyword.Font        = New-Font -Size 9
+$txtHostKeyword.Margin      = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+$pnlHostFilter.Controls.Add($txtHostKeyword, 0, 1)
+
+$cmbHostTag                  = New-Object System.Windows.Forms.ComboBox
+$cmbHostTag.Dock             = 'Fill'
+$cmbHostTag.DropDownStyle    = 'DropDownList'
+$cmbHostTag.FlatStyle        = 'Flat'
+$cmbHostTag.BackColor        = $Pal.Sunken
+$cmbHostTag.ForeColor        = $Pal.Text
+$cmbHostTag.Font             = New-Font -Size 9
+$cmbHostTag.Margin           = New-Object System.Windows.Forms.Padding(0, 2, 8, 2)
+[void]$cmbHostTag.Items.Add('全部标签')
+$cmbHostTag.SelectedIndex = 0
+$pnlHostFilter.Controls.Add($cmbHostTag, 1, 1)
+
+$pnlHostButtons             = New-Object System.Windows.Forms.FlowLayoutPanel
+$pnlHostButtons.Dock        = 'Fill'
+$pnlHostButtons.FlowDirection = 'LeftToRight'
+$pnlHostButtons.WrapContents = $false
+$pnlHostButtons.BackColor   = $Pal.Bg
+$pnlHostButtons.Margin      = New-Object System.Windows.Forms.Padding(0, 2, 0, 2)
+$btnHostRefresh = New-FlatButton -Text '刷新' -Width 72 -Height 30 -Kind Primary
+$btnHostTest    = New-FlatButton -Text '测试连接' -Width 88 -Height 30
+$btnHostBatch   = New-FlatButton -Text '批量命令' -Width 96 -Height 30
+$btnHostTrust   = New-FlatButton -Text '信任设置' -Width 88 -Height 30
+foreach ($b in @($btnHostRefresh, $btnHostTest, $btnHostBatch, $btnHostTrust)) {
+    $b.Margin = New-Object System.Windows.Forms.Padding(0, 0, 6, 0)
+    $pnlHostButtons.Controls.Add($b)
+}
+$pnlHostFilter.Controls.Add($pnlHostButtons, 2, 1)
+$pnlHostFilter.SetRowSpan($pnlHostButtons, 2)
+
+$pnlHostBar             = New-Object System.Windows.Forms.FlowLayoutPanel
+$pnlHostBar.Location    = New-Object System.Drawing.Point(0, 118)
+$pnlHostBar.FlowDirection = 'LeftToRight'
+$pnlHostBar.WrapContents = $false
+$pnlHostBar.BackColor   = $Pal.Bg
+$btnHostAdd    = New-FlatButton -Text '添加' -Width 72 -Height 30
+$btnHostEdit   = New-FlatButton -Text '编辑' -Width 72 -Height 30
+$btnHostDelete = New-FlatButton -Text '删除' -Width 72 -Height 30 -Kind Danger
+foreach ($b in @($btnHostAdd, $btnHostEdit, $btnHostDelete)) {
+    $b.Margin = New-Object System.Windows.Forms.Padding(0, 0, 6, 0)
+    $pnlHostBar.Controls.Add($b)
+}
+$lblHostHint = New-Label -Text '批量命令会进入任务中心；保存凭据用当前用户的 DPAPI，换用户/换机器无法解密。' -Size 8.5 -Color Hint
+$lblHostHint.Margin = New-Object System.Windows.Forms.Padding(10, 8, 0, 0)
+$pnlHostBar.Controls.Add($lblHostHint)
+$pageHosts.Controls.Add($pnlHostBar)
+
+$lstHosts                 = New-Object System.Windows.Forms.ListView
+$lstHosts.Location        = New-Object System.Drawing.Point(0, 158)
+$lstHosts.View            = 'Details'
+$lstHosts.FullRowSelect   = $true
+$lstHosts.HideSelection   = $false
+$lstHosts.MultiSelect     = $true
+$lstHosts.GridLines       = $false
+$lstHosts.BorderStyle     = 'None'
+$lstHosts.BackColor       = $Pal.Card
+$lstHosts.ForeColor       = $Pal.Text
+$lstHosts.Font            = New-Font -Size 9
+$lstHosts.Anchor          = 'Top,Left,Right'
+[void]$lstHosts.Columns.Add('名称', 150)
+[void]$lstHosts.Columns.Add('地址', 150)
+[void]$lstHosts.Columns.Add('端口', 56)
+[void]$lstHosts.Columns.Add('协议', 60)
+[void]$lstHosts.Columns.Add('认证', 76)
+[void]$lstHosts.Columns.Add('凭据', 56)
+[void]$lstHosts.Columns.Add('标签', 110)
+[void]$lstHosts.Columns.Add('最近测试', 126)
+[void]$lstHosts.Columns.Add('状态', 60)
+[void]$lstHosts.Columns.Add('备注', 200)
+$pageHosts.Controls.Add($lstHosts)
+Enable-GuiListViewSkin -List $lstHosts
+
+$txtHostDetail             = New-Object System.Windows.Forms.TextBox
+$txtHostDetail.Location    = New-Object System.Drawing.Point(0, 400)
+$txtHostDetail.Multiline   = $true
+$txtHostDetail.ReadOnly    = $true
+$txtHostDetail.ScrollBars  = 'Vertical'
+$txtHostDetail.BackColor   = $Pal.Sunken
+$txtHostDetail.ForeColor   = $Pal.Text
+$txtHostDetail.BorderStyle = 'FixedSingle'
+$txtHostDetail.Font        = New-Object System.Drawing.Font('Consolas', 9)
+$txtHostDetail.Anchor      = 'Top,Bottom,Left,Right'
+$pageHosts.Controls.Add($txtHostDetail)
+
+$txtHostDetail.Text = '选择一台主机查看详情；「添加」新建，「编辑」修改，选中两台以上可用「批量命令」一次下发。'
+
+# 写回脚本作用域：布局函数、Show-HostsList/Update-HostsSummary 以及本页事件绑定都要用这些控件
+$script:hdrHosts       = $hdrHosts
+$script:lblHostsDesc   = $lblHostsDesc
+$script:pillHostSum    = $pillHostSum
+$script:pnlHostFilter  = $pnlHostFilter
+$script:txtHostKeyword = $txtHostKeyword
+$script:cmbHostTag     = $cmbHostTag
+$script:pnlHostButtons = $pnlHostButtons
+$script:btnHostRefresh = $btnHostRefresh
+$script:btnHostTest    = $btnHostTest
+$script:btnHostBatch   = $btnHostBatch
+$script:btnHostTrust   = $btnHostTrust
+$script:pnlHostBar     = $pnlHostBar
+$script:btnHostAdd     = $btnHostAdd
+$script:btnHostEdit    = $btnHostEdit
+$script:btnHostDelete  = $btnHostDelete
+$script:lblHostHint    = $lblHostHint
+$script:lstHosts       = $lstHosts
+$script:txtHostDetail  = $txtHostDetail
+Bind-HostsEvents
+}
+$script:PageBuilders['hosts'] = 'Build-HostsPage'
+
+function Get-HostTestStatusText {
+    param([string]$Status)
+    switch ([string]$Status) {
+        'OK'     { return '正常' }
+        'Failed' { return '失败' }
+        default  { return '未测试' }
+    }
+}
+
+function Get-HostAuthText {
+    param([string]$Auth)
+    if ([string]$Auth -eq 'Credential') { return '保存凭据' }
+    return '当前用户'
+}
+
+function Get-HostRemoteStatusText {
+    param([string]$Status)
+    switch ([string]$Status) {
+        'Succeeded' { return '成功' }
+        'Failed'    { return '失败' }
+        'Skipped'   { return '已跳过' }
+        default     { return [string]$Status }
+    }
+}
+
+function Format-HostDetail {
+    param($Item)
+    if (-not $Item) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('名称：' + [string]$Item.Name)
+    [void]$sb.AppendLine(('地址：{0}:{1}（{2}）' -f [string]$Item.Address, [int]$Item.Port, ([string]$Item.Protocol).ToUpper()))
+    [void]$sb.AppendLine('认证：' + (Get-HostAuthText ([string]$Item.Auth)) + '    凭据：' + $(if ([bool]$Item.HasCredential) { '已保存（用户名不回显）' } else { '未保存' }))
+    $tags = @($Item.Tags)
+    [void]$sb.AppendLine('标签：' + $(if ($tags.Count -gt 0) { $tags -join '、' } else { '（无）' }))
+    [void]$sb.AppendLine('启用：' + $(if ([bool]$Item.Enabled) { '是' } else { '否' }) + '    创建：' + (Format-GuiTaskTime ([string]$Item.CreatedAt)))
+    $st = [string]$Item.LastTestStatus
+    [void]$sb.AppendLine(('最近测试：{0}  {1}' -f (Format-GuiTaskTime ([string]$Item.LastTestAt)), (Get-HostTestStatusText $st)))
+    if ([string]$Item.LastTestMessage) { [void]$sb.AppendLine('  ' + [string]$Item.LastTestMessage) }
+    if ([string]$Item.Notes) {
+        [void]$sb.AppendLine(('-' * 60))
+        [void]$sb.AppendLine([string]$Item.Notes)
+    }
+    return $sb.ToString()
+}
+
+function Format-HostTestSummary {
+    param($Data)
+    if (-not $Data) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine(('连通性测试：{0} 台，成功 {1}，失败 {2}' -f [int]$Data.Total, [int]$Data.Ok, [int]$Data.Failed))
+    [void]$sb.AppendLine(('-' * 72))
+    foreach ($r in @($Data.Results)) {
+        $mark = '[未测]'
+        if ([string]$r.Status -eq 'OK') { $mark = '[ OK ]' }
+        elseif ([string]$r.Status -eq 'Failed') { $mark = '[FAIL]' }
+        [void]$sb.AppendLine(('{0} {1}（{2}） {3} 秒' -f $mark, [string]$r.Name, [string]$r.Address, [double]$r.DurationSec))
+        if ([string]$r.Detail) { [void]$sb.AppendLine('       ' + [string]$r.Detail) }
+    }
+    return $sb.ToString()
+}
+
+function Format-HostBatchSummary {
+    param($Batch)
+    if (-not $Batch) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('批量任务：' + [string]$Batch.TaskId)
+    [void]$sb.AppendLine(('开始：{0}    结束：{1}' -f (Format-GuiTaskTime ([string]$Batch.StartedAt)), (Format-GuiTaskTime ([string]$Batch.EndedAt))))
+    $cmd = ([string]$Batch.Command) -replace "`r?`n", ' ; '
+    if ($cmd.Length -gt 200) { $cmd = $cmd.Substring(0, 200) + '…' }
+    [void]$sb.AppendLine('命令：' + $cmd)
+    [void]$sb.AppendLine(('主机 {0} 台：成功 {1}、失败 {2}、跳过 {3}' -f [int]$Batch.Total, [int]$Batch.Succeeded, [int]$Batch.Failed, [int]$Batch.Skipped))
+    [void]$sb.AppendLine(('-' * 72))
+    foreach ($r in @($Batch.Results)) {
+        [void]$sb.AppendLine(('[{0}] {1}（{2}） {3} 秒' -f (Get-HostRemoteStatusText ([string]$r.Status)), [string]$r.Name, [string]$r.Address, [double]$r.DurationSec))
+        if ([string]$r.Output) {
+            $first = (([string]$r.Output -split "`r?`n") | Select-Object -First 4) -join ' | '
+            [void]$sb.AppendLine('       ' + $first)
+        }
+        if ([string]$r.Error) { [void]$sb.AppendLine('       错误：' + [string]$r.Error) }
+    }
+    return $sb.ToString()
+}
+
+function Update-HostTagCombo {
+    $keep = ''
+    if ($cmbHostTag.SelectedIndex -gt 0) { $keep = [string]$cmbHostTag.SelectedItem }
+    $script:HostTagLoading = $true
+    try {
+        $cmbHostTag.BeginUpdate()
+        try {
+            $cmbHostTag.Items.Clear()
+            [void]$cmbHostTag.Items.Add('全部标签')
+            $all = New-Object System.Collections.ArrayList
+            $seen = @{}
+            foreach ($h in @($script:HostItems)) {
+                foreach ($t in @($h.Tags)) {
+                    $s = [string]$t
+                    if (-not $s) { continue }
+                    $k = $s.ToLowerInvariant()
+                    if ($seen.ContainsKey($k)) { continue }
+                    $seen[$k] = $true
+                    [void]$all.Add($s)
+                }
+            }
+            foreach ($t in @($all.ToArray() | Sort-Object)) { [void]$cmbHostTag.Items.Add($t) }
+        } finally { $cmbHostTag.EndUpdate() }
+        $idx = 0
+        if ($keep) {
+            for ($i = 0; $i -lt $cmbHostTag.Items.Count; $i++) {
+                if ([string]$cmbHostTag.Items[$i] -eq $keep) { $idx = $i; break }
+            }
+        }
+        $cmbHostTag.SelectedIndex = $idx
+    } finally { $script:HostTagLoading = $false }
+}
+
+function Show-HostsList {
+    $kw  = $txtHostKeyword.Text.Trim()
+    $tag = ''
+    if ($cmbHostTag.SelectedIndex -gt 0) { $tag = [string]$cmbHostTag.SelectedItem }
+    $lstHosts.BeginUpdate()
+    try {
+        $lstHosts.Items.Clear()
+        foreach ($h in @($script:HostItems)) {
+            if ($kw) {
+                $hay = ('{0} {1} {2} {3}' -f [string]$h.Name, [string]$h.Address, [string]$h.Notes, (@($h.Tags) -join ' '))
+                if ($hay -notmatch [regex]::Escape($kw)) { continue }
+            }
+            if ($tag) {
+                $tags = @($h.Tags)
+                if (-not ($tags -contains $tag)) { continue }
+            }
+            $li = New-Object System.Windows.Forms.ListViewItem([string]$h.Name)
+            [void]$li.SubItems.Add([string]$h.Address)
+            [void]$li.SubItems.Add([string]$h.Port)
+            [void]$li.SubItems.Add(([string]$h.Protocol).ToUpper())
+            [void]$li.SubItems.Add((Get-HostAuthText ([string]$h.Auth)))
+            [void]$li.SubItems.Add($(if ([bool]$h.HasCredential) { '有' } else { '无' }))
+            $tags = @($h.Tags)
+            [void]$li.SubItems.Add($(if ($tags.Count -gt 0) { $tags -join '、' } else { '' }))
+            [void]$li.SubItems.Add((Format-GuiTaskTime ([string]$h.LastTestAt)))
+            [void]$li.SubItems.Add((Get-HostTestStatusText ([string]$h.LastTestStatus)))
+            [void]$li.SubItems.Add((([string]$h.Notes) -replace "`r?`n", ' '))
+            $li.Tag = $h
+            if (-not [bool]$h.Enabled) { $li.ForeColor = $Pal.Hint }
+            elseif ([string]$h.LastTestStatus -eq 'Failed') { $li.ForeColor = $Pal.Err }
+            elseif ([string]$h.LastTestStatus -eq 'OK') { $li.ForeColor = $Pal.Text }
+            else { $li.ForeColor = $Pal.Text }
+            [void]$lstHosts.Items.Add($li)
+        }
+    } finally { $lstHosts.EndUpdate() }
+}
+
+function Update-HostsSummary {
+    $total   = @($script:HostItems).Count
+    $enabled = @($script:HostItems | Where-Object { [bool]$_.Enabled }).Count
+    $failed  = @($script:HostItems | Where-Object { [string]$_.LastTestStatus -eq 'Failed' }).Count
+    if ($total -eq 0) {
+        Set-Pill -Pill $pillHostSum -Text '0 台' -Kind 'Neutral'
+    } elseif ($failed -gt 0) {
+        Set-Pill -Pill $pillHostSum -Text ('{0} 台 · 启用 {1} · 失败 {2}' -f $total, $enabled, $failed) -Kind 'Warn'
+    } else {
+        Set-Pill -Pill $pillHostSum -Text ('{0} 台 · 启用 {1}' -f $total, $enabled) -Kind $(if ($enabled -gt 0) { 'Success' } else { 'Neutral' })
+    }
+    Update-HostsChrome
+}
+
+function Update-HostsChrome {
+    try {
+        $hw = [Math]::Max(240, $hdrHosts.Parent.ClientSize.Width)
+        $pillHostSum.Left = [Math]::Max(0, ($hw - $pillHostSum.Width - 8))
+        if ($hdrHosts.Tag -and $hdrHosts.Tag.Sub) {
+            $hdrHosts.Tag.Sub.Width = [Math]::Max(80, ($pillHostSum.Left - [int]$hdrHosts.Tag.GapX - 12))
+        }
+    } catch { }
+}
+
+function Start-HostsQuery {
+    if ($SkipPageHooks -or -not $script:QHosts) { return }
+    if ($script:QHosts.Task) { $script:HostRefreshPending = $true; return }
+    [void](Start-GuiQueryHost -Query $script:QHosts -Task 'hosts' -BusyText '读取主机清单…')
+}
+
+function Start-HostsTest {
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    if ($script:QHosts.Task) { Append-GuiLog -Line '[WARN] 主机查询还在跑，等它结束再测试。'; return }
+    $ids = New-Object System.Collections.ArrayList
+    foreach ($li in @($lstHosts.SelectedItems)) { [void]$ids.Add([string]$li.Tag.Id) }
+    if ($ids.Count -eq 0) {
+        foreach ($h in @($script:HostItems)) { if ([bool]$h.Enabled) { [void]$ids.Add([string]$h.Id) } }
+    }
+    if ($ids.Count -eq 0) {
+        Append-GuiLog -Line '[WARN] 没有可测试的主机；先在清单里添加并启用主机。'
+        return
+    }
+    Set-Pill -Pill $pillHostSum -Text ('测试 {0} 台主机…' -f $ids.Count) -Kind 'Info'
+    $p = @{ Hosts = ($ids.ToArray() -join ','); TimeoutSec = 60 }
+    [void](Start-GuiQueryHost -Query $script:QHosts -Task 'test' -ArgsJson $p -BusyText ('测试 {0} 台主机…' -f $ids.Count))
+}
+
+function Complete-HostPendingWatch {
+    if ($script:HostBatchPendingWatch -and -not $script:QHosts.Task) {
+        $script:HostBatchPendingWatch = $false
+        Start-GuiQueryWatch -Query $script:QHosts
+    }
+}
+
+function Receive-HostsResult {
+    param($Obj)
+    if ($null -eq $Obj) {
+        if ($script:HostBatchBusy) {
+            $taskId = [string]$script:HostBatchJobId
+            if (-not $taskId) {
+                $script:HostBatchBusy = $false
+                Set-Pill -Pill $pillHostSum -Text '批量任务编号丢失' -Kind 'Danger'
+                return
+            }
+            $ok = Start-GuiQueryHost -Query $script:QHosts -Task 'batch' -ArgsJson @{ TaskId = $taskId } -BusyText '读取批量结果…'
+            if (-not $ok) { $script:HostBatchBusy = $false }
+            return
+        }
+        if ($script:HostRefreshPending) {
+            $script:HostRefreshPending = $false
+            Start-HostsQuery
+        }
+        return
+    }
+    if ([string]$Obj.Error) {
+        $script:HostBatchBusy = $false
+        Set-Pill -Pill $pillHostSum -Text '读取失败' -Kind 'Danger'
+        $txtHostDetail.Text = [string]$Obj.Error
+        Append-GuiLog -Line ('[WARN] 主机查询失败：' + [string]$Obj.Error)
+        Update-HostsChrome
+        if ($script:HostRefreshPending) { $script:HostRefreshPending = $false; Start-HostsQuery }
+        return
+    }
+    if ($Obj.Mode -eq 'hosts') {
+        $data = $Obj.Data
+        $script:HostItems        = @($data.Items)
+        $script:HostTrusted      = @($data.TrustedHosts)
+        $script:HostTrustedError = [string]$data.TrustedError
+        Update-HostTagCombo
+        Show-HostsList
+        Update-HostsSummary
+        if ($lstHosts.SelectedItems.Count -eq 0 -and -not $script:HostBatchBusy -and $script:HostLastInfo) {
+            $txtHostDetail.Text = $script:HostLastInfo
+        }
+        if ($script:HostRefreshPending) {
+            $script:HostRefreshPending = $false
+            Start-HostsQuery
+            return
+        }
+        Complete-HostPendingWatch
+    } elseif ($Obj.Mode -eq 'test') {
+        $data = $Obj.Data
+        $script:HostLastInfo = Format-HostTestSummary -Data $data
+        $txtHostDetail.Text = $script:HostLastInfo
+        Set-Pill -Pill $pillHostSum -Text ('测试 {0} 台：成功 {1} / 失败 {2}' -f [int]$data.Total, [int]$data.Ok, [int]$data.Failed) `
+            -Kind $(if ([int]$data.Failed -gt 0) { 'Warn' } else { 'Success' })
+        foreach ($r in @($data.Results)) {
+            if ([string]$r.Status -eq 'OK') {
+                Append-GuiLog -Line ('[OK] {0}（{1}）：{2}' -f [string]$r.Name, [string]$r.Address, [string]$r.Detail)
+            } else {
+                Append-GuiLog -Line ('[WARN] {0}（{1}）：{2}' -f [string]$r.Name, [string]$r.Address, [string]$r.Detail)
+            }
+        }
+        Update-HostsChrome
+        Start-HostsQuery
+    } elseif ($Obj.Mode -eq 'batch') {
+        $b = $Obj.Data
+        $script:HostBatch = $b
+        $script:HostBatchBusy = $false
+        $script:HostLastInfo = Format-HostBatchSummary -Batch $b
+        $txtHostDetail.Text = $script:HostLastInfo
+        Set-Pill -Pill $pillHostSum -Text ('批量 {0} 台：成功 {1} / 失败 {2}' -f [int]$b.Total, [int]$b.Succeeded, [int]$b.Failed) `
+            -Kind $(if ([int]$b.Failed -gt 0 -or [int]$b.Skipped -gt 0) { 'Warn' } else { 'Success' })
+        Append-GuiLog -Line ('[OK] 批量结果已写入 ' + (Get-GuiReadyRemoteBatchFile -TaskId ([string]$b.TaskId)))
+        foreach ($r in @($b.Results)) {
+            $lvl = 'INFO'
+            if ([string]$r.Status -eq 'Failed') { $lvl = 'ERROR' }
+            elseif ([string]$r.Status -eq 'Skipped') { $lvl = 'WARN' }
+            Append-GuiLog -Line ('[{0}] {1}（{2}） {3} 秒' -f (Get-HostRemoteStatusText ([string]$r.Status)), [string]$r.Name, [string]$r.Address, [double]$r.DurationSec) $lvl
+        }
+        Update-HostsChrome
+        if ($script:HostRefreshPending) { $script:HostRefreshPending = $false; Start-HostsQuery }
+    }
+}
+
+function Show-HostsPage {
+    if ($SkipPageHooks) { return }
+    Update-HostsChrome
+    if ($script:HostItems.Count -eq 0) { Start-HostsQuery }
+    elseif (-not $script:QHosts.Task) { Start-HostsQuery }
+    else { $script:HostRefreshPending = $true }
+}
+
+$script:QHosts = New-GuiQueryHost -Name 'hosts' -Runner (Join-Path $guiDir 'Run-GuiReadyRemote.ps1') -TimeoutSec 240 `
+    -OnResult { param($obj) Receive-HostsResult -Obj $obj } `
+    -OnBusyStart { param($t) Set-Pill -Pill $pillHostSum -Text $t -Kind 'Info'; Update-HostsChrome } `
+    -OnBusyEnd { }
+
+function New-HostFormLabel {
+    param([string]$Text, [int]$X, [int]$Y, [int]$W = 100)
+    $l = New-Label -Text $Text -Size 9 -Color Text
+    $l.AutoSize = $false
+    $l.Location = New-Object System.Drawing.Point($X, $Y)
+    $l.Size = New-Object System.Drawing.Size($W, 22)
+    $l.TextAlign = 'MiddleLeft'
+    return $l
+}
+
+function New-HostFormInput {
+    param([int]$X, [int]$Y, [int]$W, [int]$H = 24, [switch]$Multi)
+    $t = New-Object System.Windows.Forms.TextBox
+    $t.Location    = New-Object System.Drawing.Point($X, $Y)
+    $t.Size        = New-Object System.Drawing.Size($W, $H)
+    $t.BackColor   = $Pal.Sunken
+    $t.ForeColor   = $Pal.Text
+    $t.BorderStyle = 'FixedSingle'
+    $t.Font        = New-Font -Size 9
+    if ($Multi) {
+        $t.Multiline  = $true
+        $t.ScrollBars = 'Vertical'
+        $t.Font       = New-Object System.Drawing.Font('Consolas', 9)
+    }
+    return $t
+}
+
+function New-HostFormCombo {
+    param([int]$X, [int]$Y, [int]$W)
+    $c = New-Object System.Windows.Forms.ComboBox
+    $c.Location      = New-Object System.Drawing.Point($X, $Y)
+    $c.Size          = New-Object System.Drawing.Size($W, 24)
+    $c.DropDownStyle = 'DropDownList'
+    $c.FlatStyle     = 'Flat'
+    $c.BackColor     = $Pal.Sunken
+    $c.ForeColor     = $Pal.Text
+    $c.Font          = New-Font -Size 9
+    return $c
+}
+
+function Show-HostEditDialog {
+    # 参数名不能叫 Host：$Host 是 PowerShell 的只读自动变量（当前宿主对象），
+    # 同名参数在 Show-HostEditDialog -Host ... 绑定时会直接抛「无法覆盖变量 Host」。
+    param($Target = $null)
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    $editing = $Target
+
+    $dlg                 = New-Object System.Windows.Forms.Form
+    $dlg.Text            = $(if ($editing) { '编辑主机' } else { '添加主机' })
+    $dlg.StartPosition   = 'CenterParent'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox     = $false
+    $dlg.MinimizeBox     = $false
+    $dlg.ShowInTaskbar   = $false
+    $dlg.BackColor       = $Pal.Bg
+    $dlg.ForeColor       = $Pal.Text
+    $dlg.Font            = New-Font -Size 9
+    $dlg.ClientSize      = New-Object System.Drawing.Size(620, 560)
+    try { $dlg.Owner = $form } catch { }
+
+    $dlg.Controls.Add((New-HostFormLabel -Text '名称' -X 14 -Y 16))
+    $txtName = New-HostFormInput -X 120 -Y 12 -W 470
+    $dlg.Controls.Add($txtName)
+
+    $dlg.Controls.Add((New-HostFormLabel -Text '地址（IP/主机名）' -X 14 -Y 50 -W 100))
+    $txtAddr = New-HostFormInput -X 120 -Y 46 -W 340
+    $dlg.Controls.Add($txtAddr)
+    $dlg.Controls.Add((New-HostFormLabel -Text '端口' -X 470 -Y 50 -W 36))
+    $txtPort = New-HostFormInput -X 510 -Y 46 -W 80
+    $dlg.Controls.Add($txtPort)
+
+    $dlg.Controls.Add((New-HostFormLabel -Text '协议' -X 14 -Y 84 -W 60))
+    $cmbProto = New-HostFormCombo -X 120 -Y 80 -W 150
+    foreach ($x in @('Http', 'Https')) { [void]$cmbProto.Items.Add($x) }
+    $cmbProto.SelectedIndex = 0
+    $dlg.Controls.Add($cmbProto)
+    $dlg.Controls.Add((New-HostFormLabel -Text '认证' -X 300 -Y 84 -W 60))
+    $cmbAuth = New-HostFormCombo -X 370 -Y 80 -W 220
+    foreach ($x in @('当前用户（Negotiate）', '保存的凭据')) { [void]$cmbAuth.Items.Add($x) }
+    $cmbAuth.SelectedIndex = 0
+    $dlg.Controls.Add($cmbAuth)
+
+    $lblCredState = New-HostFormLabel -Text '' -X 14 -Y 114 -W 580
+    $dlg.Controls.Add($lblCredState)
+
+    $dlg.Controls.Add((New-HostFormLabel -Text '用户名' -X 14 -Y 148 -W 100))
+    $txtUser = New-HostFormInput -X 120 -Y 144 -W 220
+    $dlg.Controls.Add($txtUser)
+    $dlg.Controls.Add((New-HostFormLabel -Text '密码' -X 360 -Y 148 -W 50))
+    $txtPass = New-HostFormInput -X 420 -Y 144 -W 170
+    $txtPass.UseSystemPasswordChar = $true
+    $dlg.Controls.Add($txtPass)
+    $chkClear = New-Object System.Windows.Forms.CheckBox
+    $chkClear.Text     = '清除已保存的凭据'
+    $chkClear.Location = New-Object System.Drawing.Point(120, 180)
+    $chkClear.Size     = New-Object System.Drawing.Size(220, 24)
+    $chkClear.ForeColor = $Pal.Text
+    $dlg.Controls.Add($chkClear)
+
+    $dlg.Controls.Add((New-HostFormLabel -Text '标签' -X 14 -Y 214 -W 100))
+    $txtTags = New-HostFormInput -X 120 -Y 210 -W 470
+    $dlg.Controls.Add($txtTags)
+    $dlg.Controls.Add((New-HostFormLabel -Text '备注' -X 14 -Y 248 -W 100))
+    $txtNotes = New-HostFormInput -X 120 -Y 244 -W 470 -H 78 -Multi
+    $dlg.Controls.Add($txtNotes)
+
+    $chkEnabled = New-Object System.Windows.Forms.CheckBox
+    $chkEnabled.Text     = '启用（参与“全部主机”的批量与测试）'
+    $chkEnabled.Location = New-Object System.Drawing.Point(120, 330)
+    $chkEnabled.Size     = New-Object System.Drawing.Size(320, 24)
+    $chkEnabled.ForeColor = $Pal.Text
+    $chkEnabled.Checked  = $true
+    $dlg.Controls.Add($chkEnabled)
+
+    $chkUntrusted = New-Object System.Windows.Forms.CheckBox
+    $chkUntrusted.Text     = '跳过证书校验（仅 HTTPS 自签证书时使用）'
+    $chkUntrusted.Location = New-Object System.Drawing.Point(120, 358)
+    $chkUntrusted.Size     = New-Object System.Drawing.Size(340, 24)
+    $chkUntrusted.ForeColor = $Pal.Text
+    $dlg.Controls.Add($chkUntrusted)
+
+    $lblHint = New-HostFormLabel -Text '提示：当前用户认证走 Negotiate；工作组环境下的 HTTP 需要目标在 TrustedHosts。密码只在本机用 DPAPI 加密保存，不回显、不进日志。' -X 14 -Y 392 -W 590
+    $lblHint.AutoSize = $false
+    $lblHint.Height   = 54
+    $dlg.Controls.Add($lblHint)
+
+    $btnCancel = New-FlatButton -Text '取消' -Width 80 -Height 30
+    $btnCancel.Location = New-Object System.Drawing.Point(416, 508)
+    $dlg.Controls.Add($btnCancel)
+    $btnSave = New-FlatButton -Text '保存' -Width 100 -Height 30 -Kind Primary
+    $btnSave.Location = New-Object System.Drawing.Point(506, 508)
+    $dlg.Controls.Add($btnSave)
+
+    # 回填
+    if ($editing) {
+        $txtName.Text = [string]$editing.Name
+        $txtAddr.Text = [string]$editing.Address
+        $txtPort.Text = [string]$editing.Port
+        $cmbProto.SelectedIndex = $(if ([string]$editing.Protocol -eq 'Https') { 1 } else { 0 })
+        $cmbAuth.SelectedIndex  = $(if ([string]$editing.Auth -eq 'Credential') { 1 } else { 0 })
+        $txtTags.Text  = (@($editing.Tags) -join '、')
+        $txtNotes.Text = [string]$editing.Notes
+        $chkEnabled.Checked   = [bool]$editing.Enabled
+        $chkUntrusted.Checked = [bool]$editing.AllowUntrusted
+        $lblCredState.Text = $(if ([bool]$editing.HasCredential) { '已保存凭据：是（用户名不回显；重新填写即覆盖）' } else { '已保存凭据：否' })
+    } else {
+        $txtPort.Text = '5985'
+        $lblCredState.Text = '尚未保存凭据。'
+    }
+
+    $applyAuth = {
+        $on = ($cmbAuth.SelectedIndex -eq 1)
+        $txtUser.Enabled  = $on
+        $txtPass.Enabled  = $on
+        $chkClear.Enabled = ($on -and [bool]$editing)
+        if (-not $on) {
+            $txtUser.Text = ''
+            $txtPass.Text = ''
+            $chkClear.Checked = $false
+        }
+    }.GetNewClosure()
+    $cmbAuth.Add_SelectedIndexChanged($applyAuth)
+
+    $cmbProto.Add_SelectedIndexChanged({
+        $p = 5985
+        if ($cmbProto.SelectedIndex -eq 1) { $p = 5986 }
+        if ($txtPort.Text -eq '5985' -or $txtPort.Text -eq '5986' -or -not $txtPort.Text.Trim()) { $txtPort.Text = [string]$p }
+    }.GetNewClosure())
+
+    & $applyAuth
+
+    $btnCancel.Add_Click({ $dlg.Close() }.GetNewClosure())
+    $btnSave.Add_Click({
+        try {
+            $name = $txtName.Text.Trim()
+            if (-not $name) { throw '主机名称不能为空。' }
+            $addr = $txtAddr.Text.Trim()
+            if (-not $addr) { throw '主机地址不能为空。' }
+            $port = 0
+            if (-not [int]::TryParse($txtPort.Text.Trim(), [ref]$port)) { throw '端口必须是数字（1-65535）。' }
+            if ($port -lt 1 -or $port -gt 65535) { throw '端口必须在 1-65535 之间。' }
+            $proto = [string]$cmbProto.SelectedItem
+            $auth  = $(if ($cmbAuth.SelectedIndex -eq 1) { 'Credential' } else { 'Default' })
+            $tags  = @(([string]$txtTags.Text -split '[,;，；、]') | ForEach-Object { $_.Trim() } | Where-Object { $_ })
+            $u = $txtUser.Text.Trim()
+            $pw = $txtPass.Text
+            if ([bool]$chkClear.Checked) { $pw = '' }
+            $willClear = [bool]$chkClear.Checked
+            $hasExisting = $false
+            if ($editing -and [bool]$editing.HasCredential -and -not $willClear) { $hasExisting = $true }
+            if ($auth -eq 'Credential' -and -not $hasExisting -and -not ($u -and $pw)) {
+                throw '认证方式是“保存的凭据”，请填写用户名和密码。'
+            }
+            if (($u -and -not $pw) -or ($pw -and -not $u)) { throw '用户名和密码需要同时填写。' }
+
+            $rec = $null
+            if ($editing) {
+                $rec = Set-GuiReadyHost -Id ([string]$editing.Id) -Name $name -Address $addr -Port $port `
+                        -Protocol $proto -Auth $auth -AllowUntrusted ([bool]$chkUntrusted.Checked) `
+                        -Tags $tags -Notes $txtNotes.Text -Enabled ([bool]$chkEnabled.Checked)
+            } else {
+                $rec = New-GuiReadyHost -Name $name -Address $addr -Port $port `
+                        -Protocol $proto -Auth $auth -AllowUntrusted:([bool]$chkUntrusted.Checked) `
+                        -Tags $tags -Notes $txtNotes.Text -Enabled ([bool]$chkEnabled.Checked)
+            }
+            if ($willClear) { [void](Remove-GuiReadyHostCredential -Id ([string]$rec.Id)) }
+            if ($u -and $pw) {
+                [void](Set-GuiReadyHostCredential -Id ([string]$rec.Id) -UserName $u -Password $pw)
+            }
+            $txtPass.Text = ''
+            Append-GuiLog -Line ('[OK] 已保存主机：{0}（{1}:{2}，认证 {3}）' -f [string]$rec.Name, [string]$rec.Address, [int]$rec.Port, (Get-HostAuthText ([string]$rec.Auth)))
+            $dlg.Close()
+            Start-HostsQuery
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show($dlg, $_.Exception.Message, '保存失败', 'OK', 'Warning') | Out-Null
+        }
+    }.GetNewClosure())
+
+    [void]$dlg.ShowDialog($form)
+}
+
+function Remove-SelectedHost {
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    if ($lstHosts.SelectedItems.Count -eq 0) { Append-GuiLog -Line '[WARN] 先在列表里选一台主机。'; return }
+    $h = $lstHosts.SelectedItems[0].Tag
+    if (-not $h) { return }
+    $r = [System.Windows.Forms.MessageBox]::Show($form,
+        ('删除主机“{0}”（{1}:{2}）？该主机的已保存凭据也会一起删除。' -f [string]$h.Name, [string]$h.Address, [int]$h.Port),
+        '确认删除', 'YesNo', 'Warning')
+    if ($r -ne 'Yes') { return }
+    try {
+        [void](Remove-GuiReadyHost -Id ([string]$h.Id))
+        Append-GuiLog -Line ('[OK] 已删除主机：{0}（{1}）' -f [string]$h.Name, [string]$h.Address)
+        $script:HostLastInfo = ''
+        $txtHostDetail.Text = ''
+        Start-HostsQuery
+    } catch {
+        [System.Windows.Forms.MessageBox]::Show($form, $_.Exception.Message, '删除失败', 'OK', 'Warning') | Out-Null
+    }
+}
+
+function Show-HostBatchDialog {
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    if ($script:Proc) {
+        [System.Windows.Forms.MessageBox]::Show($form, '上一个动作还在运行，请先等它结束。', '提示', 'OK', 'Information') | Out-Null
+        return
+    }
+    $enabled = @($script:HostItems | Where-Object { [bool]$_.Enabled })
+    if ($enabled.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show($form, '主机清单里没有启用的主机，请先添加并启用。', '提示', 'OK', 'Information') | Out-Null
+        return
+    }
+    $selIds = @{}
+    foreach ($li in @($lstHosts.SelectedItems)) { $selIds[[string]$li.Tag.Id] = $true }
+
+    $dlg                 = New-Object System.Windows.Forms.Form
+    $dlg.Text            = '批量执行命令'
+    $dlg.StartPosition   = 'CenterParent'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox     = $false
+    $dlg.MinimizeBox     = $false
+    $dlg.ShowInTaskbar   = $false
+    $dlg.BackColor       = $Pal.Bg
+    $dlg.ForeColor       = $Pal.Text
+    $dlg.Font            = New-Font -Size 9
+    $dlg.ClientSize      = New-Object System.Drawing.Size(640, 560)
+    try { $dlg.Owner = $form } catch { }
+
+    $lblTarget = New-HostFormLabel -Text '目标主机（仅列启用的；默认勾选列表里选中的主机）' -X 14 -Y 12 -W 600
+    $dlg.Controls.Add($lblTarget)
+
+    $chkHosts = New-Object System.Windows.Forms.CheckedListBox
+    $chkHosts.Location        = New-Object System.Drawing.Point(14, 38)
+    $chkHosts.Size            = New-Object System.Drawing.Size(600, 150)
+    $chkHosts.CheckOnClick    = $true
+    $chkHosts.BackColor       = $Pal.Sunken
+    $chkHosts.ForeColor       = $Pal.Text
+    $chkHosts.BorderStyle     = 'FixedSingle'
+    $chkHosts.Font            = New-Font -Size 9
+    for ($i = 0; $i -lt $enabled.Count; $i++) {
+        $h = $enabled[$i]
+        $checked = $true
+        if ($selIds.Count -gt 0) { $checked = $selIds.ContainsKey([string]$h.Id) }
+        [void]$chkHosts.Items.Add(('{0}  {1}:{2}' -f [string]$h.Name, [string]$h.Address, [int]$h.Port), $checked)
+    }
+    $dlg.Controls.Add($chkHosts)
+
+    $dlg.Controls.Add((New-HostFormLabel -Text '命令（在每台主机上用 PowerShell 执行）' -X 14 -Y 198 -W 600))
+    $txtCmd = New-HostFormInput -X 14 -Y 222 -W 600 -H 120 -Multi
+    $txtCmd.Text = '$env:COMPUTERNAME'
+    $dlg.Controls.Add($txtCmd)
+
+    $dlg.Controls.Add((New-HostFormLabel -Text '每台超时（秒）' -X 14 -Y 354 -W 100))
+    $txtTimeout = New-HostFormInput -X 120 -Y 350 -W 70
+    $txtTimeout.Text = '120'
+    $dlg.Controls.Add($txtTimeout)
+
+    $chkContinue = New-Object System.Windows.Forms.CheckBox
+    $chkContinue.Text     = '某台失败后继续执行其它主机'
+    $chkContinue.Location = New-Object System.Drawing.Point(220, 350)
+    $chkContinue.Size     = New-Object System.Drawing.Size(300, 24)
+    $chkContinue.ForeColor = $Pal.Text
+    $chkContinue.Checked  = $true
+    $dlg.Controls.Add($chkContinue)
+
+    $lblHint = New-HostFormLabel -Text '批量命令会作为任务进入任务中心，逐机结果写入 state\remote；关闭本窗口不会中断执行。输出按主机保留，单台失败不影响其它主机。' -X 14 -Y 386 -W 600
+    $lblHint.Height = 54
+    $dlg.Controls.Add($lblHint)
+
+    $btnCancel = New-FlatButton -Text '取消' -Width 80 -Height 30
+    $btnCancel.Location = New-Object System.Drawing.Point(436, 508)
+    $dlg.Controls.Add($btnCancel)
+    $btnRun = New-FlatButton -Text '运行' -Width 100 -Height 30 -Kind Primary
+    $btnRun.Location = New-Object System.Drawing.Point(526, 508)
+    $dlg.Controls.Add($btnRun)
+
+    $btnCancel.Add_Click({ $dlg.Close() }.GetNewClosure())
+    $btnRun.Add_Click({
+        try {
+            $picked = New-Object System.Collections.ArrayList
+            for ($i = 0; $i -lt $chkHosts.Items.Count; $i++) {
+                if ($chkHosts.GetItemChecked($i)) { [void]$picked.Add([string]$enabled[$i].Id) }
+            }
+            if ($picked.Count -eq 0) { throw '至少勾选一台主机。' }
+            $cmd = $txtCmd.Text.Trim()
+            if (-not $cmd) { throw '命令不能为空。' }
+            $tmo = 120
+            if (-not [int]::TryParse($txtTimeout.Text.Trim(), [ref]$tmo)) { throw '超时必须是数字（10-1800 秒）。' }
+            if ($tmo -lt 10) { $tmo = 10 }
+            if ($tmo -gt 1800) { $tmo = 1800 }
+
+            $a = @($script:Actions | Where-Object { [string]$_.Id -eq 'remote-run' })
+            if ($a.Count -eq 0) { throw '动作清单里没有 remote-run，无法提交批量任务。' }
+            Select-GuiAction -Action $a[0]
+            Set-ParamValues -Values @{
+                Hosts           = ($picked.ToArray() -join ';')
+                Command         = $cmd
+                TimeoutSec      = [string]$tmo
+                ContinueOnError = [bool]$chkContinue.Checked
+            }
+            Start-GuiAction -DryRun $false
+            if (-not $script:Proc) { throw '动作没有启动成功，请查看日志。' }
+
+            $script:HostBatchJobId        = [string]$script:CurrentJobId
+            $script:HostBatchBusy         = $true
+            $script:HostBatch             = $null
+            $script:HostBatchPendingWatch = $false
+            $script:HostLastInfo          = ('批量任务已提交（{0} 台），等待执行结束…' -f $picked.Count)
+            $txtHostDetail.Text           = $script:HostLastInfo
+            Set-Pill -Pill $pillHostSum -Text '批量执行中…' -Kind 'Info'
+            if ($script:QHosts.Task) { $script:HostBatchPendingWatch = $true }
+            else { Start-GuiQueryWatch -Query $script:QHosts }
+            Append-GuiLog -Line ('[STEP] 远程批量已提交：{0} 台，任务 {1}' -f $picked.Count, $script:HostBatchJobId)
+            $dlg.Close()
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show($dlg, $_.Exception.Message, '无法提交', 'OK', 'Warning') | Out-Null
+        }
+    }.GetNewClosure())
+
+    [void]$dlg.ShowDialog($form)
+}
+
+function Show-HostTrustDialog {
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    $dlg                 = New-Object System.Windows.Forms.Form
+    $dlg.Text            = 'WinRM 信任设置（TrustedHosts）'
+    $dlg.StartPosition   = 'CenterParent'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox     = $false
+    $dlg.MinimizeBox     = $false
+    $dlg.ShowInTaskbar   = $false
+    $dlg.BackColor       = $Pal.Bg
+    $dlg.ForeColor       = $Pal.Text
+    $dlg.Font            = New-Font -Size 9
+    $dlg.ClientSize      = New-Object System.Drawing.Size(620, 420)
+    try { $dlg.Owner = $form } catch { }
+
+    $dlg.Controls.Add((New-HostFormLabel -Text '当前 TrustedHosts（本机 WinRM 客户端）' -X 14 -Y 12 -W 590))
+    $txtCurrent = New-HostFormInput -X 14 -Y 38 -W 590 -H 110 -Multi
+    $txtCurrent.ReadOnly = $true
+    $dlg.Controls.Add($txtCurrent)
+
+    $lblHint = New-HostFormLabel -Text '只有在工作组、HTTP + 当前用户认证时才需要把目标地址加入 TrustedHosts；本工具不会自动修改，每次添加/移除都会写入结构审计。' -X 14 -Y 156 -W 590
+    $lblHint.Height = 54
+    $dlg.Controls.Add($lblHint)
+
+    $dlg.Controls.Add((New-HostFormLabel -Text '地址（逗号/分号分隔，支持 * 通配）' -X 14 -Y 216 -W 590))
+    $prefill = ''
+    if ($lstHosts.SelectedItems.Count -gt 0) { $prefill = [string]$lstHosts.SelectedItems[0].Tag.Address }
+    $txtInput = New-HostFormInput -X 14 -Y 242 -W 590
+    $txtInput.Text = $prefill
+    $dlg.Controls.Add($txtInput)
+
+    $btnClose = New-FlatButton -Text '关闭' -Width 80 -Height 30
+    $btnClose.Location = New-Object System.Drawing.Point(336, 366)
+    $dlg.Controls.Add($btnClose)
+    $btnRemove = New-FlatButton -Text '移除' -Width 80 -Height 30
+    $btnRemove.Location = New-Object System.Drawing.Point(424, 366)
+    $dlg.Controls.Add($btnRemove)
+    $btnAdd = New-FlatButton -Text '添加' -Width 100 -Height 30 -Kind Primary
+    $btnAdd.Location = New-Object System.Drawing.Point(504, 366)
+    $dlg.Controls.Add($btnAdd)
+
+    $refreshTrust = {
+        try {
+            $s = Get-GuiReadyTrustedHostsState
+            if ($s.Error) { $txtCurrent.Text = '读取失败：' + [string]$s.Error }
+            elseif (@($s.Items).Count -eq 0) { $txtCurrent.Text = '（空）' }
+            else { $txtCurrent.Text = (@($s.Items) -join "`r`n") }
+            $script:HostTrusted = @($s.Items)
+            $script:HostTrustedError = [string]$s.Error
+        } catch {
+            $txtCurrent.Text = '读取失败：' + $_.Exception.Message
+        }
+    }.GetNewClosure()
+    & $refreshTrust
+
+    $btnClose.Add_Click({ $dlg.Close() }.GetNewClosure())
+    $btnAdd.Add_Click({
+        try {
+            $addr = $txtInput.Text.Trim()
+            if (-not $addr) { throw '请填写要信任的地址。' }
+            $s = Add-GuiReadyTrustedHost -Address $addr
+            & $refreshTrust
+            Append-GuiLog -Line ('[OK] 已加入 TrustedHosts：' + $addr)
+            if ($s.Error) { Append-GuiLog -Line ('[WARN] ' + [string]$s.Error) 'WARN' }
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show($dlg, $_.Exception.Message, '添加失败', 'OK', 'Warning') | Out-Null
+        }
+    }.GetNewClosure())
+    $btnRemove.Add_Click({
+        try {
+            $addr = $txtInput.Text.Trim()
+            if (-not $addr) { throw '请填写要移除的地址。' }
+            $s = Remove-GuiReadyTrustedHost -Address $addr
+            & $refreshTrust
+            Append-GuiLog -Line ('[OK] 已移出 TrustedHosts：' + $addr)
+            if ($s.Error) { Append-GuiLog -Line ('[WARN] ' + [string]$s.Error) 'WARN' }
+        } catch {
+            [System.Windows.Forms.MessageBox]::Show($dlg, $_.Exception.Message, '移除失败', 'OK', 'Warning') | Out-Null
+        }
+    }.GetNewClosure())
+
+    [void]$dlg.ShowDialog($form)
+}
+
+function Bind-HostsEvents {
+    # 远程主机页的事件绑定；页面首次显示时由 Build-HostsPage 调用
+$btnHostRefresh.Add_Click({ Start-HostsQuery })
+$btnHostTest.Add_Click({ Start-HostsTest })
+$btnHostBatch.Add_Click({ Show-HostBatchDialog })
+$btnHostTrust.Add_Click({ Show-HostTrustDialog })
+$btnHostAdd.Add_Click({ Show-HostEditDialog -Target $null })
+$btnHostEdit.Add_Click({
+    if ($lstHosts.SelectedItems.Count -eq 0) { Append-GuiLog -Line '[WARN] 先在列表里选一台主机。'; return }
+    Show-HostEditDialog -Target $lstHosts.SelectedItems[0].Tag
+})
+$btnHostDelete.Add_Click({ Remove-SelectedHost })
+$txtHostKeyword.Add_KeyDown({
+    if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Enter) { Start-HostsQuery }
+})
+$txtHostKeyword.Add_TextChanged({ if (-not $script:HostTagLoading) { Show-HostsList } })
+$cmbHostTag.Add_SelectedIndexChanged({ if (-not $script:HostTagLoading) { Show-HostsList } })
+$lstHosts.Add_SelectedIndexChanged({
+    if ($lstHosts.SelectedItems.Count -eq 0) { $txtHostDetail.Text = $script:HostLastInfo; return }
+    $txtHostDetail.Text = Format-HostDetail -Item $lstHosts.SelectedItems[0].Tag
+})
+}
+
+# ---- 任务页辅助函数 ----
+
+function Format-GuiTaskTime {
+    param([string]$Text)
+    if ([string]::IsNullOrWhiteSpace($Text)) { return '-' }
+    $t = [datetime]::MinValue
+    try { $t = [datetime]::Parse($Text, [System.Globalization.CultureInfo]::InvariantCulture) } catch { }
+    if ($t -eq [datetime]::MinValue) { return '-' }
+    return $t.ToString('MM-dd HH:mm:ss')
+}
+
+function Format-GuiTaskDetail {
+    param($Task)
+    if (-not $Task) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('任务编号：' + [string]$Task.Id)
+    [void]$sb.AppendLine('动作：' + [string]$Task.ActionName + '（' + [string]$Task.ActionId + '）    分组：' + [string]$Task.Group)
+    [void]$sb.AppendLine('状态：' + (Get-GuiReadyTaskStatusText -Status ([string]$Task.Status)) + '    退出码：' + $(if ($null -eq $Task.ExitCode) { '-' } else { [string]$Task.ExitCode }) + '    耗时：' + [string]$Task.DurationSec + ' 秒')
+    [void]$sb.AppendLine('排队：' + (Format-GuiTaskTime ([string]$Task.QueuedAt)) + '    开始：' + (Format-GuiTaskTime ([string]$Task.StartedAt)) + '    结束：' + (Format-GuiTaskTime ([string]$Task.EndedAt)))
+    [void]$sb.AppendLine('机器：' + [string]$Task.Machine + '    用户：' + [string]$Task.User + '    进程：' + $(if ([int]$Task.Pid -gt 0) { [string]$Task.Pid } else { '-' }))
+    if ([bool]$Task.DryRun) { [void]$sb.AppendLine('执行方式：仅预览（DryRun）') }
+    if ([bool]$Task.Sensitive) { [void]$sb.AppendLine('敏感参数：有（已脱敏保存，禁止一键重试）') }
+    if ([bool]$Task.ParamsTruncated) { [void]$sb.AppendLine('参数：过长已截断，禁止一键重试') }
+    if ($Task.RetryOf) { [void]$sb.AppendLine('重试来源：' + [string]$Task.RetryOf) }
+    [void]$sb.AppendLine('日志：' + [string]$Task.LogPath)
+    [void]$sb.AppendLine(('-' * 72))
+    if ($Task.Message) { [void]$sb.AppendLine('结果说明：' + [string]$Task.Message); [void]$sb.AppendLine('') }
+    [void]$sb.AppendLine('参数：')
+    $props = @()
+    try { $props = @($Task.Params.PSObject.Properties) } catch { }
+    if ($props.Count -eq 0) { [void]$sb.AppendLine('  （无）') }
+    else { foreach ($p in $props) { [void]$sb.AppendLine(('  {0} = {1}' -f $p.Name, [string]$p.Value)) } }
+    return $sb.ToString()
+}
+
+function Format-GuiAuditDetail {
+    param($Entry)
+    if (-not $Entry) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    [void]$sb.AppendLine('时间：' + (Format-GuiTaskTime ([string]$Entry.Time)))
+    [void]$sb.AppendLine('事件：' + (Get-GuiReadyAuditEventText -Event ([string]$Entry.Event)) + '（' + [string]$Entry.Event + '）    级别：' + [string]$Entry.Level)
+    [void]$sb.AppendLine('动作：' + [string]$Entry.ActionId + '    任务编号：' + [string]$Entry.TaskId)
+    [void]$sb.AppendLine('用户：' + [string]$Entry.User + '    机器：' + [string]$Entry.Machine)
+    [void]$sb.AppendLine(('-' * 72))
+    [void]$sb.AppendLine([string]$Entry.Detail)
+    return $sb.ToString()
+}
+
+function Get-GuiTaskStatusFilter {
+    $idx = [Math]::Max(0, [Math]::Min(5, $cmbTaskStatus.SelectedIndex))
+    return @('', 'Running', 'Succeeded', 'Failed', 'Canceled', 'Interrupted')[$idx]
+}
+
+function Get-GuiAuditLevelFilter {
+    $idx = [Math]::Max(0, [Math]::Min(4, $cmbAuditLevel.SelectedIndex))
+    return @('', 'Success', 'Info', 'Warn', 'Error')[$idx]
+}
+
+function Get-GuiTaskSinceHours {
+    param($Combo)
+    $idx = [Math]::Max(0, [Math]::Min(3, $Combo.SelectedIndex))
+    return @(24, 168, 720, 0)[$idx]
+}
+
+function Start-TasksQuery {
+    if ($SkipPageHooks -or -not $script:QTasks) { return }
+    if ($script:QTasks.Task) { $script:TaskRefreshPending = $true; return }
+    $p = @{
+        Limit      = 300
+        SinceHours = (Get-GuiTaskSinceHours -Combo $cmbTaskSince)
+        Status     = (Get-GuiTaskStatusFilter)
+        Keyword    = $txtTaskKeyword.Text.Trim()
+    }
+    [void](Start-GuiQueryHost -Query $script:QTasks -Task 'list' -ArgsJson $p -BusyText '读取任务…')
+}
+
+function Start-AuditQuery {
+    if ($SkipPageHooks -or -not $script:QAudit) { return }
+    if ($script:QAudit.Task) { $script:AuditRefreshPending = $true; return }
+    $p = @{
+        Limit      = 300
+        SinceHours = (Get-GuiTaskSinceHours -Combo $cmbAuditSince)
+        Level      = (Get-GuiAuditLevelFilter)
+        Keyword    = $txtAuditKeyword.Text.Trim()
+    }
+    [void](Start-GuiQueryHost -Query $script:QAudit -Task 'audit' -ArgsJson $p -BusyText '读取审计…')
+}
+
+function Show-TasksList {
+    $lstTasks.BeginUpdate()
+    try {
+        $lstTasks.Items.Clear()
+        foreach ($t in @($script:TaskItems)) {
+            $li = New-Object System.Windows.Forms.ListViewItem((Format-GuiTaskTime ([string]$t.QueuedAt)))
+            [void]$li.SubItems.Add($(if ([bool]$t.DryRun) { '[预览] ' } else { '' }) + [string]$t.ActionName)
+            [void]$li.SubItems.Add((Get-GuiReadyTaskStatusText -Status ([string]$t.Status)))
+            [void]$li.SubItems.Add(([string]$t.DurationSec + ' 秒'))
+            [void]$li.SubItems.Add($(if ($null -eq $t.ExitCode) { '-' } else { [string]$t.ExitCode }))
+            [void]$li.SubItems.Add([string]$t.User)
+            [void]$li.SubItems.Add([string]$t.Id)
+            $li.Tag = $t
+            switch ([string]$t.Status) {
+                'Failed'      { $li.ForeColor = $Pal.Err }
+                'Canceled'    { $li.ForeColor = $Pal.Warn }
+                'Interrupted' { $li.ForeColor = $Pal.Warn }
+                'Running'     { $li.ForeColor = $Pal.Accent2 }
+                default       { $li.ForeColor = $Pal.Text }
+            }
+            [void]$lstTasks.Items.Add($li)
+        }
+    } finally { $lstTasks.EndUpdate() }
+}
+
+function Show-AuditList {
+    $lstAudit.BeginUpdate()
+    try {
+        $lstAudit.Items.Clear()
+        foreach ($e in @($script:AuditItems)) {
+            $li = New-Object System.Windows.Forms.ListViewItem((Format-GuiTaskTime ([string]$e.Time)))
+            [void]$li.SubItems.Add((Get-GuiReadyAuditEventText -Event ([string]$e.Event)))
+            $lv = '信息'
+            switch ([string]$e.Level) {
+                'Success' { $lv = '成功' }
+                'Warn'    { $lv = '警告' }
+                'Error'   { $lv = '错误' }
+            }
+            [void]$li.SubItems.Add($lv)
+            [void]$li.SubItems.Add([string]$e.ActionId)
+            [void]$li.SubItems.Add([string]$e.TaskId)
+            [void]$li.SubItems.Add((([string]$e.Detail) -replace "`r?`n", ' '))
+            $li.Tag = $e
+            switch ([string]$e.Level) {
+                'Error'   { $li.ForeColor = $Pal.Err }
+                'Warn'    { $li.ForeColor = $Pal.Warn }
+                'Success' { $li.ForeColor = $Pal.Ok }
+                default   { $li.ForeColor = $Pal.Text }
+            }
+            [void]$lstAudit.Items.Add($li)
+        }
+    } finally { $lstAudit.EndUpdate() }
+}
+
+function Update-TaskChrome {
+    try {
+        $hw = [Math]::Max(240, $hdrTasks.Parent.ClientSize.Width)
+        $right = $hw - 2
+        foreach ($c in @($btnTaskAdv, $btnTaskNotify, $pillTaskSum)) {
+            if (-not $c) { continue }
+            $c.Left = [Math]::Max(0, ($right - $c.Width))
+            $right = $c.Left - 6
+        }
+        if ($hdrTasks.Tag -and $hdrTasks.Tag.Sub) {
+            $hdrTasks.Tag.Sub.Width = [Math]::Max(80, ($pillTaskSum.Left - [int]$hdrTasks.Tag.GapX - 12))
+        }
+    } catch { }
+}
+
+function Update-AuditChrome {
+    try {
+        $hw = [Math]::Max(240, $hdrAudit.Parent.ClientSize.Width)
+        $pillAuditSum.Left = [Math]::Max(0, ($hw - $pillAuditSum.Width - 8))
+        if ($hdrAudit.Tag -and $hdrAudit.Tag.Sub) {
+            $hdrAudit.Tag.Sub.Width = [Math]::Max(80, ($pillAuditSum.Left - [int]$hdrAudit.Tag.GapX - 12))
+        }
+    } catch { }
+}
+
+function Update-NotifyButton {
+    param([int]$Count = -1)
+    if ($Count -lt 0) {
+        try { $Count = Get-GuiReadyNotificationUnreadCount } catch { $Count = 0 }
+    }
+    $script:TaskUnread = $Count
+    try { $btnTaskNotify.Text = ('通知 {0}' -f $Count) } catch { }
+    Update-TaskChrome
+}
+
+function Update-TaskSummary {
+    $s = $script:TaskStats
+    if (-not $s) {
+        Set-Pill -Pill $pillTaskSum -Text '待查询' -Kind 'Neutral'
+        Update-TaskChrome
+        return
+    }
+    if ($s.Running -gt 0) {
+        Set-Pill -Pill $pillTaskSum -Text ('运行中 {0} · 今日 {1}' -f $s.Running, $s.TodayTotal) -Kind 'Info'
+    } elseif ($s.TodayFailed -gt 0) {
+        Set-Pill -Pill $pillTaskSum -Text ('今日失败 {0}' -f $s.TodayFailed) -Kind 'Danger'
+    } else {
+        Set-Pill -Pill $pillTaskSum -Text ('今日 {0} 条' -f $s.TodayTotal) -Kind 'Neutral'
+    }
+    Update-TaskChrome
+}
+
+function Receive-TasksResult {
+    param($Obj)
+    if ($null -eq $Obj) {
+        $script:TaskRefreshPending = $false
+        Start-TasksQuery
+        return
+    }
+    if ([string]$Obj.Error) {
+        Set-Pill -Pill $pillTaskSum -Text '读取失败' -Kind 'Danger'
+        $txtTaskDetail.Text = [string]$Obj.Error
+        Update-TaskChrome
+        return
+    }
+    if ($Obj.Mode -eq 'list') {
+        $data = $Obj.Data
+        $script:TaskItems  = @($data.Items)
+        $script:TaskStats  = $data.Stats
+        $script:TaskUnread = [int]$data.Unread
+        Show-TasksList
+        Update-TaskSummary
+        Update-NotifyButton -Count $script:TaskUnread
+        if ($script:TaskRefreshPending) {
+            $script:TaskRefreshPending = $false
+            Start-TasksQuery
+        }
+    }
+}
+
+function Receive-AuditResult {
+    param($Obj)
+    if ($null -eq $Obj) {
+        $script:AuditRefreshPending = $false
+        Start-AuditQuery
+        return
+    }
+    if ([string]$Obj.Error) {
+        Set-Pill -Pill $pillAuditSum -Text '读取失败' -Kind 'Danger'
+        $txtAuditDetail.Text = [string]$Obj.Error
+        Update-AuditChrome
+        return
+    }
+    if ($Obj.Mode -eq 'audit') {
+        $script:AuditItems = @($Obj.Data.Items)
+        Show-AuditList
+        Set-Pill -Pill $pillAuditSum -Text ('{0} 条' -f $script:AuditItems.Count) -Kind $(if ($script:AuditItems.Count -gt 0) { 'Success' } else { 'Neutral' })
+        Update-AuditChrome
+        if ($script:AuditRefreshPending) {
+            $script:AuditRefreshPending = $false
+            Start-AuditQuery
+        }
+    } elseif ($Obj.Mode -eq 'audit-export') {
+        $data = $Obj.Data
+        Append-GuiLog -Line ('[OK] 审计已导出 {0} 条到 {1}' -f [int]$data.Count, [string]$data.Path)
+        Set-Pill -Pill $pillAuditSum -Text ('已导出 {0} 条' -f [int]$data.Count) -Kind 'Success'
+        Update-AuditChrome
+    }
+}
+
+function Start-GuiTaskRetry {
+    param([string]$TaskId)
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    if ($script:Proc) {
+        Append-GuiLog -Line '[WARN] 上一个动作还在运行，等它结束后再重试。'
+        return
+    }
+    $t = Get-GuiReadyTask -Id $TaskId
+    if (-not $t) { Append-GuiLog -Line '[WARN] 找不到这条任务记录。'; return }
+    if (-not [bool]$t.CanRetry) {
+        Append-GuiLog -Line '[WARN] 这条任务含敏感参数或参数已截断，不能一键重试；请到「全部功能」重新填写。'
+        return
+    }
+    $a = @($script:Actions | Where-Object { $_.Id -eq [string]$t.ActionId })
+    if ($a.Count -eq 0) { Append-GuiLog -Line ('[WARN] 动作已不存在：' + [string]$t.ActionId); return }
+
+    $vals = @{}
+    try { foreach ($p in @($t.Params.PSObject.Properties)) { $vals[$p.Name] = $p.Value } } catch { }
+    Select-GuiAction -Action $a[0]
+    Set-ParamValues -Values $vals
+    Start-GuiAction -DryRun $false -RetryOf ([string]$t.Id)
+    if ($script:Proc) {
+        if (-not $script:QTasks.Task) { Start-GuiQueryWatch -Query $script:QTasks }
+        else { $script:TaskRefreshPending = $true }
+    }
+}
+
+function Stop-SelectedGuiTask {
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    if ($lstTasks.SelectedItems.Count -eq 0) { Append-GuiLog -Line '[WARN] 先在列表里选一条任务。'; return }
+    $t = $lstTasks.SelectedItems[0].Tag
+    if (-not $t) { return }
+    $st = [string]$t.Status
+    if ($st -ne 'Running' -and $st -ne 'Queued') {
+        Append-GuiLog -Line ('[WARN] 任务已经结束（{0}），不需要取消。' -f (Get-GuiReadyTaskStatusText -Status $st))
+        return
+    }
+    $r = Stop-GuiReadyTask -Id ([string]$t.Id)
+    Append-GuiLog -Line ('[WARN] ' + [string]$r.Message)
+    if ($r.Ok) { Start-TasksQuery }
+}
+
+function Start-AuditExport {
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    $dlg = New-Object System.Windows.Forms.SaveFileDialog
+    $dlg.Title = '导出审计记录'
+    $dlg.Filter = 'CSV|*.csv|JSON Lines|*.jsonl'
+    $dlg.FileName = ('scm-audit-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.csv')
+    if ($dlg.ShowDialog() -ne 'OK') { return }
+    $fmt = $(if ($dlg.FileName.ToLowerInvariant().EndsWith('.jsonl')) { 'Jsonl' } else { 'Csv' })
+    $p = @{
+        Path       = $dlg.FileName
+        Format     = $fmt
+        Limit      = 5000
+        SinceHours = (Get-GuiTaskSinceHours -Combo $cmbAuditSince)
+        Level      = (Get-GuiAuditLevelFilter)
+        Keyword    = $txtAuditKeyword.Text.Trim()
+    }
+    [void](Start-GuiQueryHost -Query $script:QAudit -Task 'audit-export' -ArgsJson $p -BusyText '导出审计…')
+}
+
+function Update-GuiNotifyList {
+    param($ListView)
+    if (-not $ListView) { return }
+    $ListView.BeginUpdate()
+    try {
+        $ListView.Items.Clear()
+        foreach ($n in @(Get-GuiReadyNotificationList -Limit 200)) {
+            $li = New-Object System.Windows.Forms.ListViewItem((Format-GuiTaskTime ([string]$n.CreatedAt)))
+            $kind = '信息'
+            switch ([string]$n.Kind) {
+                'Failed'  { $kind = '失败' }
+                'Success' { $kind = '成功' }
+            }
+            [void]$li.SubItems.Add($kind)
+            [void]$li.SubItems.Add([string]$n.Title)
+            [void]$li.SubItems.Add((([string]$n.Text) -replace "`r?`n", ' '))
+            if (-not [bool]$n.Read) { $li.Font = New-Font -Size 9 -Style Bold }
+            if ([string]$n.Kind -eq 'Failed') { $li.ForeColor = $Pal.Err }
+            [void]$ListView.Items.Add($li)
+        }
+    } finally { $ListView.EndUpdate() }
+}
+
+function Show-GuiNotifyDialog {
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    $items = @(Get-GuiReadyNotificationList -Limit 200)
+    if ($items.Count -eq 0) {
+        [System.Windows.Forms.MessageBox]::Show('通知收件箱是空的。', '通知', 'OK', 'Information') | Out-Null
+        return
+    }
+
+    $dlg                 = New-Object System.Windows.Forms.Form
+    $dlg.Text            = '通知收件箱'
+    $dlg.StartPosition   = 'CenterParent'
+    $dlg.FormBorderStyle = 'FixedDialog'
+    $dlg.MaximizeBox     = $false
+    $dlg.MinimizeBox     = $false
+    $dlg.ShowInTaskbar   = $false
+    $dlg.BackColor       = $Pal.Bg
+    $dlg.ForeColor       = $Pal.Text
+    $dlg.Font            = New-Font -Size 9
+    $dlg.ClientSize      = New-Object System.Drawing.Size(820, 460)
+    try { $dlg.Owner = $form } catch { }
+
+    $lst                 = New-Object System.Windows.Forms.ListView
+    $lst.Dock            = 'Fill'
+    $lst.View            = 'Details'
+    $lst.FullRowSelect   = $true
+    $lst.HideSelection   = $false
+    $lst.MultiSelect     = $false
+    $lst.GridLines       = $false
+    $lst.BorderStyle     = 'None'
+    $lst.BackColor       = $Pal.Card
+    $lst.ForeColor       = $Pal.Text
+    $lst.Font            = New-Font -Size 9
+    [void]$lst.Columns.Add('时间', 126)
+    [void]$lst.Columns.Add('类型', 56)
+    [void]$lst.Columns.Add('标题', 250)
+    [void]$lst.Columns.Add('详情', 360)
+    Enable-GuiListViewSkin -List $lst -RowHeight 40
+
+    $pnl                 = New-Object System.Windows.Forms.FlowLayoutPanel
+    $pnl.Dock            = 'Bottom'
+    $pnl.Height          = 50
+    $pnl.Padding         = New-Object System.Windows.Forms.Padding(8, 7, 8, 7)
+    $pnl.FlowDirection   = 'LeftToRight'
+    $pnl.WrapContents    = $false
+    $pnl.BackColor       = $Pal.Bg
+
+    $btnClose  = New-FlatButton -Text '关闭' -Width 76 -Height 30
+    $btnAllRead = New-FlatButton -Text '全部标为已读' -Width 112 -Height 30 -Kind Primary
+    $btnClear  = New-FlatButton -Text '清空' -Width 76 -Height 30 -Kind Danger
+    foreach ($b in @($btnClose, $btnAllRead, $btnClear)) {
+        $b.Margin = New-Object System.Windows.Forms.Padding(0, 0, 8, 0)
+        $pnl.Controls.Add($b)
+    }
+
+    $dlg.Controls.Add($lst)
+    $dlg.Controls.Add($pnl)
+    Update-GuiNotifyList -ListView $lst
+
+    $btnClose.Add_Click({ $dlg.Close() }.GetNewClosure())
+    $btnAllRead.Add_Click({
+        [void](Set-GuiReadyNotificationRead -All)
+        Update-GuiNotifyList -ListView $lst
+        Update-NotifyButton -Count 0
+    }.GetNewClosure())
+    $btnClear.Add_Click({
+        $r = [System.Windows.Forms.MessageBox]::Show($dlg, '清空全部通知？此操作不可撤销。', '确认', 'YesNo', 'Warning')
+        if ($r -eq 'Yes') {
+            [void](Clear-GuiReadyNotifications)
+            Update-GuiNotifyList -ListView $lst
+            Update-NotifyButton -Count 0
+        }
+    }.GetNewClosure())
+
+    [void]$dlg.ShowDialog($form)
+    Update-NotifyButton
+}
+
+function Show-TasksPage {
+    if ($SkipPageHooks) { return }
+    Update-TaskChrome
+    Update-NotifyButton
+    if (-not $script:QTasks.Task) { Start-TasksQuery } else { $script:TaskRefreshPending = $true }
+}
+
+function Show-AuditPage {
+    if ($SkipPageHooks) { return }
+    Update-AuditChrome
+    if (-not $script:QAudit.Task) { Start-AuditQuery } else { $script:AuditRefreshPending = $true }
+}
+
+$script:QTasks = New-GuiQueryHost -Name 'tasks' -Runner (Join-Path $guiDir 'Run-GuiReadyTasks.ps1') -TimeoutSec 120 `
+    -OnResult { param($obj) Receive-TasksResult -Obj $obj } `
+    -OnBusyStart { param($t) Set-Pill -Pill $pillTaskSum -Text $t -Kind 'Info'; Update-TaskChrome } `
+    -OnBusyEnd { }
+
+$script:QAudit = New-GuiQueryHost -Name 'audit' -Runner (Join-Path $guiDir 'Run-GuiReadyTasks.ps1') -TimeoutSec 120 `
+    -OnResult { param($obj) Receive-AuditResult -Obj $obj } `
+    -OnBusyStart { param($t) Set-Pill -Pill $pillAuditSum -Text $t -Kind 'Info'; Update-AuditChrome } `
+    -OnBusyEnd { }
+
+function Bind-TasksEvents {
+    # 任务页的事件绑定；页面首次显示时由 Build-TasksPage 调用
+$btnTaskRefresh.Add_Click({ Start-TasksQuery })
+$btnTaskRetry.Add_Click({
+    if ($lstTasks.SelectedItems.Count -eq 0) { Append-GuiLog -Line '[WARN] 先在列表里选一条任务。'; return }
+    Start-GuiTaskRetry -TaskId ([string]$lstTasks.SelectedItems[0].Tag.Id)
+})
+$btnTaskCancel.Add_Click({ Stop-SelectedGuiTask })
+$btnTaskLog.Add_Click({
+    if ($SkipPageHooks -or $script:AuditMode) { return }
+    if ($lstTasks.SelectedItems.Count -eq 0) { Append-GuiLog -Line '[WARN] 先在列表里选一条任务。'; return }
+    $t = $lstTasks.SelectedItems[0].Tag
+    $lp = [string]$t.LogPath
+    if ($lp -and (Test-Path -LiteralPath $lp)) {
+        try { Start-Process -FilePath $lp | Out-Null }
+        catch { Append-GuiLog -Line ('[WARN] 打不开日志：' + $_.Exception.Message) }
+    } else {
+        Append-GuiLog -Line '[WARN] 这条任务没有留下日志文件。'
+    }
+})
+$btnTaskAdv.Add_Click({ Show-ActionsDialog -Title '配置备份' -Groups @('配置备份') })
+$btnTaskNotify.Add_Click({ Show-GuiNotifyDialog })
+
+$lstTasks.Add_SelectedIndexChanged({
+    if ($lstTasks.SelectedItems.Count -eq 0) { $txtTaskDetail.Text = ''; return }
+    $txtTaskDetail.Text = Format-GuiTaskDetail -Task $lstTasks.SelectedItems[0].Tag
+})
+$txtTaskKeyword.Add_KeyDown({
+    if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Enter) { Start-TasksQuery }
+})
+}
+
+function Bind-AuditEvents {
+    # 结构审计页的事件绑定；页面首次显示时由 Build-AuditPage 调用
+$lstAudit.Add_SelectedIndexChanged({
+    if ($lstAudit.SelectedItems.Count -eq 0) { $txtAuditDetail.Text = ''; return }
+    $txtAuditDetail.Text = Format-GuiAuditDetail -Entry $lstAudit.SelectedItems[0].Tag
+})
+
+$btnAuditRefresh.Add_Click({ Start-AuditQuery })
+$btnAuditExport.Add_Click({ Start-AuditExport })
+$txtAuditKeyword.Add_KeyDown({
+    if ($_.KeyCode -eq [System.Windows.Forms.Keys]::Enter) { Start-AuditQuery }
+})
+}
 
 # ============================ 关于页 ============================
 
@@ -5688,6 +8777,8 @@ $script:Pages['about'] = $pageAbout
 $script:RoundDefer = $false
 $pnlContent.Controls.Add($pageAbout)
 
+# 关于页控件按需构建（首次显示本页时执行）：页头与信息卡片
+function Build-AboutPage {
 # HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
 $hdrAbout = New-PageHeader -Title '关于' -Subtitle 'Server Core GUI 就绪工具 —— 让带界面的程序在 Windows Server Core 上真正跑起来。' -Icon 'about' -Width 900
 $pageAbout.Controls.Add($hdrAbout)
@@ -5770,6 +8861,12 @@ $btnAuRep.Location     = New-Object System.Drawing.Point(440, 196)
 $btnAuRep.Add_Click({ Open-GuiFolder -Path (Join-Path $toolRoot 'reports') -Label '报告目录' })
 $cardAbout.Controls.Add($btnAuRep)
 
+# 写回脚本作用域：布局函数与 PageHeader 收尾同步要用这两个控件
+$script:hdrAbout  = $hdrAbout
+$script:cardAbout = $cardAbout
+}
+$script:PageBuilders['about'] = 'Build-AboutPage'
+
 # ============================ 退出时自动打开终端 ============================
 # 行为（用户确认的结论）：点「退出（打开终端）」按钮、按 Esc、或直接点窗口 X —— 三种关闭方式**统一**：
 #   装了美化终端 → 起 scm-term（UTF-8 + Nerd Font + oh-my-posh 的美化 PowerShell）
@@ -5831,7 +8928,7 @@ function Exit-ToCommandLine {
     try { $script:StoreTimer.Stop(); $script:StoreTimer.Dispose() } catch { }
     try { $script:RoleTimer.Stop(); $script:RoleTimer.Dispose() } catch { }
     try { $script:MonTrendTimer.Stop(); $script:MonTrendTimer.Dispose() } catch { }
-    foreach ($q in @($script:QMon, $script:QMonTrend, $script:QSec, $script:QDsh, $script:QStoreInfo)) { if ($q) { Close-GuiQueryHost -Query $q } }
+    foreach ($q in @($script:QMon, $script:QMonTrend, $script:QSec, $script:QDsh, $script:QStoreInfo, $script:QFiles, $script:QLogs, $script:QTasks, $script:QAudit, $script:QHosts)) { if ($q) { Close-GuiQueryHost -Query $q } }
     Open-GuiExitShell -Quiet
     $form.Close()
 }
@@ -5908,9 +9005,12 @@ $form.Add_Shown({
     Show-GuiPage -Key $first -SkipCards
     # 工具页的路径解析（21 个工具）挪到真正要看工具页时再做，别拖慢启动
     if ($script:CurrentPage -eq 'tool') { Update-ToolButtons }
-    Update-WacToolGroup
-    Load-Programs
-    Refresh-ProgramList
+    # 下面三件事都跟"窗口能不能点"无关：WAC 组要查防火墙/证书，程序清单要读 JSON 再扫目录。
+    # 投到消息队列，窗口先出来，用户看到界面时它们再在后台补上（BeginInvoke 按 FIFO 执行）。
+    $form.BeginInvoke([Action]{
+        try { Update-WacToolGroup } catch { }
+        try { Load-Programs; Refresh-ProgramList } catch { }
+    }) | Out-Null
     Append-GuiLog -Line ('Server Core GUI 就绪工具已启动  ' + (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'))
     Append-GuiLog -Line ('工具目录: ' + $toolRoot)
 
@@ -5923,6 +9023,9 @@ $form.Add_Shown({
     #     看起来就像"界面开了但没反应"（实测被误当成打不开）；
     #   - **必须**带 owner（$form）：不带 owner 的 MessageBox 会跑到主窗口后面，用户根本看不见。
     $script:PendingDirWarning = ''
+    # 目录安全检查走 icacls、完整性核对要算全部文件的 SHA256 —— 两者都可能几百毫秒。
+    # 一起投到消息队列：窗口先可交互，结果回来再补日志 / 弹提示。
+    $form.BeginInvoke([Action]{
     try {
         $dirSafe = Test-GuiReadyToolDirSafe -Path $toolRoot
         if ($dirSafe.Known -and $dirSafe.Safe) {
@@ -5967,6 +9070,7 @@ $form.Add_Shown({
             }
         }
     } catch { }
+    }) | Out-Null
     Append-GuiLog -Line '左侧「环境」用于补全；「软件」管理你要跑的程序；「工具」打开系统自带图形工具；完整能力在「更多」。'
     Append-GuiLog -Line '关闭本窗口会自动打开终端（装了美化终端就是 scm-term）。'
     # 卡片：有上次结果就先显示，然后后台刷新
@@ -6003,6 +9107,7 @@ $form.Add_Shown({
     # 诊断模式（-SelfTest / -LayoutDump / -UiAudit / -UiShot）一律不弹：
     # 这些都是无人值守跑一遍就退出的，弹一个模态框会把进程永久卡在那里
     #（-UiShot 走 $form.Show()，实测就是被这个框卡住的）。
+    $form.BeginInvoke([Action]{
     if ($script:PendingDirWarning -and -not $SkipPageHooks) {
         $warnFile = Join-Path (Join-Path $toolRoot 'state') 'dir-warning.txt'
         $lastWarn = ''
@@ -6022,6 +9127,7 @@ $form.Add_Shown({
             } catch { }
         }
     }
+    }) | Out-Null
 })
 
 $form.Add_Resize({ Update-Chrome })
@@ -6030,7 +9136,7 @@ if ($UiAudit) {
     # ---------------- UI 审计 ----------------
     # 为什么要有它：SelfTest 只验证"页面能渲染"，但用户真正遇到的是**点进去**才炸
     #（进页面走的是 Show-*Page、点动作走的是 Select-GuiAction 重建参数控件，这两条路径
-    #  以前只在真人操作时才跑到）。这里把 11 个页面、45 个动作全部走一遍，只建界面不执行，
+    #  以前只在真人操作时才跑到）。这里把 16 个页面、全部动作走一遍，只建界面不执行，
     # 再把每个页面的同级控件两两求交集，抓"这块压住那块"。
     $auditFail = 0
     $auditNotes = New-Object System.Collections.ArrayList
@@ -6041,7 +9147,7 @@ if ($UiAudit) {
 
     Write-Host ''
     Write-Host '=== 1) 进入每个页面 ===' -ForegroundColor Cyan
-    foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'tool', 'more', 'about')) {
+    foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'files', 'logs', 'tasks', 'audit', 'hosts', 'tool', 'more', 'about')) {
         try {
             Show-GuiPage -Key $k
             [System.Windows.Forms.Application]::DoEvents()
@@ -6075,7 +9181,7 @@ if ($UiAudit) {
 
     Write-Host ''
     Write-Host '=== 3) 控件重叠扫描（同级控件两两求交集）===' -ForegroundColor Cyan
-    foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'tool', 'more', 'about')) {
+    foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'files', 'logs', 'tasks', 'audit', 'hosts', 'tool', 'more', 'about')) {
         # 必须先把这一页切成当前页：非当前页整页 Visible=false，同级扫描会一个控件都取不到
         #（第一版就是这样，11 页全报"无重叠"—— 假通过）
         try { Show-GuiPage -Key $k -SkipCards:$true; [System.Windows.Forms.Application]::DoEvents() } catch { }
@@ -6129,7 +9235,7 @@ if ($UiAudit) {
                    '移除', '删除', '保存', '导出', '导入', '退出', '关闭', '停止', '重启',
                    'GitHub', '项目主页', '日志目录', '报告目录', '…')
     $clicked = 0; $skipped = 0
-    foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'tool', 'more', 'about')) {
+    foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'files', 'logs', 'tasks', 'audit', 'hosts', 'tool', 'more', 'about')) {
         try { Show-GuiPage -Key $k -SkipCards:$true; [System.Windows.Forms.Application]::DoEvents() } catch { }
         $ws = New-Object System.Collections.Stack
         $ws.Push($script:Pages[$k])
@@ -6260,7 +9366,7 @@ if ($UiAudit) {
     # 设计内的（安全功能正常工作就会打它们），把它们算进来这段检查就永远是红的。
     $logMark = 0
     try { $logMark = [int]$txtLog.TextLength } catch { }
-    foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'tool', 'more', 'about')) {
+    foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'files', 'logs', 'tasks', 'audit', 'hosts', 'tool', 'more', 'about')) {
         try {
             $script:MonLoaded = $false
             $script:SecLoaded = $false
@@ -6275,7 +9381,7 @@ if ($UiAudit) {
                 [System.Windows.Forms.Application]::DoEvents()
                 Start-Sleep -Milliseconds 120
                 $busy = $false
-                foreach ($q in @($script:QMon, $script:QSec, $script:QDsh)) {
+                foreach ($q in @($script:QMon, $script:QSec, $script:QDsh, $script:QFiles, $script:QLogs, $script:QTasks, $script:QAudit, $script:QHosts)) {
                     if ($q -and $q.Task) { $busy = $true }
                 }
                 if (-not $busy) { break }
@@ -6284,7 +9390,7 @@ if ($UiAudit) {
             # 光"没抛异常"不算通过：还要确认查询真的回来了、界面真的回填了。
             # 卡在"正在…"、或者查询返回错误，以前在审计里同样看不出来。
             $busyList = @()
-            foreach ($q in @($script:QMon, $script:QSec, $script:QDsh)) {
+            foreach ($q in @($script:QMon, $script:QSec, $script:QDsh, $script:QFiles, $script:QLogs, $script:QHosts)) {
                 if ($q -and $q.Task) { $busyList += ($q.Name + '=' + $q.Task) }
             }
             $info = ''
@@ -6292,6 +9398,11 @@ if ($UiAudit) {
                 'monitor'  { $info = ('进程行 ' + @($script:MonRows).Count + ' · 汇总[' + [string]$pillMonSum.Tag.Text + ']') }
                 'security' { $info = ('检查行 ' + @($script:SecRows).Count + ' · 汇总[' + [string]$pillSecSum.Tag.Text + ']') }
                 'dsh'      { $info = ('依赖行 ' + @($script:DshRows).Count) }
+                'files'    { $info = ('文件项 ' + @($script:FilesItems).Count + ' · ' + [string]$script:FilesPath) }
+                'logs'     { $info = ('日志行 ' + @($script:LogEntries).Count + ' · [' + [string]$pillLogSum.Tag.Text + ']') }
+                'tasks'    { $info = ('任务行 ' + @($script:TaskItems).Count + ' · [' + [string]$pillTaskSum.Tag.Text + ']') }
+                'audit'    { $info = ('审计行 ' + @($script:AuditItems).Count + ' · [' + [string]$pillAuditSum.Tag.Text + ']') }
+                'hosts'    { $info = ('主机行 ' + @($script:HostItems).Count + ' · [' + [string]$pillHostSum.Tag.Text + ']') }
             }
             if ($busyList.Count -gt 0) {
                 $auditFail++
@@ -6305,7 +9416,7 @@ if ($UiAudit) {
             Write-Host ('      at ' + (($_.ScriptStackTrace -split "`n")[0])) -ForegroundColor DarkGray
         } finally {
             $script:SkipPageHooks = $true
-            foreach ($q in @($script:QMon, $script:QSec, $script:QDsh)) {
+            foreach ($q in @($script:QMon, $script:QSec, $script:QDsh, $script:QFiles, $script:QLogs, $script:QHosts)) {
                 try { if ($q) { Stop-GuiQueryHost -Query $q } } catch { }
             }
             try { if ($script:Timer) { $script:Timer.Stop() } } catch { }
@@ -6342,7 +9453,19 @@ if ($UiShot) {
     try {
         $form.CreateControl()
         Update-Chrome
-        Show-GuiPage -Key $StartPage -SkipCards
+        if ($UiShotWait -gt 0) {
+            # 截图要看到"列表里有数据"的样子时，必须放行页面钩子并等查询回来。
+            # 默认 0 保持旧行为（只拍骨架，不起子进程），避免日常截图顺手拉起一堆查询。
+            $script:SkipPageHooks = $false
+            Show-GuiPage -Key $StartPage -SkipCards
+            $until = (Get-Date).AddMilliseconds($UiShotWait)
+            while ((Get-Date) -lt $until) {
+                [System.Windows.Forms.Application]::DoEvents()
+                Start-Sleep -Milliseconds 120
+            }
+        } else {
+            Show-GuiPage -Key $StartPage -SkipCards
+        }
         $form.Show()
         [System.Windows.Forms.Application]::DoEvents()
         Start-Sleep -Milliseconds 700
@@ -6396,7 +9519,7 @@ if ($LayoutDump) {
         Dump-Tree -Parent $form
 
         # 逐页检查：切到每一页，把该页的错误量出来
-        foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'tool', 'more', 'about')) {
+        foreach ($k in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'files', 'logs', 'tasks', 'audit', 'hosts', 'tool', 'more', 'about')) {
             Show-GuiPage -Key $k
             $form.PerformLayout()
             $pg = $script:Pages[$k]
@@ -6446,6 +9569,10 @@ if ($SelfTest) {
         $form.PerformLayout()
         Show-GuiPage -Key 'env'
         Update-EnvCards
+        # 自检要数全部页面的控件（高级设置入口、设置页功能树等）：按需构建的页面在这里一次建出来
+        foreach ($__k in @($script:Pages.Keys)) {
+            if ($script:PageBuilders[$__k] -and -not $script:PageBuilt[$__k]) { Show-GuiPage -Key $__k }
+        }
         $nodeCount = 0
         foreach ($g in $tree.Nodes) { $nodeCount += $g.Nodes.Count }
         $cardCount = $script:Cards.Count
@@ -6663,11 +9790,11 @@ if ($SelfTest) {
             }
             Write-Host ('  安全页查询链路: 收尾={0} / 胶囊=[{1}]' -f (-not $script:QSec.Task), [string]$pillSecSum.Tag.Text) -ForegroundColor Green
         }
-        # 主题覆盖自检：把 11 个页面的控件全走一遍，找出"没走 Token、还是浅色"的控件。
+        # 主题覆盖自检：把 16 个页面的控件全走一遍，找出"没走 Token、还是浅色"的控件。
         # 为什么需要它：深色主题最常见的问题就是某个容器/下拉框漏改，肉眼不一定马上发现，
         # 而它会在深色界面上留一块刺眼的白。这里结构化地查一遍，以后加控件也不会漏。
         $themeBad = @()
-        foreach ($tk in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'tool', 'more', 'about')) {
+        foreach ($tk in @('env', 'app', 'store', 'role', 'monitor', 'security', 'beauty', 'dsh', 'files', 'logs', 'tasks', 'audit', 'hosts', 'tool', 'more', 'about')) {
             $page = $script:Pages[$tk]
             if (-not $page) { continue }
             $stack = New-Object System.Collections.Stack
@@ -6709,7 +9836,7 @@ if ($SelfTest) {
         try { $script:StoreTimer.Dispose() } catch { }
         try { $script:RoleTimer.Dispose() } catch { }
         try { $script:MonTrendTimer.Dispose() } catch { }
-        foreach ($q in @($script:QMon, $script:QMonTrend, $script:QSec, $script:QDsh, $script:QStoreInfo)) { if ($q) { Close-GuiQueryHost -Query $q } }
+        foreach ($q in @($script:QMon, $script:QMonTrend, $script:QSec, $script:QDsh, $script:QStoreInfo, $script:QFiles, $script:QLogs, $script:QTasks, $script:QAudit, $script:QHosts)) { if ($q) { Close-GuiQueryHost -Query $q } }
         $form.Dispose()
     } catch {
         Write-Host ('GUI SELFTEST FAIL: ' + $_.Exception.Message) -ForegroundColor Red

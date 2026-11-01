@@ -11,6 +11,32 @@ state/
 # scm-term.cmd 等运行时文件，不是源码（其中的 .exe 已被下面 *.exe 忽略，但 .cmd 与主题不会）。
 bin/
 
+# 运行库（Node / Python / Go / Java / PHP / Bun 的官方 zip 解压产物）：
+# 属于本机安装状态，不是源码，也不该随仓库分发。
+runtimes/
+
+# 数据库（PostgreSQL binaries 解压产物与 data 目录里的实例数据）
+databases/
+data/
+
+# 原生界面的编译产物（csc 生成，打包时现编，不进仓库）
+ui/bin/
+
+# ============================================================
+#  第三方程序 / 参考资料 / 本机工作目录
+#  GitHub 上只放本项目的源码，这些都不上传：
+#    XMP\                     XMP 的 Electron 程序（568 MB，仅作功能参考）
+#    docs\reference\          归档的参考资料：XMP、SCM-vs-XMP 对比报告、参考.txt
+#    TUI_TOOL\                独立的实验项目（mcsmanager-tui / Terminal），不属于本仓库
+#    .trae\ 等                本机 IDE 配置与分享产物
+# ============================================================
+XMP/
+docs/reference/
+TUI_TOOL/
+.trae/
+.trae-html-share-packages/
+.screenshots/
+
 # 签名相关：Sign-GuiReady.ps1 -CreateSelfSigned 默认会把证书写到根目录。
 # 私钥绝不能进仓库 —— 这里必须挡住（清单也是构建产物，由 pack.ps1 生成进发布包）。
 *.pfx

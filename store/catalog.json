@@ -40,6 +40,7 @@
     { "id": "ops",       "name": "运维与诊断", "examples": "Sysinternals、JQ、7-Zip、NSSM" },
     { "id": "monitor",   "name": "监控与告警", "examples": "Prometheus、Grafana" },
     { "id": "dev",       "name": "开发运行时", "examples": "Git、Node.js、Python" },
+    { "id": "ai",        "name": "AI 辅助",     "examples": "dsh-TUI、DeepSeek CLI" },
     { "id": "media",     "name": "媒体处理", "examples": "FFmpeg" },
     { "id": "network",   "name": "网络工具", "examples": "curl、Nmap、OpenSSH、Wireshark" }
   ],
@@ -509,11 +510,53 @@
       "popularity": 74,
       "contributor": "",
       "updated": "2026-10-17"
+    },
+    {
+      "id": "dsh-tui",
+      "name": "dsh-TUI",
+      "name_zh": "dsh 终端 AI 助手",
+      "category": "ai",
+      "ui": "tui",
+      "tags": ["ai", "deepseek", "dsh", "tui", "assistant", "助手"],
+      "source": "npm",
+      "compatibility": "unverified",
+      "compatibility_note": "尚未实测。需要 Node.js ≥ 22.19、pnpm ≥ 10，以及环境变量 DEEPSEEK_API_KEY。",
+      "fod_required": [],
+      "runtime_deps": ["Node.js ≥ 22.19", "pnpm ≥ 10", "环境变量 DEEPSEEK_API_KEY"],
+      "install": { "type": "npm", "id": "@deepseek-harness-tui/dsh-tui", "id_aliases": [], "silent_args": "", "download_url": "", "fallback": { "type": "direct", "url": "" } },
+      "launch": { "exe": "dsh-tui", "args": "", "env": {}, "working_dir": "" },
+      "known_issues": ["没有 DEEPSEEK_API_KEY 时启动会直接退出", "先装 dsh CLI（@deepseek-ai/dsh），TUI 依赖它", "pnpm 版本不够时安装会失败，可先用「运行库」页装 Node 22"],
+      "alternatives": ["dsh"],
+      "tested_on": [],
+      "popularity": 92,
+      "contributor": "",
+      "updated": "2026-11-01"
+    },
+    {
+      "id": "dsh",
+      "name": "DeepSeek CLI (dsh)",
+      "name_zh": "DeepSeek CLI",
+      "category": "ai",
+      "ui": "cli",
+      "tags": ["ai", "deepseek", "dsh", "cli", "助手"],
+      "source": "npm",
+      "compatibility": "unverified",
+      "compatibility_note": "尚未实测。npm 全局安装 @deepseek-ai/dsh，需要 Node.js 与 DEEPSEEK_API_KEY。",
+      "fod_required": [],
+      "runtime_deps": ["Node.js ≥ 22.19", "环境变量 DEEPSEEK_API_KEY"],
+      "install": { "type": "npm", "id": "@deepseek-ai/dsh", "id_aliases": [], "silent_args": "", "download_url": "", "fallback": { "type": "direct", "url": "" } },
+      "launch": { "exe": "dsh", "args": "--help", "env": {}, "working_dir": "" },
+      "known_issues": ["需要先设置 DEEPSEEK_API_KEY", "npm 安装走公网 registry，受限网络请先配镜像"],
+      "alternatives": ["dsh-tui"],
+      "tested_on": [],
+      "popularity": 88,
+      "contributor": "",
+      "updated": "2026-11-01"
     }
   ],
 
   "_todo": {
-    "step_1": "本文件 = 面向服务器场景的精选条目（20 条，全部 choco 可装）。",
+    "step_1": "本文件 = 面向服务器场景的精选条目（24 条：22 个 choco + 2 个 npm 的 AI 辅助）。",
     "step_1_remaining": "需要逐条在真机实测，把 compatibility 从 unverified 改成 verified/partial/unsupported，并填 tested_on。没有证据前不要改。",
     "step_2_to_9": "索引/搜索/详情页/安装流程/choco 查询合并/裸条目/更新检测/离线包/队列。"
   }

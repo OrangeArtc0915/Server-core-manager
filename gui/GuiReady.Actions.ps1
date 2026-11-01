@@ -196,10 +196,11 @@ function Get-GuiReadyActions {
         }
         [pscustomobject]@{
             Id = 'console-install'; Group = '终端美化'; Name = '一键美化终端（Nerd Font + Oh My Posh + Fastfetch）'
-            Desc = '装 MesloLGS NF（全机：字体文件 + 控制台白名单 + 中文回退到雅黑）、oh-my-posh（写 PowerShell profile）、fastfetch（首屏信息）、One Dark 配色并打开 ANSI/VT，最后生成 scm-term 启动器并实测。素材随发布包内置，不联网。注意：中文代码页 936 下 conhost 不接受拉丁 Nerd Font，所以美化终端要用 scm-term 打开（它会先切 UTF-8）。'
+            Desc = '装 MesloLGS NF（全机：字体文件 + 控制台白名单 + 中文回退到雅黑）、oh-my-posh（写 PowerShell profile）、fastfetch（首屏信息）、One Dark 配色并打开 ANSI/VT，最后生成 scm-term 启动器并实测。发布包不内置第三方程序与字体：缺什么会从 GitHub / Nerd Fonts 官方源下载（离线环境可勾「不联网下载」并自行放入 setup\console）。注意：中文代码页 936 下 conhost 不接受拉丁 Nerd Font，所以美化终端要用 scm-term 打开（它会先切 UTF-8）。'
             Params = @(
                 @{ Name = 'AssetDir';   Label = '素材目录（留空用 setup\console\）'; Type = 'Text'; Width = 480; Browse = 'Folder' }
                 @{ Name = 'Theme';      Label = 'oh-my-posh 主题'; Type = 'Combo'; Options = @('默认（One Dark 自带）', '1_shell', 'atomic', 'catppuccin_frappe', 'dracula', 'emodipt-extend', 'zash') }
+                @{ Name = 'NoDownload'; Label = '不联网下载素材（离线环境，自行放入 setup\console）'; Type = 'Check'; Default = $false }
                 @{ Name = 'SkipPosh';      Label = '不安装 oh-my-posh（不写 profile）'; Type = 'Check'; Default = $false }
                 @{ Name = 'SkipFastfetch'; Label = '不安装 fastfetch'; Type = 'Check'; Default = $false }
                 @{ Name = 'SkipAppearance'; Label = '不改控制台配色/字体等外观设置'; Type = 'Check'; Default = $false }
@@ -216,6 +217,7 @@ function Get-GuiReadyActions {
                 Install-GuiReadyConsoleTheme -AssetDir ([string]$P['AssetDir']) -Theme $theme `
                     -SkipPosh:([bool]$P['SkipPosh']) -SkipFastfetch:([bool]$P['SkipFastfetch']) `
                     -SkipAppearance:([bool]$P['SkipAppearance']) -SkipProbe:([bool]$P['SkipProbe']) `
+                    -NoDownload:([bool]$P['NoDownload']) `
                     -WhatIf:([bool]$P['DryRun']) | Out-Null
             }
         }
@@ -346,6 +348,206 @@ function Get-GuiReadyActions {
             }
         }
 
+        # ---------------- 运行库 ----------------
+        [pscustomobject]@{
+            Id = 'runtime-status'; Group = '运行库'; Name = '运行库状态（只读）'
+            Desc = '列出内置清单里的运行时（Node / Python / Go / Java / PHP / Bun）：已装版本、当前链接、是否在机器 PATH、以及本机探测到的版本。'
+            Params = @(); DryRun = $false
+            Script = {
+                param($P)
+                $t = Get-GuiReadyRuntimeStatus | ForEach-Object { $_.Items } | Format-Table Name, Current, OnPath, Detected -AutoSize | Out-String
+                Write-Log $t
+            }
+        }
+        [pscustomobject]@{
+            Id = 'runtime-install'; Group = '运行库'; Name = '安装运行时版本'
+            Desc = '下载官方 zip（优先国内镜像）解压到 <工具目录>\runtimes\<语言>\<版本>；没有 current 时自动指向新版本，并把 PATH 条目补进机器 PATH。'
+            Params = @(
+                @{ Name = 'Lang';    Label = '运行时'; Type = 'Combo'; Options = @('Node.js', 'Python', 'Go', 'Java (Temurin)', 'PHP', 'Bun'); Default = 1 }
+                @{ Name = 'Version'; Label = '版本（留空 = 清单里最新的）'; Type = 'Text'; Width = 240 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $ids = @('node', 'python', 'go', 'java', 'php', 'bun')
+                $i = [int]$P['Lang']
+                if ($i -lt 1 -or $i -gt $ids.Count) { $i = 1 }
+                $id = $ids[$i - 1]
+                $ver = [string]$P['Version']
+                if (-not $ver) {
+                    $e = Get-GuiReadyRuntimeEntry -Id $id
+                    $ver = [string]@($e.Versions)[0].Version
+                }
+                Install-GuiReadyRuntime -Id $id -Version $ver -DryRun:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'runtime-switch'; Group = '运行库'; Name = '切换当前版本'
+            Desc = '把 <语言>\current 这个 junction 指向指定版本，并同步机器 PATH。已经开的进程不受影响，新开的命令行才生效。'
+            Params = @(
+                @{ Name = 'Lang';    Label = '运行时'; Type = 'Combo'; Options = @('Node.js', 'Python', 'Go', 'Java (Temurin)', 'PHP', 'Bun'); Default = 1 }
+                @{ Name = 'Version'; Label = '版本（已装的）'; Type = 'Text'; Width = 240 }
+            )
+            DryRun = $false
+            Script = {
+                param($P)
+                $ids = @('node', 'python', 'go', 'java', 'php', 'bun')
+                $i = [int]$P['Lang']
+                if ($i -lt 1 -or $i -gt $ids.Count) { $i = 1 }
+                Set-GuiReadyRuntimeCurrent -Id $ids[$i - 1] -Version ([string]$P['Version']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'runtime-remove'; Group = '运行库'; Name = '卸载运行时版本'
+            Desc = '删除指定版本目录；如果删的是当前版本会先摘掉 current，并把 current 改指向剩下的最新版本。'
+            Params = @(
+                @{ Name = 'Lang';    Label = '运行时'; Type = 'Combo'; Options = @('Node.js', 'Python', 'Go', 'Java (Temurin)', 'PHP', 'Bun'); Default = 1 }
+                @{ Name = 'Version'; Label = '版本（留空 = 当前版本）'; Type = 'Text'; Width = 240 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $ids = @('node', 'python', 'go', 'java', 'php', 'bun')
+                $i = [int]$P['Lang']
+                if ($i -lt 1 -or $i -gt $ids.Count) { $i = 1 }
+                Uninstall-GuiReadyRuntime -Id $ids[$i - 1] -Version ([string]$P['Version']) -DryRun:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'runtime-path'; Group = '运行库'; Name = '修复运行库 PATH'
+            Desc = '把机器 PATH 里所有指向 runtimes 目录的条目重算一遍：删掉失效的，按 current 链接补上应有的条目。'
+            Params = @(); DryRun = $false
+            Script = {
+                param($P)
+                $t = Update-GuiReadyRuntimePath | Format-List Changed, Added, Removed, Error | Out-String
+                Write-Log $t
+            }
+        }
+
+        # ---------------- 数据库 ----------------
+        [pscustomobject]@{
+            Id = 'db-status'; Group = '数据库'; Name = '数据库状态（只读）'
+            Desc = '列出内置的 PostgreSQL 版本、是否已解压、已初始化的实例（端口 / 服务状态 / 数据目录大小 / 备份数量）。'
+            Params = @(); DryRun = $false
+            Script = {
+                param($P)
+                $st = Get-GuiReadyDatabaseStatus
+                $t  = $st.Items | Where-Object { $_.Kind -eq 'version' } |
+                      Format-Table Version, Installed, BinDir -AutoSize | Out-String
+                $t += $st.Items | Where-Object { $_.Kind -eq 'instance' } |
+                      Format-Table Id, Port, Service, ServiceState, Online, SizeMB, Backups -AutoSize | Out-String
+                Write-Log $t
+            }
+        }
+        [pscustomobject]@{
+            Id = 'db-install'; Group = '数据库'; Name = '安装数据库（解压官方 zip）'
+            Desc = '下载官方 Windows zip 并解压：PostgreSQL 走 EDB binaries（databases\postgresql\<版本>），MySQL 8 走 dev.mysql.com（databases\mysql\<版本>）。不跑安装器、不写注册表。'
+            Params = @(
+                @{ Name = 'Target'; Label = '数据库与版本'; Type = 'Combo'; Default = 1; Options = @(
+                    'PostgreSQL 16.4-1', 'PostgreSQL 17.0-1', 'MySQL 8.4.3', 'MySQL 8.0.40') }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $engines  = @('postgresql', 'postgresql', 'mysql', 'mysql')
+                $versions = @('16.4-1', '17.0-1', '8.4.3', '8.0.40')
+                $i = [int]$P['Target']
+                if ($i -lt 1 -or $i -gt $versions.Count) { $i = 1 }
+                Install-GuiReadyDatabaseEngine -Engine $engines[$i - 1] -Version $versions[$i - 1] -DryRun:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'db-init'; Group = '数据库'; Name = '初始化数据库实例'
+            Desc = 'PostgreSQL：initdb + SCRAM 密码 + NetworkService 授权。MySQL：--initialize-insecure，再临时起 mysqld 设置 root 密码（这一步不需要管理员）。密码都用 DPAPI 加密后存进实例记录。'
+            Params = @(
+                @{ Name = 'Target';   Label = '数据库与版本'; Type = 'Combo'; Default = 1; Options = @(
+                    'PostgreSQL 16.4-1', 'PostgreSQL 17.0-1', 'MySQL 8.4.3', 'MySQL 8.0.40') }
+                @{ Name = 'Port';     Label = '端口（留空 = 自动挑空闲端口）'; Type = 'Text'; Width = 120; Default = '' }
+                @{ Name = 'Password'; Label = '管理员密码（至少 6 位）'; Type = 'Password'; Width = 240 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $engines  = @('postgresql', 'postgresql', 'mysql', 'mysql')
+                $versions = @('16.4-1', '17.0-1', '8.4.3', '8.0.40')
+                $i = [int]$P['Target']
+                if ($i -lt 1 -or $i -gt $versions.Count) { $i = 1 }
+                $port = 0
+                if ($P['Port']) { $port = [int]$P['Port'] }
+                Initialize-GuiReadyDatabaseInstance -Engine $engines[$i - 1] -Version $versions[$i - 1] `
+                    -Port $port -Password ([string]$P['Password']) -DryRun:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'db-service'; Group = '数据库'; Name = '数据库服务（注册 / 启停 / 注销）'
+            Desc = 'PostgreSQL 用 pg_ctl register（账号 NetworkService），MySQL 用 mysqld --install（LocalSystem）；可启动 / 停止 / 重启 / 注销。注册与注销需要管理员。'
+            Params = @(
+                @{ Name = 'Id';     Label = '实例编号（在「数据库状态」里看，形如 pg-16.4-1-5432 / my-8.4.3-3306）'; Type = 'Text'; Width = 320 }
+                @{ Name = 'Action'; Label = '操作'; Type = 'Combo'; Options = @('注册并启动', '只注册', '启动', '停止', '重启', '注销（保留数据）', '注销并删除数据'); Default = 1 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $acts = @('start', 'register', 'start', 'stop', 'restart', 'unregister', 'unregister')
+                $i = [int]$P['Action']
+                if ($i -lt 1 -or $i -gt $acts.Count) { $i = 1 }
+                $id = [string]$P['Id']
+                $dry = [bool]$P['DryRun']
+                switch ($acts[$i - 1]) {
+                    'start'      { Register-GuiReadyDatabaseService -Id $id -Start -DryRun:$dry | Out-Null }
+                    'register'   { Register-GuiReadyDatabaseService -Id $id -DryRun:$dry | Out-Null }
+                    'stop'       { Set-GuiReadyDbServiceState -Id $id -Action 'Stop' | Out-Null }
+                    'restart'    { Set-GuiReadyDbServiceState -Id $id -Action 'Restart' | Out-Null }
+                    'unregister' {
+                        $rm = ($i -eq 7)
+                        Unregister-GuiReadyDbService -Id $id -RemoveData:$rm -DryRun:$dry | Out-Null
+                    }
+                }
+            }
+        }
+        [pscustomobject]@{
+            Id = 'db-backup'; Group = '数据库'; Name = '备份数据库实例'
+            Desc = 'PostgreSQL 用 pg_dump -Fc（backup\postgresql\*.dump），MySQL 用 mysqldump --single-transaction（backup\mysql\*.sql）。密码从实例记录里 DPAPI 解出，不出现在命令行。'
+            Params = @(
+                @{ Name = 'Id';       Label = '实例编号'; Type = 'Text'; Width = 320 }
+                @{ Name = 'Database'; Label = '库名（留空 = 默认库：postgres / mysql）'; Type = 'Text'; Width = 240 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Backup-GuiReadyDatabase -Id ([string]$P['Id']) -Database ([string]$P['Database']) -DryRun:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+
+        [pscustomobject]@{
+            Id = 'db-createdb'; Group = '数据库'; Name = '新建数据库（建库）'
+            Desc = '在指定实例上建一个空库：PostgreSQL 走 createdb（UTF8 继承模板），MySQL 走 CREATE DATABASE ... utf8mb4。库名只允许字母 / 数字 / 下划线 / 短横线。'
+            Params = @(
+                @{ Name = 'Id';       Label = '实例编号'; Type = 'Text'; Width = 320 }
+                @{ Name = 'Database'; Label = '新库名'; Type = 'Text'; Width = 240 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                New-GuiReadyDatabase -Id ([string]$P['Id']) -Database ([string]$P['Database']) -DryRun:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'db-restore'; Group = '数据库'; Name = '还原数据库（从备份文件）'
+            Desc = 'PostgreSQL 用 pg_restore --clean --if-exists 还原 .dump；MySQL 用 mysql < .sql 导入。注意：会覆盖目标库里同名对象，生产库请先备份。'
+            Params = @(
+                @{ Name = 'Id';       Label = '实例编号'; Type = 'Text'; Width = 320 }
+                @{ Name = 'File';     Label = '备份文件（.dump / .sql）'; Type = 'Text'; Width = 520; Browse = 'File' }
+                @{ Name = 'Database'; Label = '目标库名（PostgreSQL 留空 = postgres；MySQL 留空 = 按备份里的库名）'; Type = 'Text'; Width = 320 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Restore-GuiReadyDatabase -Id ([string]$P['Id']) -File ([string]$P['File']) `
+                    -Database ([string]$P['Database']) -DryRun:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+
         # ---------------- 角色与功能 ----------------
         [pscustomobject]@{
             Id = 'role-status'; Group = '角色与功能'; Name = '角色/功能状态（只读）'
@@ -421,7 +623,10 @@ function Get-GuiReadyActions {
                 $i = 1
                 if ($P['Action']) { $i = [int]$P['Action'] }
                 if ($i -lt 1 -or $i -gt $map.Count) { $i = 1 }
-                Invoke-GuiReadyServiceControl -Name ([string]$P['Name']) -Action $map[$i - 1] -WhatIf:([bool]$P['DryRun']) | Out-Null
+                # 必须把失败抛出去：以前这里 | Out-Null 丢掉返回值，服务没停/没起也照样
+                # 显示"成功"，任务中心和审计里就成了一条假记录（网页提交同样受影响）。
+                $ok = Invoke-GuiReadyServiceControl -Name ([string]$P['Name']) -Action $map[$i - 1] -WhatIf:([bool]$P['DryRun'])
+                if (-not $ok) { throw ('服务控制失败：{0} / {1}' -f [string]$P['Name'], $map[$i - 1]) }
             }
         }
 
@@ -655,6 +860,256 @@ function Get-GuiReadyActions {
             DryRun = $false
             Script = { param($P) [void](Open-GuiReadyWacUi -Url ([string]$P['Url'])) }
         }
+
+        # ---------------- 文件与日志 ----------------
+        [pscustomobject]@{
+            Id = 'file-mkdir'; Group = '文件与日志'; Name = '新建文件夹'
+            Desc = '在指定目录下新建一个文件夹。名称不能包含路径分隔符，避免借"名称"跳到别的目录。'
+            Params = @(
+                @{ Name = 'Path'; Label = '所在目录（绝对路径）'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Name'; Label = '新文件夹名称'; Type = 'Text'; Width = 260 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $name = ([string]$P['Name']).Trim()
+                if (-not $name) { throw '文件夹名称不能为空。' }
+                if ($name -eq '.' -or $name -eq '..' -or $name -match '[\\/:*?"<>|]') {
+                    throw ('文件夹名称包含非法字符：' + $name)
+                }
+                $base = ([string]$P['Path']).TrimEnd('\')
+                New-GuiReadyFolder -Path (Join-Path $base $name) -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'file-rename'; Group = '文件与日志'; Name = '重命名'
+            Desc = '重命名文件或文件夹。只改名称，不改变所在目录。'
+            Params = @(
+                @{ Name = 'Path'; Label = '要重命名的路径'; Type = 'Text'; Width = 520 }
+                @{ Name = 'NewName'; Label = '新名称'; Type = 'Text'; Width = 260 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Rename-GuiReadyPath -Path ([string]$P['Path']) -NewName ([string]$P['NewName']) `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'file-delete'; Group = '文件与日志'; Name = '删除'
+            Desc = '删除文件或文件夹。非空文件夹必须勾选递归；盘符根和系统关键目录本身会被拒绝。'
+            Params = @(
+                @{ Name = 'Path';    Label = '要删除的路径'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Recurse'; Label = '递归删除非空文件夹'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Remove-GuiReadyPath -Path ([string]$P['Path']) -Recurse:([bool]$P['Recurse']) -Force `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'file-save'; Group = '文件与日志'; Name = '保存文本文件'
+            Desc = '把文本写入指定文件（原子替换）。目标不存在时要求上级目录已存在；原文件有 UTF-8 BOM 会保留。'
+            Params = @(
+                @{ Name = 'Path'; Label = '文件路径'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Text'; Label = '文件内容'; Type = 'Multi' }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Save-GuiReadyTextFile -Path ([string]$P['Path']) -Text ([string]$P['Text']) `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'file-copy'; Group = '文件与日志'; Name = '复制到'
+            Desc = '复制文件或文件夹。目标是已存在目录时复制到该目录下；禁止把目录复制到自身或子目录。'
+            Params = @(
+                @{ Name = 'Path';        Label = '源路径'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Destination'; Label = '目标路径或目标目录'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Overwrite';   Label = '目标已存在时覆盖'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Copy-GuiReadyPath -Path ([string]$P['Path']) -Destination ([string]$P['Destination']) `
+                    -Overwrite:([bool]$P['Overwrite']) -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'file-move'; Group = '文件与日志'; Name = '移动到'
+            Desc = '移动文件或文件夹（跨盘由系统复制后删除）。目标是已存在目录时移动进该目录。'
+            Params = @(
+                @{ Name = 'Path';        Label = '源路径'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Destination'; Label = '目标路径或目标目录'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Overwrite';   Label = '目标已存在时覆盖'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Move-GuiReadyPath -Path ([string]$P['Path']) -Destination ([string]$P['Destination']) `
+                    -Overwrite:([bool]$P['Overwrite']) -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'file-compress'; Group = '文件与日志'; Name = '压缩为 ZIP'
+            Desc = '把文件或文件夹压缩成 ZIP。目标留空时在同级生成同名 .zip；压缩包不能放进被压缩目录内。'
+            Params = @(
+                @{ Name = 'Path';        Label = '要压缩的路径'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Destination'; Label = '压缩包路径（留空自动命名）'; Type = 'Text'; Width = 520 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Compress-GuiReadyPath -Path ([string]$P['Path']) -Destination ([string]$P['Destination']) `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'file-expand'; Group = '文件与日志'; Name = '解压 ZIP'
+            Desc = '解压 ZIP 到指定目录。逐项校验路径，压缩包里的 ..\ 条目会被拒绝（防目录穿越）。'
+            Params = @(
+                @{ Name = 'Path';        Label = 'ZIP 文件路径'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Destination'; Label = '解压到（目录）'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Overwrite';   Label = '覆盖同名文件'; Type = 'Check'; Default = $false }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                Expand-GuiReadyArchive -Path ([string]$P['Path']) -Destination ([string]$P['Destination']) `
+                    -Overwrite:([bool]$P['Overwrite']) -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+        [pscustomobject]@{
+            Id = 'log-export'; Group = '文件与日志'; Name = '导出日志'
+            Desc = '按源 / 级别 / 时间范围 / 关键词读取日志并导出为 CSV 或文本。事件日志与工具文件日志都支持。'
+            Params = @(
+                @{ Name = 'Source';  Label = '日志源（event:System 或 file:完整路径）'; Type = 'Text'; Width = 420; Default = 'event:System' }
+                @{ Name = 'Level';   Label = '级别'; Type = 'Combo'; Options = @('全部', '错误', '警告', '信息'); Default = 1 }
+                @{ Name = 'Since';   Label = '时间范围'; Type = 'Combo'; Options = @('1 小时', '6 小时', '24 小时', '7 天', '30 天', '全部'); Default = 3 }
+                @{ Name = 'Keyword'; Label = '关键词（可空）'; Type = 'Text'; Width = 300 }
+                @{ Name = 'Path';    Label = '导出文件路径（绝对路径）'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Format';  Label = '格式'; Type = 'Combo'; Options = @('CSV', '文本'); Default = 1 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $levels = @('All', 'Error', 'Warning', 'Information')
+                $i = 1
+                if ($P['Level']) { $i = [int]$P['Level'] }
+                if ($i -lt 1 -or $i -gt $levels.Count) { $i = 1 }
+
+                $ranges = @('1h', '6h', '24h', '7d', '30d', 'all')
+                $s = 3
+                if ($P['Since']) { $s = [int]$P['Since'] }
+                if ($s -lt 1 -or $s -gt $ranges.Count) { $s = 3 }
+
+                $formats = @('Csv', 'Text')
+                $f = 1
+                if ($P['Format']) { $f = [int]$P['Format'] }
+                if ($f -lt 1 -or $f -gt $formats.Count) { $f = 1 }
+
+                $r = Get-GuiReadyLogEntries -Source ([string]$P['Source']) -Max 2000 `
+                        -Level $levels[$i - 1] -Since $ranges[$s - 1] -Keyword ([string]$P['Keyword'])
+                Export-GuiReadyLog -Entries $r.Entries -Path ([string]$P['Path']) -Format $formats[$f - 1] `
+                    -WhatIf:([bool]$P['DryRun']) | Out-Null
+            }
+        }
+
+        # ---------------- 配置备份 ----------------
+        [pscustomobject]@{
+            Id = 'backup-export'; Group = '配置备份'; Name = '导出配置备份（ZIP）'
+            Desc = '把用户档案、受管程序清单、流程状态与角色缓存打包成 ZIP（含 manifest.json，不含口令与日志）。留空时存到 backup\config-<时间戳>.zip。'
+            Params = @(
+                @{ Name = 'Destination'; Label = '备份包路径（留空自动命名）'; Type = 'Text'; Width = 520 }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $r = Export-GuiReadyConfigBackup -Destination ([string]$P['Destination']) -WhatIf:([bool]$P['DryRun'])
+                Write-Head '配置备份'
+                if ($r.Planned) {
+                    Write-Log ('将要以 {0} 个文件写入: {1}' -f $r.Count, $r.Archive) 'INFO'
+                } else {
+                    Write-Log ('已备份 {0} 个文件到 {1}' -f $r.Count, $r.Archive) 'OK'
+                }
+                foreach ($f in @($r.Files)) { Write-Log ('  包含: ' + $f) 'INFO' }
+            }
+        }
+        [pscustomobject]@{
+            Id = 'backup-import'; Group = '配置备份'; Name = '从配置备份恢复'
+            Desc = '从本工具生成的 ZIP 恢复配置。只接受 manifest.json 清单内的固定路径；恢复前会把现有文件另存到 backup\config-restore-<时间戳>。'
+            Params = @(
+                @{ Name = 'Path'; Label = '备份包路径（.zip）'; Type = 'Text'; Width = 520; Browse = 'File' }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $r = Import-GuiReadyConfigBackup -Path ([string]$P['Path']) -WhatIf:([bool]$P['DryRun'])
+                Write-Head '配置恢复'
+                if ($r.Planned) {
+                    Write-Log ('将要从 {0} 恢复 {1} 个文件' -f $r.Archive, $r.Count) 'INFO'
+                } else {
+                    Write-Log ('已从 {0} 恢复 {1} 个文件；原文件在 {2}' -f $r.Archive, $r.Count, $r.BackupDir) 'OK'
+                }
+                foreach ($f in @($r.Files)) { Write-Log ('  ' + $f) 'INFO' }
+            }
+        }
+        # ---------------- 远程运维 ----------------
+        [pscustomobject]@{
+            Id    = 'remote-run'
+            Group = '远程运维'
+            Name  = '远程批量执行命令'
+            Desc  = '把一段 PowerShell 命令分别送到多台主机执行，逐机留结果；主机留空表示全部启用的主机。凭据使用主机清单里保存的 DPAPI 凭据。'
+            Params = @(
+                @{ Name = 'Hosts'; Label = '主机（Id/名称/地址，逗号分隔；留空=全部启用）'; Type = 'Text'; Width = 520 }
+                @{ Name = 'Command'; Label = '要执行的 PowerShell 命令'; Type = 'Multi'; Width = 520 }
+                @{ Name = 'TimeoutSec'; Label = '每台超时秒数（10-1800）'; Type = 'Text'; Default = '120'; Width = 120 }
+                @{ Name = 'ContinueOnError'; Label = '某台失败后继续执行其它主机'; Type = 'Check'; Default = $true }
+            )
+            DryRun = $true
+            Script = {
+                param($P)
+                $spec = [string]$P['Hosts']
+                $cmd  = [string]$P['Command']
+                $tmo  = 120
+                if ($P['TimeoutSec']) { [void][int]::TryParse([string]$P['TimeoutSec'], [ref]$tmo) }
+                if ($tmo -lt 10) { $tmo = 10 }
+                if ($tmo -gt 1800) { $tmo = 1800 }
+                $cont = $true
+                if ($P.ContainsKey('ContinueOnError')) { $cont = [bool]$P['ContinueOnError'] }
+                $taskId = ''
+                if ($P.ContainsKey('__TaskId')) { $taskId = [string]$P['__TaskId'] }
+
+                if ([bool]$P['DryRun']) {
+                    $hosts = @(Resolve-GuiReadyHostTargets -Spec $spec)
+                    Write-Head '远程批量（预览）'
+                    Write-Log ('将要对 {0} 台主机执行命令：' -f $hosts.Count) 'INFO'
+                    foreach ($h in $hosts) {
+                        Write-Log ('  {0}  {1}:{2}  认证={3}' -f $h.Name, $h.Address, $h.Port, $h.Auth) 'INFO'
+                    }
+                    Write-Log ('命令：' + $cmd) 'DRY'
+                    return
+                }
+
+                $r = Invoke-GuiReadyRemoteBatch -HostSpec $spec -Command $cmd -TimeoutSec $tmo `
+                        -ContinueOnError $cont -TaskId $taskId
+                Write-Head '远程批量结果'
+                Write-Log ('主机 {0} 台：成功 {1}、失败 {2}、跳过 {3}' -f $r.Total, $r.Succeeded, $r.Failed, $r.Skipped) `
+                    $(if ($r.Failed -gt 0) { 'WARN' } else { 'OK' })
+                foreach ($x in @($r.Results)) {
+                    Write-Log ('----- {0}（{1}） {2}  {3} 秒 -----' -f $x.Name, $x.Address, $x.Status, $x.DurationSec) 'INFO'
+                    if ($x.Output) {
+                        foreach ($ln in ([string]$x.Output -split "`r?`n")) { Write-Log ('  ' + $ln) 'INFO' }
+                    }
+                    if ($x.Error) { Write-Log ('  ' + [string]$x.Error) 'ERROR' }
+                }
+                Write-Log ('逐机结果文件：' + $r.File) 'INFO'
+                if ($r.Failed -gt 0) { throw ('{0} 台主机执行失败，详见 {1}' -f $r.Failed, $r.File) }
+            }
+        }
     )
 }
 
@@ -685,6 +1140,17 @@ function Set-GuiReadyActionRequirements {
         'monitor-service'  = @('Name')
         'autologon-enable' = @('User', 'Password')
         'persistent-run'   = @('Path')
+        'file-mkdir'       = @('Path', 'Name')
+        'file-rename'      = @('Path', 'NewName')
+        'file-delete'      = @('Path')
+        'file-save'        = @('Path', 'Text')
+        'file-copy'        = @('Path', 'Destination')
+        'file-move'        = @('Path', 'Destination')
+        'file-compress'    = @('Path')
+        'file-expand'      = @('Path', 'Destination')
+        'log-export'       = @('Source', 'Path')
+        'backup-import'    = @('Path')
+        'remote-run'       = @('Command')
     }
 
     foreach ($a in @($Actions)) {

@@ -9,12 +9,23 @@
 #
 # 注意：清单只能证明"文件与发布时一致"，不能证明"发布包来源可信"——后者要靠签名/哈希发布。
 
-# 清单只覆盖代码与配置，不覆盖运行时产物与二进制素材（那些本来就会变）
+# 清单覆盖代码与配置；二进制素材（Nerd Font / oh-my-posh / fastfetch）本来就会随版本变，
+# 不进清单。唯一的例外是自家的原生界面 ScmUi.exe —— 它是以管理员身份跑动作的执行体，
+# 被替换掉的后果和脚本被改一样严重，所以单独按路径收进来（见下面的 ExtraFiles）。
 $Global:GuiReadyIntegrityExtensions = @('.ps1', '.psm1', '.psd1', '.cmd', '.bat', '.json', '.md', '.txt')
+# 额外纳入清单的二进制文件（相对路径，小写、正斜杠）
+$Global:GuiReadyIntegrityExtraFiles = @('ui/bin/scmui.exe')
 # 这些目录不参与"多余文件"判定（运行时产物 / 仓库 / 打包中转）
 $Global:GuiReadyIntegritySkipDirs = @(
     '.git', 'logs', 'reports', 'state', 'backup', 'payload', 'bin',
-    'dist', 'site', 'node_modules', '签名'
+    'dist', 'site', 'node_modules', 'runtimes', 'databases', 'data', 'docs/reference', '签名'
+)
+# 指定文件不参与判定：老版本的原生界面会把启动耗时/指标/崩溃日志写在 ui\bin 下，
+# 那是运行时产物、不是"清单外的可疑脚本"，不能因为用户启动过一次就报自检失败。
+$Global:GuiReadyIntegritySkipFiles = @(
+    'ui/bin/startup-ms.txt',
+    'ui/bin/error.txt',
+    'ui/bin/last-metrics.txt'
 )
 
 function Get-GuiReadyFileHash {
@@ -40,7 +51,12 @@ function Get-GuiReadyIntegrityFiles {
                 if ($rel -eq $d -or $rel.StartsWith($d + '/')) { $skip = $true; break }
             }
             if ($skip) { continue }
-            if ($Global:GuiReadyIntegrityExtensions -notcontains $f.Extension.ToLowerInvariant()) { continue }
+            if ($Global:GuiReadyIntegritySkipFiles -contains $rel.ToLowerInvariant()) { continue }
+            # 根目录下的 <命令名>.cmd 是「安装 scm 命令」写出来的启动器（内容和 System32 里的一致），
+            # 属于安装产物，不算清单外文件。
+            if ($rel -notmatch '/' -and $rel -match '(?i)\.cmd$') { continue }
+            $isExtra = ($Global:GuiReadyIntegrityExtraFiles -contains $rel.ToLowerInvariant())
+            if (-not $isExtra -and $Global:GuiReadyIntegrityExtensions -notcontains $f.Extension.ToLowerInvariant()) { continue }
             $out += $rel
         }
     } catch { }

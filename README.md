@@ -84,7 +84,7 @@ Add-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 | **工具** | 默认只列 **7 个本机工具**（记事本、命令提示符、美化终端、MMC 控制台、资源监视器、系统信息、PowerShell ISE）；本机没有的会标上「（缺失）」并变浅色，**点它照样有反应** —— 会说明缺什么、去哪补，并问你要不要用命令提示符代替。与 Windows Admin Center 重复的 14 个管理工具收在「Windows Admin Center 里也有」一组里**默认收起**，**本机装了 WAC 并在运行时整组隐藏**（服务/事件/磁盘/注册表这些直接在 WAC 里用） |
 | **更多** | 全部 **45 个功能**，分 13 组：一键流程 / 探测与诊断 / 程序档案 / 补给 / **应用商店** / **角色与功能** / **监控与诊断** / **安全与合规** / **AI 辅助** / 会话与登录 / 使用与工具 / Windows Admin Center / 终端美化 |
 | **关于** | 作者 / QQ 群 / GitHub / 项目主页（链接可点），以及「打开 GitHub / 打开项目主页 / 打开日志目录 / 打开报告目录」按钮 |
-| **终端美化** | 4 个功能：状态检查（含实测回读 conhost 真实字体）/ **一键美化终端**（Nerd Font + Oh My Posh + Fastfetch，素材内置不联网）/ 打开美化终端 / 一键还原；另有「安装 PowerShell 7（走清华镜像）」 |
+| **终端美化** | 4 个功能：状态检查（含实测回读 conhost 真实字体）/ **一键美化终端**（Nerd Font + Oh My Posh + Fastfetch，缺什么联网下载）/ 打开美化终端 / 一键还原；另有「安装 PowerShell 7（走清华镜像）」 |
 
 > 「商店」「角色」「仪表盘」「安全」「AI」五页的数据都在**子进程**里取（`choco search` 是网络调用、`Get-WindowsFeature` 要问 CBS、`Get-Counter` 取样要 1 秒、事件日志查询要几百毫秒），结果写成 JSON 由界面轮询回填 —— 和环境卡片同一套做法（`New-GuiQueryHost`），界面不会卡住；查询超时会自己收尾，不会永远停在「正在…」。
 
@@ -243,7 +243,9 @@ ServerCoreManager.zip
 | Windows Admin Center | 微软官方 `aka.ms` | 无国内镜像；官方 CDN 实测约 **720 KB/s**；可用 `-NoDownload` 走离线内网包 |
 
 **完全离线的场景**（内网、无外网）：上面的"要下载"项都可以绕开 ——
-终端美化素材已内置；PowerShell 7 可以在动作参数里**直接指定本地 zip**（或指定内网 URL）；
+终端美化的第三方程序与字体改成**装的时候按需下载**（缺素材时从官方源 / GitHub 加速镜像取），
+完全离线时勾「不联网下载」并把 MesloLGS NF 的 ttf、`oh-my-posh.exe`、`fastfetch.exe` 放进
+`setup\console`；PowerShell 7 可以在动作参数里**直接指定本地 zip**（或指定内网 URL）；
 .NET 运行时也可以在动作参数里指定本地 zip。
 
 **自建 / 内网源**（环境变量，设置后全局生效）：
@@ -254,6 +256,7 @@ ServerCoreManager.zip
 | `SCM_MIRROR_GITEE` | 换一个 Gitee 基址（默认 `https://gitee.com/orangearc655743/server-core-manager`） |
 | `SCM_MIRROR_TUNA` | 清华镜像基址（默认 `https://mirrors.tuna.tsinghua.edu.cn`） |
 | `SCM_MIRROR_DOTNET` | 替换 `https://builds.dotnet.microsoft.com/dotnet` 前缀（内网 .NET 源） |
+| `SCM_CONSOLE_MIRROR` | 终端美化素材（oh-my-posh / fastfetch / 字体）的下载前缀；直连 GitHub 不通时会自动依次试 `ghproxy.net` / `ghfast.top` / `gh-proxy.com` |
 
 例：
 
@@ -264,8 +267,8 @@ scm-term   # 或直接跑工具
 ```
 
 > 说明：GitHub 在国内常常很慢/不可达，而**清华镜像只镜像了少数项目**（PowerShell 是其中之一），
-> 别的项目（Oh My Posh、Fastfetch）没有可用的国内镜像 —— 所以我们把它们**直接打进发布包**，
-> 这也是"尽量用国内源"最彻底的做法。
+> 别的项目（Oh My Posh、Fastfetch）没有可用的国内镜像 —— 所以发布包**不再内置**它们，
+> 改成装的时候按需下载，并自动依次尝试几个 GitHub 加速前缀（也可用 `SCM_CONSOLE_MIRROR` 指向内网源）。
 
 ---
 

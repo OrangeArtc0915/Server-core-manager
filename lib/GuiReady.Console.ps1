@@ -370,13 +370,18 @@ function Set-GuiReadyConsoleWelcome {
     param([switch]$Remove, [switch]$Quiet)
 
     $bin    = Get-GuiReadyConsoleRoot
-    $script:path = Join-Path $bin 'scm-welcome.cmd'
+    # 提示脚本放在 setup\console（随包发布、重装也不会被清掉）。
+    # 原来放在 bin\，而 bin\ 是「一键美化终端」才生成的目录 —— 重装包不含 bin\，
+    # 结果 HKCU/HKLM 两条 AutoRun 全指向不存在的文件，每开一个 cmd 就报
+    # 「系统找不到指定的路径。」（连 sconfig.cmd 都跟着进不去，实测被用户抓到）。
+    $welcomeDir = Join-Path $script:GuiReadyRoot 'setup\console'
+    $script:path = Join-Path $welcomeDir 'scm-welcome.cmd'
     $cpKey  = 'HKCU:\Software\Microsoft\Command Processor'
     $valName = 'AutoRun'
     $ok = $true
 
     try {
-        if (-not (Test-Path -LiteralPath $bin)) { New-Item -ItemType Directory -Path $bin -Force | Out-Null }
+        if (-not (Test-Path -LiteralPath $welcomeDir)) { New-Item -ItemType Directory -Path $welcomeDir -Force | Out-Null }
         if (-not (Test-Path $cpKey)) { New-Item -Path $cpKey -Force | Out-Null }
         $old = [string](Get-ItemProperty -Path $cpKey -Name $valName -ErrorAction SilentlyContinue).$valName
 
@@ -449,7 +454,15 @@ echo.
         # ANSI 亮黄（93）需要 VT 支持 —— 「一键美化终端」会设置 HKCU\Console\VirtualTerminalLevel=1
         $bat = $bat.Replace('__ESC__', [string][char]27)
         $bat = ($bat -replace "`r?`n", "`r`n")
-        [System.IO.File]::WriteAllText($script:path, $bat, [System.Text.Encoding]::Default)
+
+        # 包里已经带了一份 scm-welcome.cmd（setup\console）：存在就别重写。
+        # 重写会改变文件字节 → 和 manifest.sha256 对不上 → 用户一启动就报「文件被改过」。
+        # 只有文件缺失（老安装 / 用户手动删了）时才生成一份。
+        if (Test-Path -LiteralPath $script:path) {
+            if (-not $Quiet) { Write-Log 'cmd 提示脚本已随包存在，跳过生成（保持与清单一致）' 'INFO' }
+        } else {
+            [System.IO.File]::WriteAllText($script:path, $bat, [System.Text.Encoding]::Default)
+        }
 
         # 写后自检：必须有 CRLF，否则宁可放弃也不留下一个会让 cmd 错乱的脚本
         $chk = [System.IO.File]::ReadAllBytes($script:path)
@@ -477,13 +490,35 @@ echo.
                 Set-ItemProperty -Path $hk -Name $valName -Value ('"' + $script:path + '"') -Type String -Force
                 if (-not $Quiet) { Write-Log '已启用机器级 cmd 启动提示（HKLM AutoRun，所有用户）' 'OK' }
             } elseif ($oldM -like '*scm-welcome.cmd*') {
-                if (-not $Quiet) { Write-Log '机器级 cmd 启动提示已存在（HKLM AutoRun）' 'OK' }
+                # 指向旧目录也要纠正：工具换过盘/被重装过时，旧路径已经不存在，
+                # 留着只会让每个 cmd 报「系统找不到指定的路径。」
+                if ($oldM -ne ('"' + $script:path + '"')) {
+                    Set-ItemProperty -Path $hk -Name $valName -Value ('"' + $script:path + '"') -Type String -Force
+                    if (-not $Quiet) { Write-Log ('已修正指向旧目录的机器级 cmd 提示: ' + $oldM + ' -> ' + $script:path) 'OK' }
+                } elseif (-not $Quiet) { Write-Log '机器级 cmd 启动提示已存在（HKLM AutoRun）' 'OK' }
             } else {
                 if (-not $Quiet) { Write-Log ('HKLM AutoRun 已被其他程序占用，未覆盖: ' + $oldM) 'WARN' }
             }
         } catch {
             if (-not $Quiet) { Write-Log ('机器级 cmd 提示写入失败（不影响当前用户）: ' + $_.Exception.Message) 'WARN' }
         }
+
+        # 其它已登录用户（Administrator 等）的 HKCU 也可能指向上一个安装目录：
+        # 工具换个位置/删掉旧目录后，这些用户每开一个 cmd 都会报「系统找不到指定的路径。」
+        # （实测把 Sconfig 都带崩了）。这里统一扫一遍已加载的用户 hive 并纠正。
+        try {
+            if (-not (Test-Path 'HKU:\')) { New-PSDrive -PSProvider Registry -Name HKU -Root HKEY_USERS -Scope Global | Out-Null }
+            $want = '"' + $script:path + '"'
+            foreach ($hive in (Get-ChildItem 'HKU:\' -ErrorAction SilentlyContinue)) {
+                $p2 = 'HKU:\' + $hive.PSChildName + '\Software\Microsoft\Command Processor'
+                if (-not (Test-Path $p2)) { continue }
+                $cur2 = [string](Get-ItemProperty -Path $p2 -Name AutoRun -ErrorAction SilentlyContinue).AutoRun
+                if ($cur2 -like '*scm-welcome.cmd*' -and $cur2 -ne $want) {
+                    Set-ItemProperty -Path $p2 -Name AutoRun -Value $want -Type String -Force
+                    if (-not $Quiet) { Write-Log ('已修正其它用户的 cmd 提示路径: ' + $hive.PSChildName) 'OK' }
+                }
+            }
+        } catch { }
     } catch {
         $ok = $false
         if (-not $Quiet) { Write-Log ('写 cmd 启动提示失败: ' + $_.Exception.Message) 'WARN' }
@@ -521,31 +556,45 @@ function global:Show-ScmWelcomeAllUsers {
     if (Test-Path "$env:SystemRoot\System32\sconfig.cmd")  { Write-Host '  输入 "Sconfig" 返回服务器菜单' -ForegroundColor Yellow }
     if (Test-Path "$env:SystemRoot\System32\scm.cmd")      { Write-Host '  输入 "scm" 打开 GUI 工具' -ForegroundColor Yellow }
 }
-if (-not [Console]::IsOutputRedirected) { Show-ScmWelcomeAllUsers }
+
+# Sconfig 是一个全屏 PowerShell 菜单（sconfig.cmd 执行 powershell -Command Invoke-Sconfig）。
+# 在那个会话里【不能在 profile 加载时打印】：菜单自己会重画屏幕，
+# 结果就是「进 sconfig → 退出」后提示出现两遍（实测被用户抓到）。
+# 这里只在退出菜单后由包装函数打印一次。其它 PowerShell 会话照常启动就打印。
+$__scmInSconfig = (([Environment]::GetCommandLineArgs() -join ' ') -match 'Invoke-Sconfig')
+if (-not $__scmInSconfig -and -not [Console]::IsOutputRedirected) { Show-ScmWelcomeAllUsers }
 
 # 清屏后把提示重新打到最上面（cls / clear 都是 Clear-Host 的别名）。
-# 这条原来在用户级 profile 里，现在统一挪到这里，避免两个 profile 各定义一次。
+# sconfig 会话里菜单会频繁清屏，那里不重打，否则提示会跟着菜单反复刷。
 function global:Clear-Host {
     try { [Console]::Clear() } catch { }
-    if (-not [Console]::IsOutputRedirected) { try { Show-ScmWelcomeAllUsers } catch { } }
+    if (-not $__scmInSconfig -and -not [Console]::IsOutputRedirected) { try { Show-ScmWelcomeAllUsers } catch { } }
 }
 
-# Sconfig 是一个全屏 PowerShell 菜单（sconfig.cmd 执行 powershell -Command Invoke-Sconfig），
-# 它自己会 cls，把提示盖住。这里给 Invoke-Sconfig 包一层：菜单退出（例如选 15）后重新打印提示。
-# 只在 Sconfig 自己的会话里做，不影响其它 PowerShell 的启动。
-try {
-    $__scmCmdLine = ([Environment]::GetCommandLineArgs() -join ' ')
-    if ($__scmCmdLine -match 'Invoke-Sconfig') {
-        Import-Module Microsoft.ServerCore.SConfig -ErrorAction SilentlyContinue
-        $global:__scmOrigInvokeSconfig = ${function:Invoke-Sconfig}
-        if ($global:__scmOrigInvokeSconfig) {
-            function global:Invoke-Sconfig {
-                try { & $global:__scmOrigInvokeSconfig @args }
-                finally { try { Show-ScmWelcomeAllUsers } catch { } }
-            }
+# 给 Invoke-Sconfig 包一层：菜单退出（例如选 15）后重新打印一次提示。
+# 这里【不预先 Import-Module】—— 那个模块在导入时会打一行 WARNING（"若要再次启动服务器配置工具…"），
+# 用户会误以为是我们报的。改用模块限定名调用，让 PowerShell 自己按需加载。
+if ($__scmInSconfig) {
+    function global:Invoke-Sconfig {
+        try {
+            & 'Microsoft.ServerCore.SConfig\Invoke-Sconfig' @args
+        } catch {
+            try {
+                Import-Module Microsoft.ServerCore.SConfig -ErrorAction SilentlyContinue
+                & (Get-Command Invoke-Sconfig -CommandType Function -ErrorAction SilentlyContinue) @args
+            } catch { }
+        } finally {
+            try { Show-ScmWelcomeAllUsers } catch { }
         }
     }
-} catch { }
+}
+
+# 从普通 PowerShell 里敲 sconfig（cfg 是外部 .cmd）时，退出菜单后也补一次提示。
+# 函数优先级高于外部命令，所以这会接管 "sconfig" 这个名字。
+function global:sconfig {
+    & "$env:SystemRoot\System32\sconfig.cmd" @args
+    try { Show-ScmWelcomeAllUsers } catch { }
+}
 # --- end managed block ---
 
 '@
@@ -816,6 +865,153 @@ function Show-GuiReadyConsoleStatus {
     return $s
 }
 
+function Get-GuiReadyDownloadMirrors {
+    # 直连 github.com 在不少内网 / 国内环境根本不通（实测本机就超时），所以给一组候选地址：
+    #   1) 官方地址
+    #   2) 环境变量 SCM_CONSOLE_MIRROR 指定的镜像（自建 / 公司内部代理都填这个）
+    #   3) 公共加速前缀（只在官方是 github.com 时拼接）
+    # 任何一个成功就停，失败的不会留下半截文件。
+    param([string]$Url)
+
+    $out = New-Object System.Collections.ArrayList
+    [void]$out.Add($Url)
+    $mirror = [string]$env:SCM_CONSOLE_MIRROR
+    if ($mirror) { [void]$out.Add($mirror.TrimEnd('/') + '/' + $Url) }
+    if ($Url -match '(?i)^https?://github\.com/') {
+        foreach ($p in @('https://ghproxy.net', 'https://ghfast.top', 'https://gh-proxy.com')) {
+            [void]$out.Add($p + '/' + $Url)
+        }
+    }
+    return @($out | Select-Object -Unique)
+}
+
+function Test-GuiReadyUrlReachable {
+    # 快速探活：HEAD 10 秒。用来避免「直连 github 超时 3 分钟才发现不通」。
+    param([string]$Url, [int]$TimeoutSec = 10)
+    try {
+        Invoke-WebRequest -Uri $Url -Method Head -UseBasicParsing -TimeoutSec $TimeoutSec -ErrorAction Stop | Out-Null
+        return $true
+    } catch {
+        # 有些镜像不认 HEAD（405/403），这种情况照样要试 GET
+        $code = 0
+        try { $code = [int]$_.Exception.Response.StatusCode } catch { }
+        if ($code -eq 403 -or $code -eq 405 -or $code -eq 400) { return $true }
+        return $false
+    }
+}
+
+function Save-GuiReadyUrlFile {
+    # 下载到 .part 再改名：半截文件绝不能被当成素材用
+    param([string]$Url, [string]$OutFile)
+
+    $dir = Split-Path -Parent $OutFile
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $tmp = $OutFile + '.part'
+    try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
+    # 走系统代理（如果有）：Server Core 上 netsh winhttp 设置的代理不会自动被 .NET 读到，
+    # 但 IE 代理能用；两者都没有时就是直连。
+    try { [Net.WebRequest]::DefaultWebProxy = [Net.WebRequest]::GetSystemWebProxy() } catch { }
+
+    $cands = @(Get-GuiReadyDownloadMirrors -Url $Url)
+    $alive = New-Object System.Collections.ArrayList
+    foreach ($u in $cands) {
+        if (Test-GuiReadyUrlReachable -Url $u) { [void]$alive.Add($u) }
+    }
+    $probed = ($alive.Count -gt 0)
+    # 探活全灭时不要把话说死（HEAD 被墙、GET 能用是常见情况）：按原顺序再试一轮，只是超时缩短
+    if (-not $probed) { foreach ($u in $cands) { [void]$alive.Add($u) } }
+
+    # 探活通过 = 链路能通，给足大文件（Meslo.zip 130 MB）的下载时间；
+    # 没探活直接试的，只给 60 秒，免得每个死站都拖三分钟。
+    $lastErr = ''
+    $timeout = $(if ($probed) { 600 } else { 60 })
+    foreach ($u in $alive) {
+        try {
+            Invoke-WebRequest -Uri $u -OutFile $tmp -UseBasicParsing -TimeoutSec $timeout -ErrorAction Stop
+            if (-not (Test-Path -LiteralPath $tmp) -or (Get-Item -LiteralPath $tmp).Length -le 0) { throw '下载到的文件是空的' }
+            Move-Item -LiteralPath $tmp -Destination $OutFile -Force
+            if ($u -ne $Url) { Write-Log ('（走镜像下载: ' + $u + '）') 'INFO' }
+            return $true
+        } catch {
+            $lastErr = $_.Exception.Message
+            try { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue } catch { }
+        }
+    }
+    Write-Log ('下载失败: ' + $Url + ' —— ' + $lastErr) 'WARN'
+    return $false
+}
+
+function Expand-GuiReadyZipTo {
+    # 只挑名字匹配的文件解出来（可选改名），其余条目直接跳过。
+    # 不整包 ExtractToDirectory：Meslo.zip 有 130 MB，整包解压白占几百 MB 磁盘和时间。
+    param([string]$Zip, [string]$Pattern, [string]$DestDir, [string]$RenameTo = '')
+
+    Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+    if (-not (Test-Path -LiteralPath $DestDir)) { New-Item -ItemType Directory -Path $DestDir -Force | Out-Null }
+    $out = New-Object System.Collections.ArrayList
+    try {
+        $za = [System.IO.Compression.ZipFile]::OpenRead($Zip)
+        try {
+            foreach ($e in $za.Entries) {
+                if (-not $e.Name) { continue }                       # 目录条目
+                if ($e.Name -notmatch $Pattern) { continue }
+                $name = $(if ($RenameTo) { $RenameTo } else { $e.Name })
+                $to = Join-Path $DestDir $name
+                [System.IO.Compression.ZipFileExtensions]::ExtractToFile($e, $to, $true)
+                [void]$out.Add($to)
+            }
+        } finally { $za.Dispose() }
+    } catch {
+        Write-Log ('解包失败: ' + $_.Exception.Message) 'WARN'
+    }
+    return @($out)
+}
+
+function Install-GuiReadyConsoleAssets {
+    # 发布包不再内置第三方程序与字体，缺什么就从官方源下什么。
+    # 只补「程序 + 字体 + fastfetch」；主题 json、字体脚本、启动器是我们自己的文本资产，随包发布。
+    param([string]$Dir = '')
+
+    if (-not $Dir) { $Dir = Join-Path $script:GuiReadyRoot $Global:GuiReadyConsoleAssetDir }
+    if (-not (Test-Path -LiteralPath $Dir)) { New-Item -ItemType Directory -Path $Dir -Force | Out-Null }
+
+    $a = Find-GuiReadyConsoleAssets
+    Write-Log '发布包不内置第三方程序/字体，正在从官方源下载缺失素材（需要联网）…' 'STEP'
+
+    if (-not $a.Posh) {
+        $dst = Join-Path $Dir 'oh-my-posh.exe'
+        Write-Log '下载 oh-my-posh（GitHub Releases）…' 'INFO'
+        if (Save-GuiReadyUrlFile -Url 'https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/posh-windows-amd64.exe' -OutFile $dst) {
+            Write-Log ('已下载 oh-my-posh.exe（{0:0.0} MB）' -f ((Get-Item -LiteralPath $dst).Length / 1MB)) 'OK'
+        }
+    }
+
+    if (-not $a.Fastfetch) {
+        $zip = Join-Path $env:TEMP 'scm-fastfetch.zip'
+        Write-Log '下载 fastfetch（GitHub Releases）…' 'INFO'
+        if (Save-GuiReadyUrlFile -Url 'https://github.com/fastfetch-cli/fastfetch/releases/latest/download/fastfetch-windows-amd64.zip' -OutFile $zip) {
+            $got = @(Expand-GuiReadyZipTo -Zip $zip -Pattern '(?i)^fastfetch\.exe$' -DestDir $Dir)
+            if ($got.Count -gt 0) { Write-Log ('已解出 fastfetch.exe: ' + $got[0]) 'OK' }
+            try { Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue } catch { }
+        }
+    }
+
+    if ($a.Fonts.Count -eq 0) {
+        # 固定 v2.3.3：Nerd Fonts v3 起把字体族改名成 "MesloLGS Nerd Font"，
+        # 而控制台字体名（$Global:GuiReadyConsoleFontFace = 'MesloLGS NF'）与 Set-ScmConsoleFont.ps1
+        # 都按旧的族名写的；用 latest 会装上一个族名对不上的字体，控制台照样回退。
+        $zip = Join-Path $env:TEMP 'scm-meslo.zip'
+        Write-Log '下载 MesloLGS NF 字体（Nerd Fonts v2.3.3 Releases）…' 'INFO'
+        if (Save-GuiReadyUrlFile -Url 'https://github.com/ryanoasis/nerd-fonts/releases/download/v2.3.3/Meslo.zip' -OutFile $zip) {
+            $got = @(Expand-GuiReadyZipTo -Zip $zip -Pattern '(?i)^MesloLGS NF.*\.ttf$' -DestDir $Dir)
+            if ($got.Count -gt 0) { Write-Log ('已解出 {0} 个字体文件' -f $got.Count) 'OK' }
+            try { Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue } catch { }
+        }
+    }
+
+    return (Find-GuiReadyConsoleAssets)
+}
+
 function Install-GuiReadyConsoleTheme {
     param(
         [string]$AssetDir = '',
@@ -824,6 +1020,7 @@ function Install-GuiReadyConsoleTheme {
         [switch]$SkipFastfetch,
         [switch]$SkipAppearance,
         [switch]$SkipProbe,
+        [switch]$NoDownload,
         [switch]$WhatIf
     )
 
@@ -833,10 +1030,13 @@ function Install-GuiReadyConsoleTheme {
     if ($AssetDir) { $script:GuiReadyConsoleAssetDirUsed = $AssetDir }
 
     $assets = Find-GuiReadyConsoleAssets
+    if ($assets.Missing.Count -gt 0 -and -not $NoDownload) {
+        $assets = Install-GuiReadyConsoleAssets -Dir $(if ($AssetDir) { $AssetDir } else { (Join-Path $script:GuiReadyRoot $Global:GuiReadyConsoleAssetDir) })
+    }
     if ($assets.Missing.Count -gt 0) {
-        Write-Log ('离线素材不完整，缺少: ' + ($assets.Missing -join '，')) 'ERROR'
+        Write-Log ('素材不完整，缺少: ' + ($assets.Missing -join '，')) 'ERROR'
         Write-Log ('应该放在: ' + (Join-Path $script:GuiReadyRoot $Global:GuiReadyConsoleAssetDir)) 'INFO'
-        Write-Log '需要的文件：MesloLGS NF 的 ttf、oh-my-posh.exe、主题 *.omp.json、Set-ScmConsoleFont.ps1、scm-term.cmd' 'INFO'
+        Write-Log '离线环境请手工放入：MesloLGS NF 的 ttf、oh-my-posh.exe、主题 *.omp.json、Set-ScmConsoleFont.ps1、scm-term.cmd' 'INFO'
         return $false
     }
     Write-Log ('素材目录: ' + $assets.Dir) 'OK'

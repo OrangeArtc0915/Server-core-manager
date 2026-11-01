@@ -37,14 +37,19 @@ function New-UiRoundPath {
 function Enable-UiDoubleBuffer {
     # SetStyle 是 protected，PowerShell 直接调不到，只能反射。
     # 自绘控件必须开：UserPaint 关掉系统背景绘制后，没有双缓冲会闪。
+    # 反射查方法不便宜，而每个控件都要调一次 —— 这里把 MethodInfo 与标志位缓存起来。
     param([System.Windows.Forms.Control]$Control)
     try {
-        $flags = [System.Windows.Forms.ControlStyles]::UserPaint -bor `
-                 [System.Windows.Forms.ControlStyles]::AllPaintingInWmPaint -bor `
-                 [System.Windows.Forms.ControlStyles]::OptimizedDoubleBuffer
-        $m = [System.Windows.Forms.Control].GetMethod('SetStyle',
+        if (-not $script:UiSetStyleMethod) {
+            $script:UiSetStyleMethod = [System.Windows.Forms.Control].GetMethod('SetStyle',
                 ([System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic))
-        if ($m) { $m.Invoke($Control, @($flags, $true)) | Out-Null }
+            $script:UiSetStyleFlags = [System.Windows.Forms.ControlStyles]::UserPaint -bor `
+                                      [System.Windows.Forms.ControlStyles]::AllPaintingInWmPaint -bor `
+                                      [System.Windows.Forms.ControlStyles]::OptimizedDoubleBuffer
+        }
+        if ($script:UiSetStyleMethod) {
+            $script:UiSetStyleMethod.Invoke($Control, @($script:UiSetStyleFlags, $true)) | Out-Null
+        }
     } catch { }
 }
 
@@ -74,6 +79,145 @@ function Invoke-UiPaintFrame {
     }
 }
 
+# ============================ 深色系统部件 ============================
+# WinForms 的滚动条、下拉列表由系统主题绘制，深色界面里会露出一条亮灰滚动条 —— 
+# 这是"看着不像现代面板"的第二大来源（第一是系统 ListView）。uxtheme 允许把控件
+# 换成 DarkMode_Explorer 主题，滚动条就跟着变深；不生效时静默忽略，不影响功能。
+
+function Enable-UiDarkScrollBar {
+    param([System.Windows.Forms.Control]$Control)
+    if (-not $Control) { return }
+    try {
+        if (-not ('GrGui.Theme' -as [type])) {
+            Add-Type -Namespace GrGui -Name Theme -MemberDefinition @'
+[System.Runtime.InteropServices.DllImport("uxtheme.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode)]
+public static extern int SetWindowTheme(System.IntPtr hWnd, string pszSubAppName, string pszSubIdList);
+'@ -ErrorAction Stop
+        }
+        $h = $Control.Handle
+        if ($h -eq [System.IntPtr]::Zero) { return }
+        $name = 'DarkMode_Explorer'
+        if ($Control -is [System.Windows.Forms.ComboBox]) { $name = 'DarkMode_CFD' }
+        [void][GrGui.Theme]::SetWindowTheme($h, $name, $null)
+    } catch { }
+}
+
+function Enable-UiDarkChildren {
+    # 在页面第一次显示时把整棵树里的系统部件（滚动条、下拉、文本框）刷成深色主题。
+    param([System.Windows.Forms.Control]$Root)
+    if (-not $Root) { return }
+    try {
+        $stack = New-Object System.Collections.Stack
+        $stack.Push($Root)
+        while ($stack.Count -gt 0) {
+            $c = $stack.Pop()
+            try {
+                if ($c -is [System.Windows.Forms.ComboBox] -or
+                    $c -is [System.Windows.Forms.ListView] -or
+                    $c -is [System.Windows.Forms.TextBox] -or
+                    $c -is [System.Windows.Forms.TreeView]) {
+                    Enable-UiDarkScrollBar -Control $c
+                }
+                foreach ($k in $c.Controls) { $stack.Push($k) }
+            } catch { }
+        }
+    } catch { }
+}
+
+# ============================ 氛围底 / 颜色工具 ============================
+# XMP 那种"一眼高级"来自三件事：带光晕的深色底、极淡的玻璃面、强调色点缀。
+# 前两件 WinForms 都能做，只是要自己画（GDI+ 只有实心填充和渐变，没有模糊）。
+
+function Mix-UiColor {
+    # 把 Bg 与 Accent 按比例混合成不透明色（WinForms 的 BackColor 不支持 alpha，
+    # 想要"14% 强调色底"只能预先混好）。
+    param(
+        [System.Drawing.Color]$Base,
+        [System.Drawing.Color]$Accent,
+        [double]$Rate = 0.14
+    )
+    if ($Rate -lt 0) { $Rate = 0 }
+    if ($Rate -gt 1) { $Rate = 1 }
+    return [System.Drawing.Color]::FromArgb(
+        [int]($Base.R + ($Accent.R - $Base.R) * $Rate),
+        [int]($Base.G + ($Accent.G - $Base.G) * $Rate),
+        [int]($Base.B + ($Accent.B - $Base.B) * $Rate))
+}
+
+function Draw-UiGlow {
+    # 径向光晕：PathGradientBrush 把中心色向四周渐变到全透明。
+    # 这是 GDI+ 里唯一能模拟"模糊光斑"的原生手段。
+    param(
+        [System.Drawing.Graphics]$Graphics,
+        [double]$Cx, [double]$Cy, [double]$Radius,
+        [System.Drawing.Color]$Color,
+        [int]$Alpha = 26
+    )
+    if (-not $Graphics -or $Radius -le 0) { return }
+    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+    try {
+        $path.AddEllipse([single]($Cx - $Radius), [single]($Cy - $Radius), [single]($Radius * 2), [single]($Radius * 2))
+        $pgb = New-Object System.Drawing.Drawing2D.PathGradientBrush($path)
+        try {
+            $pgb.CenterColor = [System.Drawing.Color]::FromArgb($Alpha, $Color)
+            $surround = New-Object 'System.Drawing.Color[]' 1
+            $surround[0] = [System.Drawing.Color]::FromArgb(0, $Color)
+            $pgb.SurroundColors = $surround
+            $Graphics.FillPath($pgb, $path)
+        } finally { $pgb.Dispose() }
+    } catch { } finally { $path.Dispose() }
+}
+
+function Add-UiAmbientBackdrop {
+    # 铺 XMP 的"星空底"：radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%)。
+    # GDI+ 用 PathGradientBrush 画一个中心偏下的大椭圆，中心 #1B2735、边缘近黑。
+    # 关键：PathGradientBrush 填一张 1000x600 的椭圆在软件渲染下要几十毫秒，
+    # 每次重绘都画一次会明显拖慢首次显示（实测"窗口可见"那 880ms 里有它一份）。
+    # 这里按控件尺寸缓存成 Bitmap，重绘只是 DrawImageUnscaled。
+    param([System.Windows.Forms.Control]$Control)
+    if (-not $Control) { return }
+    if (-not $script:UiAmbientDone) { $script:UiAmbientDone = New-Object 'System.Collections.Generic.HashSet[System.Windows.Forms.Control]' }
+    if ($script:UiAmbientDone.Contains($Control)) { return }
+    [void]$script:UiAmbientDone.Add($Control)
+    if (-not $script:UiAmbientCache) { $script:UiAmbientCache = @{} }
+
+    Enable-UiDoubleBuffer -Control $Control
+    $Control.Add_Paint({
+        param($s, $e)
+        try {
+            $w = $s.Width; $h = $s.Height
+            if ($w -le 0 -or $h -le 0) { return }
+            $cache = $script:UiAmbientCache
+            $c = $cache[$s]
+            if (-not $c -or [int]$c.W -ne $w -or [int]$c.H -ne $h) {
+                if ($c) { try { $c.Bmp.Dispose() } catch { } }
+                $bmp = New-Object System.Drawing.Bitmap($w, $h)
+                $g = [System.Drawing.Graphics]::FromImage($bmp)
+                try {
+                    $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+                    $path = New-Object System.Drawing.Drawing2D.GraphicsPath
+                    try {
+                        # 椭圆比客户区大一圈，保证四角都被覆盖
+                        $path.AddEllipse([single](-$w * 0.25), [single](-$h * 0.15), [single]($w * 1.5), [single]($h * 1.6))
+                        $pgb = New-Object System.Drawing.Drawing2D.PathGradientBrush($path)
+                        try {
+                            $pgb.CenterPoint = New-Object System.Drawing.PointF([single]($w * 0.5), [single]($h * 1.15))
+                            $pgb.CenterColor = $Pal.GlowBlue
+                            $surround = New-Object 'System.Drawing.Color[]' 1
+                            $surround[0] = $Pal.BgTop
+                            $pgb.SurroundColors = $surround
+                            $g.FillPath($pgb, $path)
+                        } finally { $pgb.Dispose() }
+                    } catch { } finally { $path.Dispose() }
+                } finally { $g.Dispose() }
+                $c = @{ W = $w; H = $h; Bmp = $bmp }
+                $cache[$s] = $c
+            }
+            $e.Graphics.DrawImageUnscaled($c.Bmp, 0, 0)
+        } catch { }
+    })
+}
+
 # ============================ 页头（PageHeader）============================
 # HMOL 的 Controls\PageHeader.cs：
 #   38x38 图标块（Radius.Item = 10、底 Accent.Faint、图标 19 用 Accent.Base）
@@ -81,30 +225,62 @@ function Invoke-UiPaintFrame {
 # 整块高 40：页面内容统一从 y=56 开始，中间正好 16px 间距（HMOL 的行间距）。
 # 右侧那片空白是留给本页操作按钮的（HMOL 模板的第三列），调用方直接
 # $hdr.Controls.Add($btn) 放进去即可。
+function Get-UiPageAccent {
+    # XMP 每个模块一个强调色（蓝/青/绿/琥珀/粉/紫），页头图标与卡片点睛色都跟着它走。
+    param([string]$Icon)
+    switch ($Icon) {
+        'monitor'  { return '#409EFF' }
+        'store'    { return '#C084FC' }
+        'env'      { return '#22D3EE' }
+        'role'     { return '#34D399' }
+        'security' { return '#FBBF24' }
+        'app'      { return '#F472B6' }
+        'tool'     { return '#60A5FA' }
+        'beauty'   { return '#F472B6' }
+        'dsh'      { return '#34D399' }
+        'files'    { return '#22D3EE' }
+        'logs'     { return '#FBBF24' }
+        'tasks'    { return '#34D399' }
+        'audit'    { return '#C084FC' }
+        'hosts'    { return '#60A5FA' }
+        'web'      { return '#409EFF' }
+        default    { return '#94A3B8' }
+    }
+}
+
 function New-PageHeader {
     param(
         [Parameter(Mandatory = $true)][string]$Title,
         [string]$Subtitle = '',
         [string]$Icon = '',
-        [int]$Width = 900
+        [int]$Width = 900,
+        [string]$AccentHex = ''
     )
 
-    $h = 40
+    # 页头 44：15pt 标题（约 25px）+ 9.5pt 副标题（18px）刚好排得下，
+    # 早前用 40 高时标题会压住副标题 2px（UiAudit 的"同级控件重叠"就是这么报出来的）。
+    $h = 44
+    $accent = Get-UiPageAccent -Icon $Icon
+    if ($AccentHex) { $accent = $AccentHex }
+    $accentColor = Convert-HexToColor $accent
+    $iconColor   = Mix-UiColor -Base $accentColor -Accent ([System.Drawing.Color]::White) -Rate 0.35
+    $tileColor   = Mix-UiColor -Base $Pal.Bg -Accent $accentColor -Rate 0.20
+
     $p = New-Object System.Windows.Forms.Panel
     $p.Size      = New-Object System.Drawing.Size($Width, $h)
     $p.Location  = New-Object System.Drawing.Point(0, 0)
     $p.BackColor = $Pal.Bg
-    $p.Tag       = @{ Title = $null; Sub = $null; Icon = $Icon }
+    $p.Tag       = @{ Title = $null; Sub = $null; Icon = $Icon; Accent = $accentColor }
 
     $x = 0
     if ($Icon) {
         $tile = New-Object System.Windows.Forms.Panel
         $tile.Size      = New-Object System.Drawing.Size(38, 38)
         $tile.Location  = New-Object System.Drawing.Point(0, 1)
-        $tile.BackColor = $Pal.AccentFaint
-        $tile.Tag       = @{ Radius = 10; Icon = $Icon }
+        $tile.BackColor = $tileColor
+        $tile.Tag       = @{ Radius = 8; Icon = $Icon; IconColor = $iconColor; Accent = $accentColor }
         Enable-UiDoubleBuffer -Control $tile
-        Set-Rounded -Control $tile -Radius 10
+        Set-Rounded -Control $tile -Radius 8
         $tile.Add_Paint({
             param($s, $e)
             try {
@@ -113,17 +289,24 @@ function New-PageHeader {
                 $path = New-UiRoundPath -Width $s.Width -Height $s.Height -Radius $s.Tag.Radius
                 $br = New-Object System.Drawing.SolidBrush($s.BackColor)
                 try { $g.FillPath($br, $path) } finally { $br.Dispose(); $path.Dispose() }
-                # 图标 19 居中于 38 的块里（HMOL：38 配 19）
-                Draw-UiIcon -Graphics $g -Name ([string]$s.Tag.Icon) -X 9 -Y 9 -Size 19 -Color $Pal.AccentBase
+                # 图标块的 1px 强调色描边（XMP 图标块的那种"淡淡一圈"）
+                $pen = New-Object System.Drawing.Pen(
+                           [System.Drawing.Color]::FromArgb(70, $s.Tag.Accent), 1)
+                try {
+                    $g.TranslateTransform(0.5, 0.5)
+                    $p2 = New-UiRoundPath -Width ($s.Width - 1) -Height ($s.Height - 1) -Radius $s.Tag.Radius
+                    try { $g.DrawPath($pen, $p2) } finally { $p2.Dispose() }
+                } finally { $pen.Dispose() }
+                Draw-UiIcon -Graphics $g -Name ([string]$s.Tag.Icon) -X 9 -Y 9 -Size 19 -Color $s.Tag.IconColor
             } catch { }
         })
         $p.Controls.Add($tile)
-        $x = 50            # 图标块 38 + HMOL 的 Margin 0,0,12,0
+        $x = 50
     }
 
     # 有副标题时标题上移一点，让"标题 + 副标题"整体在 40 里居中
-    $headY = $(if ($Subtitle) { 1 } else { 10 })
-    $lt = New-Label -Text $Title -Size 13.5 -Style Bold
+    $headY = $(if ($Subtitle) { 1 } else { 12 })
+    $lt = New-Label -Text $Title -Size 15 -Style Bold
     $lt.Location = New-Object System.Drawing.Point($x, $headY)
     $p.Controls.Add($lt)
     $p.Tag.Title = $lt
@@ -131,10 +314,10 @@ function New-PageHeader {
     if ($Subtitle) {
         # 副标题固定宽度 + 省略号：它是单行、不会换行，窄屏（1024）下必须自己收住，
         # 否则会画出页头右边界、压到操作按钮上（真机实测过 908 > 754）。
-        $ls = New-Label -Text $Subtitle -Size 9 -Color SubText -Width ([Math]::Max(80, ($Width - $x - 10)))
+        $ls = New-Label -Text $Subtitle -Size 9.5 -Color SubText -Width ([Math]::Max(80, ($Width - $x - 10)))
         $ls.AutoEllipsis = $true
-        $ls.Height = 17
-        $ls.Location = New-Object System.Drawing.Point(($x + 1), 22)
+        $ls.Height = 18
+        $ls.Location = New-Object System.Drawing.Point(($x + 1), 25)
         $p.Controls.Add($ls)
         $p.Tag.Sub = $ls
     }
@@ -150,9 +333,11 @@ function New-Card {
         [int]$Width = 240,
         [int]$Height = 120,
         [string]$Title = '',
-        [int]$Radius = 12,
+        [int]$Radius = 8,
         [switch]$Hover,
-        [switch]$StrongBorder
+        [switch]$StrongBorder,
+        # 可选的模块强调色（#RRGGBB）。XMP 的每个模块一个色，卡片 hover 光晕跟着它走。
+        [string]$AccentHex = ''
     )
 
     $card = New-Object System.Windows.Forms.Panel
@@ -161,41 +346,245 @@ function New-Card {
     Enable-UiDoubleBuffer -Control $card
     Set-Rounded -Control $card -Radius $Radius
 
+    $accent = $Pal.Accent2
+    if ($AccentHex) { try { $accent = Convert-HexToColor $AccentHex } catch { } }
+
     $card.Tag = @{
-        Radius  = $Radius
-        Border  = $(if ($StrongBorder) { $Pal.BorderStrong } else { $Pal.Border })
-        Base    = $Pal.Card
-        HoverBg = $(if ($Hover) { $Pal.CardHover } else { $Pal.Card })
+        Radius      = $Radius
+        Border      = $(if ($StrongBorder) { $Pal.BorderStrong } else { $Pal.Border })
+        BorderHover = $accent
+        Base        = $Pal.Card
+        HoverBg     = $(if ($Hover) { $Pal.CardHover } else { $Pal.Card })
+        Hover       = $false
+        Accent      = $accent
     }
 
     $card.Add_Paint({
         param($s, $e)
         try {
-            Invoke-UiPaintFrame -Graphics $e.Graphics -Width $s.Width -Height $s.Height `
-                -Radius $s.Tag.Radius -Fill $s.BackColor -Border $s.Tag.Border
+            $g = $e.Graphics
+            $t = $s.Tag
+            $g.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::AntiAlias
+            $path = New-UiRoundPath -Width ($s.Width - 1) -Height ($s.Height - 1) -Radius ([int]$t.Radius)
+            try {
+                $br = New-Object System.Drawing.SolidBrush($s.BackColor)
+                try { $g.FillPath($br, $path) } finally { $br.Dispose() }
+
+                # 玻璃面：白 6% → 白 1% 的纵向渐变叠在卡底色上。
+                # 这一层是"卡片浮起来"的关键 —— 只填纯色时，深色底上的卡片看起来就是一块死灰。
+                $rectAll = New-Object System.Drawing.Rectangle(0, 0, $s.Width, $s.Height)
+                $glass = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+                             $rectAll, [System.Drawing.Color]::FromArgb(16, 255, 255, 255),
+                             [System.Drawing.Color]::FromArgb(3, 255, 255, 255),
+                             [System.Drawing.Drawing2D.LinearGradientMode]::Vertical)
+                try { $g.FillPath($glass, $path) } finally { $glass.Dispose() }
+
+                # 顶部内高光：1px 白 10%，玻璃边缘的"反光"
+                $oldClip = $g.Clip
+                try {
+                    $g.SetClip($path)
+                    $hl = New-Object System.Drawing.Pen([System.Drawing.Color]::FromArgb(26, 255, 255, 255), 1)
+                    try { $g.DrawLine($hl, 3, 1, ($s.Width - 4), 1) } finally { $hl.Dispose() }
+                } finally { $g.Clip = $oldClip }
+
+                # hover：顶部一层强调色光晕（XMP 营销站的做法；GDI+ 没有模糊，用纵向渐变近似）
+                if ($t.Hover -and $s.Height -gt 30) {
+                    $gh   = [Math]::Min(72, [Math]::Max(24, [int]($s.Height * 0.45)))
+                    $rect = New-Object System.Drawing.Rectangle(0, 0, $s.Width, $gh)
+                    $c1   = [System.Drawing.Color]::FromArgb(38, $t.Accent)
+                    $c2   = [System.Drawing.Color]::FromArgb(0, $t.Accent)
+                    $lg   = New-Object System.Drawing.Drawing2D.LinearGradientBrush(
+                                $rect, $c1, $c2, [System.Drawing.Drawing2D.LinearGradientMode]::Vertical)
+                    $old = $g.Clip
+                    try {
+                        $g.SetClip($path)
+                        $g.FillRectangle($lg, $rect)
+                    } finally { $g.Clip = $old; $lg.Dispose() }
+                }
+
+                $penColor = $(if ($t.Hover) { $t.BorderHover } else { $t.Border })
+                $pen = New-Object System.Drawing.Pen($penColor, 1)
+                try {
+                    $g.TranslateTransform(0.5, 0.5)
+                    $g.DrawPath($pen, $path)
+                } finally { $pen.Dispose() }
+            } finally { $path.Dispose() }
         } catch { }
     })
 
     if ($Hover) {
         # 注意：鼠标移到卡片里的子控件（标签等）上会触发 MouseLeave，hover 态会掉。
         # 需要「整卡 hover」时，卡片内不要再放会吃掉鼠标的子控件。
-        $card.Add_MouseEnter({ $this.BackColor = $this.Tag.HoverBg; $this.Invalidate() })
-        $card.Add_MouseLeave({ $this.BackColor = $this.Tag.Base;    $this.Invalidate() })
+        $card.Add_MouseEnter({ $this.Tag.Hover = $true;  $this.BackColor = $this.Tag.HoverBg; $this.Invalidate() })
+        $card.Add_MouseLeave({ $this.Tag.Hover = $false; $this.BackColor = $this.Tag.Base;    $this.Invalidate() })
     }
 
     if ($Title) {
-        # 卡片标题：HMOL SurfaceCard 模板 —— Margin=16,14,16,0、FontSize 13.5 Bold（≈10.1pt）
+        # 卡片标题：XMP 卡片标题 15.5px / 800 的观感，这里用 10.5pt Bold + 18px 内边距
         $lbl = New-Object System.Windows.Forms.Label
         $lbl.Text      = $Title
-        $lbl.Font      = New-Font -Size 10.1 -Style Bold
+        $lbl.Font      = New-Font -Size 10.5 -Style Bold
         $lbl.ForeColor = $Pal.Text
         $lbl.BackColor = [System.Drawing.Color]::Transparent
         $lbl.AutoSize  = $true
-        $lbl.Location  = New-Object System.Drawing.Point(16, 14)
+        $lbl.Location  = New-Object System.Drawing.Point(18, 16)
         $card.Controls.Add($lbl)
         $card.Tag.Title = $lbl
     }
     return $card
+}
+
+# ============================ 列表（XMP 风格自绘） ============================
+# 系统 ListView 的行高、选中色、网格线全由 Windows 主题决定，深色界面里会露出一块
+# "系统蓝 + 白底"的旧味道，这也是"卡还难看"里最扎眼的一处。这里用 OwnerDraw 接管：
+#   行高 44、无斑马纹、每行底 1px 极淡分割线、悬停淡蓝、选中蓝底 + 左侧 3px 蓝条。
+# 用法：列表创建完、列也加好之后调一次 Enable-GuiListViewSkin -List $lst。
+
+function Enable-GuiListViewSkin {
+    param(
+        [System.Windows.Forms.ListView]$List,
+        [int]$RowHeight = 48,
+        [int]$TextPadX = 10
+    )
+    if (-not $List) { return }
+    try {
+        $List.OwnerDraw     = $true
+        $List.BorderStyle   = 'None'
+        $List.BackColor     = $Pal.Card
+        $List.ForeColor     = $Pal.Text
+        $List.GridLines     = $false
+        $List.HideSelection = $false
+        $List.FullRowSelect = $true
+        if (-not $List.Font) { $List.Font = New-Font -Size 9 }
+
+        # ListView 没有 RowHeight，只能用一张 1xN 的空图片列表把行撑高。
+        try {
+            $iml = New-Object System.Windows.Forms.ImageList
+            $iml.ColorDepth = [System.Windows.Forms.ColorDepth]::Depth32Bit
+            $iml.ImageSize  = New-Object System.Drawing.Size(1, [Math]::Max(16, ($RowHeight - 10)))
+            $List.SmallImageList = $iml
+        } catch { }
+
+        if (-not ($List.Tag -is [hashtable])) { $List.Tag = @{} }
+        $List.Tag.ListSkin   = $true
+        $List.Tag.HoverIndex = -1
+        $List.Tag.HeaderFont = New-Font -Size 9 -Style Bold
+
+        $List.Add_DrawColumnHeader({
+            param($s, $e)
+            try {
+                $g = $e.Graphics
+                $bg = New-Object System.Drawing.SolidBrush($Pal.NavBg)
+                try { $g.FillRectangle($bg, $e.Bounds) } finally { $bg.Dispose() }
+                $pen = New-Object System.Drawing.Pen($Pal.Border, 1)
+                try { $g.DrawLine($pen, $e.Bounds.Left, ($e.Bounds.Bottom - 1), $e.Bounds.Right, ($e.Bounds.Bottom - 1)) } finally { $pen.Dispose() }
+
+                $txt  = [string]$e.Header.Text
+                $font = $s.Tag.HeaderFont
+                $rect = New-Object System.Drawing.Rectangle(($e.Bounds.X + 10), $e.Bounds.Y,
+                            [Math]::Max(8, ($e.Bounds.Width - 14)), $e.Bounds.Height)
+                $flags = [System.Windows.Forms.TextFormatFlags]::VerticalCenter -bor `
+                         [System.Windows.Forms.TextFormatFlags]::SingleLine -bor `
+                         [System.Windows.Forms.TextFormatFlags]::EndEllipsis -bor `
+                         [System.Windows.Forms.TextFormatFlags]::NoPrefix
+                [System.Windows.Forms.TextRenderer]::DrawText($g, $txt, $font, $rect, $Pal.Hint, $flags)
+            } catch { $e.DrawDefault = $true }
+        })
+
+        $List.Add_DrawItem({
+            param($s, $e)
+            try {
+                $g   = $e.Graphics
+                $tag = $s.Tag
+                $sel = $e.Item.Selected
+                $hov = ($tag -and [int]$tag.HoverIndex -eq $e.ItemIndex)
+
+                $bgColor = $Pal.Card
+                if ($sel) { $bgColor = $Pal.Accent4 } elseif ($hov) { $bgColor = $Pal.CardHover }
+                $bg = New-Object System.Drawing.SolidBrush($bgColor)
+                try { $g.FillRectangle($bg, $e.Bounds) } finally { $bg.Dispose() }
+
+                if ($sel) {
+                    $bar = New-Object System.Drawing.SolidBrush($Pal.Accent2)
+                    try { $g.FillRectangle($bar, $e.Bounds.X, $e.Bounds.Y, 3, $e.Bounds.Height) } finally { $bar.Dispose() }
+                }
+                $pen = New-Object System.Drawing.Pen($Pal.Border, 1)
+                try { $g.DrawLine($pen, $e.Bounds.Left, ($e.Bounds.Bottom - 1), $e.Bounds.Right, ($e.Bounds.Bottom - 1)) } finally { $pen.Dispose() }
+            } catch { $e.DrawDefault = $true }
+        })
+
+        $List.Add_DrawSubItem({
+            param($s, $e)
+            try {
+                $g   = $e.Graphics
+                $tag = $s.Tag
+                $sel = $e.Item.Selected
+                $hov = ($tag -and [int]$tag.HoverIndex -eq $e.ItemIndex)
+
+                # DrawItem 已经铺过整行，这里再铺一次保证格子边界不留系统底色
+                $bgColor = $Pal.Card
+                if ($sel) { $bgColor = $Pal.Accent4 } elseif ($hov) { $bgColor = $Pal.CardHover }
+                $bg = New-Object System.Drawing.SolidBrush($bgColor)
+                try { $g.FillRectangle($bg, $e.Bounds) } finally { $bg.Dispose() }
+
+                if ($sel) {
+                    $bar = New-Object System.Drawing.SolidBrush($Pal.Accent2)
+                    try { $g.FillRectangle($bar, $e.Bounds.X, $e.Bounds.Y, 3, $e.Bounds.Height) } finally { $bar.Dispose() }
+                }
+
+                $txt = [string]$e.SubItem.Text
+                if ($txt) {
+                    # 业务侧用 Item.ForeColor 标级别颜色（日志的错误/警告），这里优先尊重它
+                    $fore = $Pal.Text
+                    try { if ($e.Item.ForeColor -ne $Pal.Text) { $fore = $e.Item.ForeColor } } catch { }
+
+                    $alignText = 'Left'
+                    try {
+                        if ($e.ColumnIndex -ge 0 -and $e.ColumnIndex -lt $s.Columns.Count) {
+                            $alignText = [string]$s.Columns[$e.ColumnIndex].TextAlign
+                        }
+                    } catch { }
+
+                    $flags = [System.Windows.Forms.TextFormatFlags]::VerticalCenter -bor `
+                             [System.Windows.Forms.TextFormatFlags]::SingleLine -bor `
+                             [System.Windows.Forms.TextFormatFlags]::EndEllipsis -bor `
+                             [System.Windows.Forms.TextFormatFlags]::NoPrefix
+                    if ($alignText -eq 'Center') { $flags = $flags -bor [System.Windows.Forms.TextFormatFlags]::HorizontalCenter }
+                    elseif ($alignText -eq 'Right') { $flags = $flags -bor [System.Windows.Forms.TextFormatFlags]::Right }
+
+                    $rect = New-Object System.Drawing.Rectangle(($e.Bounds.X + $TextPadX), $e.Bounds.Y,
+                                [Math]::Max(8, ($e.Bounds.Width - $TextPadX - 4)), $e.Bounds.Height)
+                    [System.Windows.Forms.TextRenderer]::DrawText($g, $txt, $s.Font, $rect, $fore, $flags)
+                }
+            } catch { $e.DrawDefault = $true }
+        })
+
+        $List.Add_MouseMove({
+            param($s, $e)
+            try {
+                $tag = $s.Tag
+                if (-not ($tag -is [hashtable]) -or -not $tag.ListSkin) { return }
+                $idx = -1
+                $hit = $s.HitTest($e.X, $e.Y)
+                if ($hit -and $hit.Item) { $idx = $hit.Item.Index }
+                if ([int]$tag.HoverIndex -ne $idx) {
+                    $tag.HoverIndex = $idx
+                    $s.Invalidate()
+                }
+            } catch { }
+        })
+
+        $List.Add_MouseLeave({
+            param($s, $e)
+            try {
+                $tag = $s.Tag
+                if ($tag -is [hashtable] -and $tag.ListSkin -and [int]$tag.HoverIndex -ne -1) {
+                    $tag.HoverIndex = -1
+                    $s.Invalidate()
+                }
+            } catch { }
+        })
+    } catch { }
 }
 
 # ============================ 胶囊 / 状态标签 ============================
@@ -217,15 +606,15 @@ function New-Pill {
     param(
         [string]$Text,
         [string]$Kind = 'Info',      # Info | Success | Warn | Danger | Neutral
-        [int]$Height = 20
+        [int]$Height = 24
     )
 
     $c = Get-UiPillColors -Kind $Kind
     $fg = $c.Fore; $bg = $c.Back
 
-    # HMOL 胶囊：文字 10.5 DIP SemiBold（≈7.9pt）、内边距 8,2 → 文字两侧各 8
-    $font = New-Font -Size 7.9 -Style Bold
-    $w    = [int]([System.Windows.Forms.TextRenderer]::MeasureText($Text, $font).Width) + 16
+    # Element Plus 的 el-tag：24 高、12px 字（≈9pt）、左右内边距 9
+    $font = New-Font -Size 9 -Style Bold
+    $w    = [int]([System.Windows.Forms.TextRenderer]::MeasureText($Text, $font).Width) + 20
     $r    = [int]($Height / 2)
 
     $pill = New-Object System.Windows.Forms.Panel
@@ -1133,12 +1522,55 @@ function Initialize-GuiUiTypes {
     if ($script:UiTypesReady) { return $true }
     try { Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop } catch { return $false }
     try { Add-Type -AssemblyName System.Drawing -ErrorAction Stop } catch { return $false }
+
+    # 先看当前会话里是否已经加载过
+    try { if (([System.Management.Automation.PSTypeName]'GrGui.UiButton').Type) { $script:UiTypesReady = $true; return $true } } catch { }
+
+    # 编译缓存：现场编译这段 C# 要 300–800ms，是"双击之后要愣一下"的主要来源之一。
+    # 用源码 SHA256 的前 12 位做文件名，第一次编译成 DLL 存到 %LOCALAPPDATA%\SCM-Gui\types\，
+    # 之后直接 Add-Type -Path（约 20ms）。源码一改哈希就变，绝不会误用旧 DLL。
+    $dll = ''
     try {
-        Add-Type -TypeDefinition $script:UiTypesSource `
-            -ReferencedAssemblies @('System.Windows.Forms', 'System.Drawing', 'System') -ErrorAction Stop
-    } catch {
-        try { Add-Type -TypeDefinition $script:UiTypesSource -ErrorAction Stop } catch { }
+        $src  = [string]$script:UiTypesSource
+        $sha  = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            $hash = [BitConverter]::ToString($sha.ComputeHash([System.Text.Encoding]::UTF8.GetBytes($src))).Replace('-', '').Substring(0, 12)
+        } finally { $sha.Dispose() }
+        $dir = Join-Path $env:LOCALAPPDATA 'SCM-Gui\types'
+        if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+        $dll = Join-Path $dir ('GrGui-' + $hash + '.dll')
+    } catch { $dll = '' }
+
+    if ($dll -and (Test-Path -LiteralPath $dll)) {
+        try { Add-Type -Path $dll -ErrorAction Stop } catch { }
     }
+
+    if (-not ([System.Management.Automation.PSTypeName]'GrGui.UiButton').Type) {
+        if ($dll -and -not (Test-Path -LiteralPath $dll)) {
+            try {
+                Add-Type -TypeDefinition $script:UiTypesSource `
+                    -ReferencedAssemblies @('System.Windows.Forms', 'System.Drawing', 'System') `
+                    -OutputAssembly $dll -ErrorAction Stop
+                Add-Type -Path $dll -ErrorAction Stop
+            } catch {
+                # 缓存写不进去（只读目录 / 策略限制）：退回现场编译，功能不受影响
+                try {
+                    Add-Type -TypeDefinition $script:UiTypesSource `
+                        -ReferencedAssemblies @('System.Windows.Forms', 'System.Drawing', 'System') -ErrorAction Stop
+                } catch {
+                    try { Add-Type -TypeDefinition $script:UiTypesSource -ErrorAction Stop } catch { }
+                }
+            }
+        } else {
+            try {
+                Add-Type -TypeDefinition $script:UiTypesSource `
+                    -ReferencedAssemblies @('System.Windows.Forms', 'System.Drawing', 'System') -ErrorAction Stop
+            } catch {
+                try { Add-Type -TypeDefinition $script:UiTypesSource -ErrorAction Stop } catch { }
+            }
+        }
+    }
+
     try {
         $script:UiTypesReady = [bool]([type]::GetType('GrGui.UiButton, ' + [System.Reflection.Assembly]::GetAssembly([System.Windows.Forms.Form]).FullName, $false) -ne $null)
     } catch { $script:UiTypesReady = $false }
@@ -1235,6 +1667,45 @@ function Draw-UiIcon {
                 $g.DrawRectangle($pen, 14, 3, 7, 7)
                 $g.DrawRectangle($pen, 14, 14, 7, 7)
                 $g.DrawRectangle($pen, 3, 14, 7, 7)
+            }
+            'files' {
+                $g.DrawLines($pen, (& $pts @(@(3, 19), @(3, 6), @(9, 6), @(11, 9), @(21, 9), @(21, 19), @(3, 19))))
+            }
+            'logs' {
+                $g.DrawRectangle($pen, 5, 3, 14, 18)
+                $g.DrawLine($pen, 8, 8, 16, 8)
+                $g.DrawLine($pen, 8, 12, 16, 12)
+                $g.DrawLine($pen, 8, 16, 13, 16)
+            }
+            'hosts' {
+                # 上下两台服务器：矩形 + 状态点 + 散热/指示横线
+                $g.DrawRectangle($pen, 3, 4, 18, 6)
+                $g.DrawRectangle($pen, 3, 14, 18, 6)
+                $br = New-Object System.Drawing.SolidBrush($Color)
+                try {
+                    $g.FillEllipse($br, 6, 6.7, 1.6, 1.6)
+                    $g.FillEllipse($br, 6, 16.7, 1.6, 1.6)
+                } finally { $br.Dispose() }
+                $g.DrawLine($pen, 11, 7.5, 18, 7.5)
+                $g.DrawLine($pen, 11, 17.5, 18, 17.5)
+            }
+            'tasks' {
+                # 清单 + 两个勾：表示“每条动作都有记录、有结果”
+                $g.DrawLine($pen, 3, 7, 6, 10)
+                $g.DrawLine($pen, 6, 10, 11, 4)
+                $g.DrawLine($pen, 3, 17, 6, 20)
+                $g.DrawLine($pen, 6, 20, 11, 14)
+                $g.DrawLine($pen, 14, 7, 21, 7)
+                $g.DrawLine($pen, 14, 17, 21, 17)
+            }
+            'audit' {
+                # 文档 + 放大镜：审计 = 可回看的记录
+                $g.DrawRectangle($pen, 3, 3, 12, 17)
+                $g.DrawLine($pen, 6, 7, 12, 7)
+                $g.DrawLine($pen, 6, 11, 12, 11)
+                $g.DrawLine($pen, 6, 15, 10, 15)
+                $g.DrawEllipse($pen, 13, 12, 7, 7)
+                $g.DrawLine($pen, 19, 18, 22, 21)
             }
             'about' {
                 $g.DrawEllipse($pen, 3, 3, 18, 18)
@@ -1378,4 +1849,63 @@ function Invoke-UiPageFadeIn {
         $script:UiFadeTimer.Stop()
         $script:UiFadeTimer.Start()
     } catch { }
+}
+
+# ============================ 文本输入对话框 ============================
+function Show-GuiInputDialog {
+    # 轻量输入框：新建文件夹、重命名、复制/移动目标、解压目标都用它。
+    # 审计模式直接返回默认值，避免自检/截图流程被模态窗口卡住。
+    param(
+        [string]$Title = '输入',
+        [string]$Label = '',
+        [string]$Default = '',
+        [int]$Width = 440
+    )
+
+    if ($script:AuditMode) { return $Default }
+
+    $f = New-Object System.Windows.Forms.Form
+    $f.Text            = $Title
+    $f.FormBorderStyle = 'FixedDialog'
+    $f.StartPosition   = 'CenterParent'
+    $f.MaximizeBox     = $false
+    $f.MinimizeBox     = $false
+    $f.ShowInTaskbar   = $false
+    $f.ClientSize      = New-Object System.Drawing.Size($Width, 132)
+    $f.BackColor       = $Pal.Bg
+    $f.ForeColor       = $Pal.Text
+    $f.Font            = New-Font -Size 9.5
+
+    $lbl = New-Label -Text $Label -Size 9.5 -Color Text -Width ($Width - 32)
+    $lbl.Location = New-Object System.Drawing.Point(16, 14)
+    $f.Controls.Add($lbl)
+
+    $tb = New-Object System.Windows.Forms.TextBox
+    $tb.Location    = New-Object System.Drawing.Point(16, 38)
+    $tb.Size        = New-Object System.Drawing.Size(($Width - 32), 24)
+    $tb.Text        = $Default
+    $tb.BackColor   = $Pal.Sunken
+    $tb.ForeColor   = $Pal.Text
+    $tb.BorderStyle = 'FixedSingle'
+    $f.Controls.Add($tb)
+
+    $ok = New-FlatButton -Text '确定' -Kind Primary -Width 84 -Height 30
+    $cancel = New-FlatButton -Text '取消' -Width 84 -Height 30
+    $ok.Location     = New-Object System.Drawing.Point(($Width - 16 - 84 * 2 - 8), 88)
+    $cancel.Location = New-Object System.Drawing.Point(($Width - 16 - 84), 88)
+    $ok.DialogResult = [System.Windows.Forms.DialogResult]::OK
+    $cancel.DialogResult = [System.Windows.Forms.DialogResult]::Cancel
+    $f.Controls.Add($ok)
+    $f.Controls.Add($cancel)
+    $f.AcceptButton = $ok
+    $f.CancelButton = $cancel
+
+    $tb.SelectAll()
+    $value = $Default
+    try {
+        $r = $f.ShowDialog()
+        $value = $tb.Text
+    } finally { $f.Dispose() }
+    if ($r -eq [System.Windows.Forms.DialogResult]::OK) { return $value }
+    return $null
 }
