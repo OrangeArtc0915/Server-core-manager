@@ -6,11 +6,15 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。�
 
 ## 它解决什么问题
 
-Server Core 里想跑一个带界面的程序，正常流程要跨好几个工具、好几轮重启，而且中间到处是「看着能行其实不行」的说法。这个工具把整条链路固化成 29 个动作：
+Server Core 里想跑一个带界面的程序，正常流程要跨好几个工具、好几轮重启，而且中间到处是「看着能行其实不行」的说法。这个工具把整条链路固化成 78 个动作、17 个页面：
 
-- **环境页**七张状态卡片，一眼看出这台机器缺什么（系统版本、图形组件、渲染管线、.NET 运行时、登录会话、UAC、Web 管理）
+- **总览**实时指标（CPU / 内存 / 磁盘 / 服务 / 事件）、趋势图与告警
+- **环境补全**七张状态卡片，一眼看出这台机器缺什么（系统版本、图形组件、渲染管线、.NET 运行时、登录会话、UAC、Web 管理）
 - **一键补全**装微软官方的 App Compatibility FOD —— 需要重启，工具会记住进度，重启后接着跑
-- **软件页**添加你的程序，按 PE 头判定它是 .NET / Electron / WPF / 原生，自动带入实测推荐参数
+- **程序管理**添加你的程序，按 PE 头判定它是 .NET / Electron / WPF / 原生，自动带入实测推荐参数
+- **应用商店**精选服务器常用工具，标注实测状态 / FOD / 运行库依赖；安装前先预检，详情里能看到已知问题
+- **运行库**Node / Python / Go / Java / PHP / Bun 多版本共存，`current` 用 junction 指路，切版本不用改脚本
+- **数据库**PostgreSQL / MySQL 8 解压即用：建实例、注册服务、建库、备份 / 还原，全程不用安装器
 - **启动诊断**在程序起不来时查事件日志、WER 记录、缺失的 DLL 与运行时，给出处置建议
 - **终端美化**把系统自带的 conhost 美化好（Nerd Font + oh-my-posh + fastfetch），全程离线、可一键还原
 
@@ -39,8 +43,12 @@ Server Core 里想跑一个带界面的程序，正常流程要跨好几个工�
 
 ## 获取与支持
 
-- 一行安装（国内推荐）：`irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex`
-- 源码：[GitHub](https://github.com/OrangeArtc0915/Server-core-manager) ｜ **Gitee 上没有源码**，只放了下面两个文件
+一行安装（两条线路任选，装的是同一个发布包）：
+
+- **Gitee（国内推荐）**：`irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex`
+- **GitHub**：`irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex`
+
+- 源码：[GitHub](https://github.com/OrangeArtc0915/Server-core-manager) ｜ **Gitee 上没有源码**，只放了安装脚本与发布包
 - 国内下载（Gitee）：[发布包](https://gitee.com/orangearc655743/server-core-manager/releases) ｜ [安装脚本 install.ps1](https://gitee.com/orangearc655743/server-core-manager/blob/main/install.ps1)
 - 作者 **mmm** ｜ QQ 群 **1034243331**
 - 想支持这个项目 → [赞助作者](../support/)（完全自愿，不影响功能与修 Bug 的顺序）

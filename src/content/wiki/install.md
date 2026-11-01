@@ -1,6 +1,6 @@
 ---
 title: 安装
-description: 两种安装方式：管理员 PowerShell 里一行命令（国内推荐 Gitee），或者下载压缩包手动解压。装完四步即可使用。
+description: 两种安装方式：管理员 PowerShell 里一行命令（Gitee / GitHub 两条线路），或者下载压缩包手动解压。
 group: 入门
 order: 1
 ---
@@ -12,23 +12,25 @@ order: 1
 | 系统 | Windows Server 2016 / 2019 / 2022 / 2025 **Core**（实测 2022 Core build 20348.2700） |
 | PowerShell | 5.1 或更高（系统自带即可，**不需要**先装 PowerShell 7） |
 | 权限 | 管理员 |
-| 磁盘 | 建议 C: 留 5 GB 以上（FOD 包 + 组件） |
+| 磁盘 | 建议 C: 留 5 GB 以上（FOD 包 + 组件；装运行库 / 数据库再额外留空间） |
 
 ## 方式一：命令行一行安装
 
-在**管理员** PowerShell 里执行（国内推荐走 Gitee）：
+两条线路任选，装的是同一个发布包，脚本内容也一致。
+
+**Gitee（国内推荐）**
 
 ```powershell
 irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
 ```
 
-GitHub 能直连时也可以走这条：
+**GitHub**
 
 ```powershell
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
 
-两条线路装的是同一个发布包，脚本内容也一致。脚本里的下载顺序是 **GitHub Releases → Gitee Releases → GitHub 分支源码打包**，前一条不通、或拿到的不是真 zip，就自动换下一条。
+脚本里的下载顺序是 **GitHub Releases → Gitee Releases → GitHub 分支源码打包**，前一条不通、或拿到的不是真 zip，就自动换下一条。
 
 脚本会依次做四件事：下载发布包 → 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → 安装 `scm` 一行命令。
 
@@ -39,12 +41,18 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 
 ### 改默认值
 
-`iex` 没法传参数，用环境变量：
+`iex` 没法传参数，用环境变量（两条线路都适用，下面以 Gitee 为例）：
 
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # 改安装目录（默认 C:\Program Files\ServerCoreManager）
 $env:SCM_NO_COMMAND = '1'     # 不安装 scm 命令
 irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
+```
+
+走 GitHub 线路时，只把最后一行换成：
+
+```powershell
+irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
 
 自建镜像 / 内网源见[国内源与离线使用](../sources/)。
@@ -70,4 +78,8 @@ irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 |
 
 ## 装完之后
 
-接着看[快速上手](../quickstart/)。
+1. **总览**：先看 CPU / 内存 / 磁盘与关键服务
+2. **环境补全**：按状态卡片补齐 FOD 与运行时，需要重启时工具会记住进度
+3. **应用商店 / 运行库 / 数据库**：按需装 CLI 工具、多版本语言运行时、PostgreSQL 或 MySQL
+
+接着看[功能一览](../features/)。

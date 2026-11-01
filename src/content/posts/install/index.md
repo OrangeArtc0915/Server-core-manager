@@ -9,25 +9,27 @@ pinned: true
 draft: false
 ---
 
-Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。这个工具把「补全图形环境 → 添加程序 → 启动并排障」做成一键操作，而且它自己也带图形界面，装完就能用鼠标点。
+Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`。这个工具把「补全图形环境 → 装服务与运行时 → 添加程序 → 启动并排障」做成一键操作，而且它自己也带图形界面，装完就能用鼠标点。
 
 安装只需要管理员权限。
 
 ## 方式一：命令行一行安装
 
-在**管理员** PowerShell 里执行（国内推荐走 Gitee）：
+两条线路任选，装的是同一个发布包，脚本内容也一致。
+
+**Gitee（国内推荐）**
 
 ```powershell
 irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
 ```
 
-GitHub 能直连时也可以走这条：
+**GitHub**
 
 ```powershell
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
 
-两条线路装的是同一个发布包，脚本内容也一致。脚本里的下载顺序是 **GitHub Releases → Gitee Releases → GitHub 分支源码打包**，前一条不通、或拿到的不是真 zip，就自动换下一条。
+脚本里的下载顺序是 **GitHub Releases → Gitee Releases → GitHub 分支源码打包**，前一条不通、或拿到的不是真 zip，就自动换下一条。
 
 > [!NOTE]
 > Gitee 对**不存在的下载路径**返回的是 `200` + 一段 JSON，而不是 404；随便编一个版本号也返回 200。所以脚本不只看 HTTP 状态码，还会按 zip 的魔数 `PK` 校验内容 —— 否则会安安静静下回来一个 JSON，直到解压才报错。
@@ -59,10 +61,11 @@ irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 |
 
 ## 装完之后
 
-1. 打开工具，看「环境」页的七张状态卡片告诉你这台机器缺什么
-2. 点「一键补全」，装微软官方的 App Compatibility FOD
+1. 打开工具，**总览**页先看 CPU / 内存 / 磁盘与关键服务
+2. 去「环境补全」看七张状态卡片缺什么，点「一键补全」装微软官方的 App Compatibility FOD
 3. **重启**。图形组件必须重启才加载，工具支持跨重启接着跑
-4. 回到「软件」页添加你的程序，启动参数会自动带好
+4. 回到「程序管理」添加你的程序，启动参数会自动带好
+5. 需要 CLI 工具 / 语言运行时 / 数据库时：**应用商店**装常用工具，**运行库**装 Node / Python / Go / Java 等，**数据库**一键装 PostgreSQL 或 MySQL 并注册服务
 
 重复执行安装等于**升级**：只覆盖程序文件，不会动你已有的程序列表（`launcher\programs.json`）、日志与断点状态。
 
