@@ -1,0 +1,3 @@
+[submodule "plugins/scm-top"]
+	path = plugins/scm-top
+	url = https://github.com/OrangeArtc0915/test.git

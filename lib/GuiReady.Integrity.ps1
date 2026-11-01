@@ -18,7 +18,7 @@ $Global:GuiReadyIntegrityExtraFiles = @('ui/bin/scmui.exe')
 # 这些目录不参与"多余文件"判定（运行时产物 / 仓库 / 打包中转）
 $Global:GuiReadyIntegritySkipDirs = @(
     '.git', 'logs', 'reports', 'state', 'backup', 'payload', 'bin',
-    'dist', 'site', 'node_modules', 'runtimes', 'databases', 'data', 'docs/reference', '签名'
+    'dist', 'site', 'node_modules', 'runtimes', 'databases', 'data', 'docs/reference', 'plugins', '签名'
 )
 # 指定文件不参与判定：老版本的原生界面会把启动耗时/指标/崩溃日志写在 ui\bin 下，
 # 那是运行时产物、不是"清单外的可疑脚本"，不能因为用户启动过一次就报自检失败。

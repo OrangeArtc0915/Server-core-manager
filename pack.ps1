@@ -54,7 +54,7 @@ $dirs = @('gui', 'lib', 'launcher', 'setup', 'docs', 'store')
 
 # 双保险：即使哪天把不该公开的东西挪进了上面这些目录，也不会被打进发布包
 $denyDirs = @('logs', 'reports', 'backup', 'state', 'payload', 'dist', '.git',
-              'runtimes', 'databases', 'data', 'reference')
+              'runtimes', 'databases', 'data', 'reference', 'plugins')
 $denyExt  = @('.exe', '.msi', '.zip')
 # 本机数据不进包：catalog.user.json 是用户自己的实测记录，随人不同
 $denyNames = @('catalog.user.json')
