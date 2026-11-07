@@ -36,4 +36,4 @@ cargo build --release
 
 ## 许可
 
-MIT，见 [LICENSE](LICENSE)。
+GPL-3.0，见 [LICENSE](LICENSE)。
