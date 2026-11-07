@@ -1,0 +1,15 @@
+{
+  "name": "craftdock",
+  "version": "1.0.0",
+  "private": true,
+  "description": "CraftDock - standalone terminal server manager for Windows Server Core",
+  "author": "mmm",
+  "scripts": {
+    "install:all": "npm run preview-build && npm run install-daemon",
+    "install-daemon": "cd daemon && npm install",
+    "preview-build": "cd common && npm install && npm run build",
+    "tui": "cd daemon && npm run build:tui && node production/tui.js",
+    "tui:exe": "cd prod-scripts\\windows && build-tui-exe.bat",
+    "build": "build.bat"
+  }
+}

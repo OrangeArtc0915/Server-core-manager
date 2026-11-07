@@ -1,0 +1,13 @@
+{
+  "main": "production/tui.js",
+  "output": "production/tui-sea.blob",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false,
+  "assets": {
+    "xterm-256color": "node_modules/blessed/usr/xterm-256color",
+    "xterm": "node_modules/blessed/usr/xterm",
+    "7zr.exe": "assets/7zr.exe",
+    "pty_win32_x64.exe": "assets/pty_win32_x64.exe"
+  }
+}
