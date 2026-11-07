@@ -40,4 +40,4 @@ npm run tui           # 开发期直接跑 TUI
 
 ## 许可
 
-MIT，见 [LICENSE](LICENSE)。`daemon` 部分派生自 MCSManager（Apache-2.0）。
+GPL-3.0，见 [LICENSE](LICENSE)。`daemon` 部分派生自 MCSManager（Apache-2.0）。
