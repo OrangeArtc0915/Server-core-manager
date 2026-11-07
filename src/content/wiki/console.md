@@ -29,7 +29,7 @@ order: 1
 装好后的入口是命令 **`scm-term`**（或工具页「美化终端」按钮）。
 
 > [!NOTE]
-> 素材全部内置在发布包的 `setup\console\`（解压后约 35 MB），**安装过程不联网** —— 因为 Oh My Posh 与 Fastfetch 没有可用的国内镜像。
+> 素材**不再随发布包内置**：安装时从官方源按需下载（Nerd Font / Oh My Posh / Fastfetch），需要联网；Oh My Posh 与 Fastfetch 没有可用的国内镜像。完全离线时把 ttf 与两个 exe 放进 `setup\console\`，再在动作里勾「不联网下载」。
 
 ## 为什么必须走 `scm-term`，不能直接开 cmd
 

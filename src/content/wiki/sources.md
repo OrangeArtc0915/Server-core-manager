@@ -7,20 +7,20 @@ order: 4
 
 ## 原则
 
-**能内置就内置，必须下载的优先国内源。**
+**能不做网络请求就不做；必须联网的优先国内源。**
 
 需要联网的地方一共只有下面这几处（实测数据来自一台国内的 Windows Server 2025 Core 测试机）：
 
 | 依赖 | 来源 | 说明 |
 |---|---|---|
-| 终端美化素材（Nerd Font / Oh My Posh / Fastfetch） | 发布包内置 `setup\console\` | 安装过程**不联网** |
+| 终端美化素材（Nerd Font / Oh My Posh / Fastfetch） | 官方源按需下载 | 缺什么下什么，**需要联网**；暂无国内镜像 |
 | PowerShell 7（可选） | **清华 TUNA 镜像** | 实测拿到的是真文件（`application/zip`，101 MB）；拿不到时自动回退 GitHub 官方 |
 | .NET 运行时 | 微软官方 CDN | 清华 / 阿里云 / 华为云**都没有** .NET 镜像（实测 404 或返回门户 HTML）；官方 CDN 国内实测约 **470 KB/s** |
 | Windows Admin Center | 微软官方 `aka.ms` | 无国内镜像；官方 CDN 实测约 **720 KB/s** |
 | FOD（App Compatibility） | Windows Update | 用 FOD ISO 配 `-Source` 可以走本地源 |
 
 > [!NOTE]
-> 清华镜像**只镜像了少数项目**（PowerShell 是其中之一），Oh My Posh、Fastfetch 这类没有可用的国内镜像 —— 所以它们被**直接打进发布包**，这也是「尽量用国内源」最彻底的做法。
+> 清华镜像**只镜像了少数项目**（PowerShell 是其中之一）。Oh My Posh、Fastfetch 这类没有可用的国内镜像，所以安装时直连官方源；发布包不再内置它们（包体从 32 MB 降到几 MB）。
 
 ## 自建 / 内网源
 
@@ -47,7 +47,7 @@ scm
 
 | 项 | 绕法 |
 |---|---|
-| 终端美化素材 | 已内置，直接装 |
+| 终端美化素材 | 把 MesloLGS NF 的 ttf、`oh-my-posh.exe`、`fastfetch.exe` 放进 `setup\console\`，动作里勾「不联网下载」 |
 | PowerShell 7 | 动作参数里**直接指定本地 zip**（或指定内网 URL） |
 | .NET 运行时 | 动作参数里指定本地 zip |
 | FOD | 用 FOD ISO，配 `-Source` 走本地源 |

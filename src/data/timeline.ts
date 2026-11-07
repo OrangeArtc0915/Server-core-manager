@@ -28,7 +28,7 @@ export const timelineData: TimelineItem[] = [
 		id: "v2-1",
 		title: "v2.1 · 运行库、数据库与卡片商店",
 		description:
-			"新增运行库（Node / Python / Go / Java / PHP / Bun 多版本，current 用 junction 切换）与数据库（PostgreSQL / MySQL 8 解压即用，建实例、注册服务、建库、备份还原）。应用商店改成卡片墙，加分类与兼容性筛选、安装前预检。AI 辅助并入商店，程序档案改名 SCM附属。页面 5 → 17，动作 29 → 78。",
+			"新增运行库（Node / Python / Go / Java / PHP / Bun 多版本，current 用 junction 切换）与数据库（PostgreSQL / MySQL 8 解压即用，建实例、注册服务、建库、备份还原）。应用商店改成卡片墙，加分类与兼容性筛选、安装前预检。AI 辅助并入商店，新增系统管理页与 SCM附属（附属工具双线路下载），原程序档案改名兼容档案。页面 5 → 28，动作 29 → 155。",
 		type: "achievement",
 		startDate: "2026-11-01",
 		skills: ["C#", "WinForms", "PowerShell", "PostgreSQL", "MySQL"],
@@ -36,6 +36,8 @@ export const timelineData: TimelineItem[] = [
 			"运行库：多版本共存，机器 PATH 只挂 current，切版本不用改脚本",
 			"数据库：官方 zip + initdb / initialize + 服务注册，全程不跑安装器",
 			"商店：24 条精选、卡片墙、兼容性筛选、安装前预检与详情弹窗",
+			"系统管理：更新 / 网络 / 账户 / 服务 / 防火墙 / 存储 / 计划任务 / 角色工具 / 通知",
+			"SCM附属：scterm / scm-top / CraftDock 三套工具，GitHub / Gitee 双线路发行包",
 			"AI 辅助并入应用商店；关于页新增官网入口",
 		],
 		links: [

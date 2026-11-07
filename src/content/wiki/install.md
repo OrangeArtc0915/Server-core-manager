@@ -68,9 +68,9 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 
 ## 关于压缩包的体积
 
-发布包约 14 MB，其中 **35 MB 是解压后的终端美化素材**（Nerd Font 字体 + `oh-my-posh.exe` + `fastfetch.exe`，压缩后约 10 MB）。
+发布包约 4 MB：终端美化素材（Nerd Font 字体 + `oh-my-posh.exe` + `fastfetch.exe`）**不再内置**。
 
-之所以把这么大的东西直接打进包里，是因为 Oh My Posh 与 Fastfetch **没有可用的国内镜像** —— 打包进去比让用户去 GitHub 下载更靠谱。装终端美化时也**完全不联网**。
+Oh My Posh 与 Fastfetch 没有可用的国内镜像，所以第一次「一键美化终端」时按需从官方源下载（缺什么下什么）。完全离线时把文件放进 `setup\console\`，动作里勾「不联网下载」。
 
 ## 升级
 

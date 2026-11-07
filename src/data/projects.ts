@@ -26,7 +26,7 @@ export const projectsData: Project[] = [
 		id: "server-core-manager",
 		title: "Server Core Manager",
 		description:
-			"让带图形界面的程序在 Windows Server Core 上真正跑起来。补齐官方图形组件、装常用工具与语言运行时、部署数据库、添加程序并排障，全部一键完成，工具自己也是图形界面。17 个页面、78 个功能动作、21 个系统工具入口。",
+			"让带图形界面的程序在 Windows Server Core 上真正跑起来。补齐官方图形组件、装常用工具与语言运行时、部署数据库、添加程序并排障，全部一键完成，工具自己也是图形界面。28 个页面、155 个功能动作、21 个系统工具入口。",
 		image: "",
 		category: "scm",
 		techStack: [
@@ -55,14 +55,15 @@ export const projectsData: Project[] = [
 		category: "scm",
 		techStack: ["Node.js", "TypeScript", "blessed", "Node.js SEA"],
 		status: "completed",
-		sourceCode: "https://github.com/OrangeArtc0915/CraftDock",
+		sourceCode:
+			"https://github.com/OrangeArtc0915/Server-core-manager/tree/tool/craftdock",
 		downloadUrl:
-			"https://github.com/OrangeArtc0915/CraftDock/releases/latest",
+			"https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/craftdock-v1.0.0",
 		internalPage: "/projects/craftdock/",
 		startDate: "2026-10-01",
 		endDate: "2026-10-25",
 		featured: false,
-		tags: ["Minecraft", "TUI", "Windows Server Core", "开源"],
+		tags: ["Minecraft", "TUI", "Windows Server Core", "GPL-3.0"],
 	},
 	{
 		id: "scterm",
@@ -73,9 +74,13 @@ export const projectsData: Project[] = [
 		category: "scm",
 		techStack: ["Rust", "Win32 API", "ConPTY", "VT", "PowerShell"],
 		status: "in-progress",
+		sourceCode:
+			"https://github.com/OrangeArtc0915/Server-core-manager/tree/tool/scterm",
+		downloadUrl:
+			"https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/scterm-v0.1.0",
 		startDate: "2026-10-31",
 		featured: false,
-		tags: ["Windows Server Core", "终端", "TUI", "Rust"],
+		tags: ["Windows Server Core", "终端", "TUI", "Rust", "GPL-3.0"],
 	},
 ];
 

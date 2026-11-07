@@ -7,9 +7,10 @@ const title = "CraftDock";
 const description =
 	"终端里的 Minecraft 服务端管理器：单文件 exe，在 cmd / PowerShell 中完成实例启停、镜像下载、模组插件安装、Java 运行时、备份与内网穿透。";
 
-const repoUrl = "https://github.com/OrangeArtc0915/CraftDock";
-const downloadUrl = "https://github.com/OrangeArtc0915/CraftDock/releases/latest";
-const issuesUrl = "https://github.com/OrangeArtc0915/CraftDock/issues";
+const repoUrl = "https://github.com/OrangeArtc0915/Server-core-manager/tree/tool/craftdock";
+const downloadUrl = "https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/craftdock-v1.0.0";
+const giteeUrl = "https://gitee.com/orangearc655743/server-core-manager/releases/tag/craftdock-v1.0.0";
+const issuesUrl = "https://github.com/OrangeArtc0915/Server-core-manager/issues";
 
 const techStack = ["Node.js", "TypeScript", "neo-blessed", "Node.js SEA"];
 
@@ -59,7 +60,7 @@ const features = [
 const steps = [
 	{
 		name: "下载并解压",
-		desc: "从 Releases 下载 craftdock-windows-amd64.zip，解压到任意目录；只想用主程序的话，单独拿 craftdock.exe 也可以。",
+		desc: "从 Releases 下载 craftdock-v1.0.0-win-x64.zip，解压到任意目录；只想用主程序的话，单独拿 craftdock.exe 也可以。",
 	},
 	{
 		name: "启动",
@@ -112,6 +113,10 @@ const shortcuts = [
           <a href={downloadUrl} target="_blank" rel="noopener noreferrer" class="btn-gradient btn-gradient-primary btn-gradient-lg">
             <iconify-icon icon="material-symbols:download" width="18" height="18"></iconify-icon>
             下载最新版
+          </a>
+          <a href={giteeUrl} target="_blank" rel="noopener noreferrer" class="btn-gradient btn-gradient-primary btn-gradient-lg">
+            <iconify-icon icon="mdi:git" width="18" height="18"></iconify-icon>
+            Gitee 下载
           </a>
           <a href={repoUrl} target="_blank" rel="noopener noreferrer" class="btn-gradient btn-github btn-gradient-lg">
             <iconify-icon icon="mdi:github" width="18" height="18"></iconify-icon>
@@ -257,7 +262,7 @@ const shortcuts = [
           </a>
         </div>
         <p class="mt-4 text-sm text-black/50 dark:text-white/50">
-          下载地址目前指向 GitHub Releases 的最新版本，如果国内访问困难，可以在仓库的 Releases 页面里找同版本的压缩包镜像。
+          下载指向 craftdock-v1.0.0 发行包；GitHub 访问困难时可用上面的 Gitee 下载（同一个包）。
         </p>
       </div>
     </div>

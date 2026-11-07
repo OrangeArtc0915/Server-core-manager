@@ -287,7 +287,7 @@ export const commentConfig: CommentConfig = {
 
 export const announcementConfig: AnnouncementConfig = {
 	title: "v2.1 已发布", // 公告标题
-	content: "新增运行库、数据库、卡片式应用商店。Gitee：irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex ｜ GitHub：irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex", // 公告内容
+	content: "新增运行库、数据库、卡片式应用商店与系统管理页；SCM附属支持 scterm / scm-top / CraftDock 双线路下载。Gitee：irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex ｜ GitHub：irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex", // 公告内容
 	type: "info",
 	closable: true, // 允许用户关闭公告
 	link: {

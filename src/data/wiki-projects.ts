@@ -27,7 +27,7 @@ export const wikiProjects: WikiProject[] = [
 			"终端里的 Minecraft 服务端管理器：实例启停、镜像下载、模组插件安装、备份与内网穿透。",
 		icon: "material-symbols:terminal",
 		tags: ["Minecraft", "TUI", "Node.js SEA"],
-		repo: "https://github.com/OrangeArtc0915/CraftDock",
+		repo: "https://github.com/OrangeArtc0915/Server-core-manager/tree/tool/craftdock",
 	},
 	{
 		key: "scterm",
@@ -36,7 +36,7 @@ export const wikiProjects: WikiProject[] = [
 			"Windows Server Core 上的终端多路复用工具：标签页、窗格分屏、布局模板、会话恢复、回看搜索与 PowerShell 托管。",
 		icon: "material-symbols:keyboard-command-key",
 		tags: ["Windows Server Core", "Rust", "TUI", "PowerShell"],
-		repo: "https://github.com/OrangeArtc0915/Server-core-manager",
+		repo: "https://github.com/OrangeArtc0915/Server-core-manager/tree/tool/scterm",
 	},
 ];
 
