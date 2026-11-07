@@ -1,6 +1,6 @@
 ﻿# GuiReady 的 DeepSeek Harness（dsh-TUI）集成。
 #
-# 规范见 想法.md 第七节：指定集成 ccch1mneyyy/dsh-TUI（npm 包 @deepseek-harness-tui/dsh-tui），
+# 集成 ccch1mneyyy/dsh-TUI（npm 包 @deepseek-harness-tui/dsh-tui），
 # 依赖 Node.js ≥ 22.19 / pnpm ≥ 10 / @deepseek-ai/dsh / DEEPSEEK_API_KEY。
 #
 # 一条重要原则：**npm 包到底存不存在，由 npm 自己回答**。本模块只负责把要执行的命令摆出来、

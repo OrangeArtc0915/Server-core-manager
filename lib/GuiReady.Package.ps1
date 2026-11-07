@@ -1,9 +1,9 @@
 ﻿# GuiReady 应用商店：包管理器（源）的检测、搜索、安装、卸载。
 #
-# 规范见 想法.md（应用商店 2.0，P0）。本轮的取舍：
+# 应用商店。本轮的取舍：
 #   - 只封装「有把握的机器可读输出 / 稳定命令」。拼不准的地方宁可标成「未接入」，
 #     不拿猜出来的命令去动用户的机器 —— 这与项目里"实测证据优先"的原则一致。
-#   - 主线是 Chocolatey（想法.md 里的 Server Core 首选，`choco search --limit-output`
+#   - 主线是 Chocolatey（Server Core 上的首选，`choco search --limit-output`
 #     输出稳定的 名称|版本 格式）。Scoop 只做安装/卸载（搜索输出格式随版本变化）。
 #   - 所有会改系统的函数都支持 -WhatIf（GUI 的「仅预览」）。
 #

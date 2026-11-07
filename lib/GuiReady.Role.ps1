@@ -1,6 +1,6 @@
 ﻿# GuiReady 角色与功能管理：图形化封装 Install-WindowsFeature / Uninstall-WindowsFeature。
 #
-# 规范见 想法.md（角色与功能管理，P0）。取舍：
+# 角色与功能管理。取舍：
 #   - 只做「列出 → 安装 / 移除」这条最短闭环，不做配置向导；结果（是否需要重启）如实回报。
 #   - ServerManager 模块（Get-WindowsFeature）是 Server 系专有；客户端 Windows 只有 DISM 的
 #     按需功能（FOD）。两条路都能被精简掉，所以先探测能力再把结论讲清楚，不要假装能装。
@@ -321,7 +321,7 @@ function Resolve-GuiReadyRoleClosure {
     # 把 DependsOn 递归展开，得到「依赖在前、请求项在后」的安装顺序。
     #
     # 为什么要自己做一遍：Get-WindowsFeature 只给直接依赖，界面以前只把它显示出来、
-    # 并没有代装（想法.md 里记的已知缺口）。批量装时先装依赖，失败点更清楚。
+    # 并没有代装（已知缺口）。批量装时先装依赖，失败点更清楚。
     # 已安装的项由调用方跳过；这里只负责展开与排序。
     param([string[]]$Name)
 

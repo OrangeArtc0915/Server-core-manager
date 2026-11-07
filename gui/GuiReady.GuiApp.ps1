@@ -58,7 +58,7 @@ foreach ($f in @('GuiReady.Common.ps1', 'GuiReady.Detect.ps1', 'GuiReady.PeInspe
     }
 }
 . (Join-Path $guiDir 'GuiReady.Actions.ps1')
-# 设计系统组件库（卡片 / 输入框 / 胶囊 / 进度条 / 圆角路径），规范见 想法.md 第四节。
+# 设计系统组件库（卡片 / 输入框 / 胶囊 / 进度条 / 圆角路径），Token 与尺寸见 gui\GuiReady.Ui.ps1。
 # 里面只定义函数，但必须在下方第一次调用它们之前加载。
 . (Join-Path $guiDir 'GuiReady.Ui.ps1')
 
@@ -1471,7 +1471,7 @@ $script:ToolGroups = @(
         @{ Name = '记事本';         Target = 'notepad.exe' },
         @{ Name = '命令提示符';     Target = 'cmd.exe' },
         @{ Name = '美化终端';       Target = 'scm-term.cmd';
-           Hint = '还没安装美化终端。可以在「更多 → 终端美化 → 一键美化终端」里装（Nerd Font + Oh My Posh + Fastfetch，素材内置不联网）。装好后任意目录输入 scm-term 就能打开 UTF-8 + Nerd Font 的控制台。' }
+           Hint = '还没安装美化终端。可以在「更多 → 终端美化 → 一键美化终端」里装（Nerd Font + Oh My Posh + Fastfetch，素材按需下载，需要联网）。装好后任意目录输入 scm-term 就能打开 UTF-8 + Nerd Font 的控制台。' }
     ) }
     [pscustomobject]@{ Group = '诊断与脚本'; Items = @(
         @{ Name = 'MMC 控制台';     Target = 'mmc.exe' },
@@ -1858,7 +1858,7 @@ $script:PageBuilders['more'] = 'Build-MorePage'
 
 # ============================ 应用商店页 ============================
 # 「应用商店 2.0」的第一步：Chocolatey 主线（搜索 / 安装 / 卸载），Scoop 只做安装与卸载，
-# npm / pip 先只做检测。能力在 lib\GuiReady.Package.ps1，规范见 想法.md 第三节、第四节。
+# npm / pip 先只做检测。能力在 lib\GuiReady.Package.ps1。
 #
 # 一切慢查询都在子进程里做（choco search 是网络调用，几秒起步），页面只负责显示：
 # 走的还是「环境卡片」那套套路 —— 子进程写 JSON → 定时器轮询 → 回填界面。
@@ -2850,7 +2850,7 @@ $txtStoreQuery.Box.Add_KeyDown({
 }
 
 # ============================ 角色与功能页 ============================
-# 「角色与功能管理」（想法.md 第三节 P0）：图形化封装 Install-WindowsFeature / Uninstall-WindowsFeature。
+# 「角色与功能管理」：图形化封装 Install-WindowsFeature / Uninstall-WindowsFeature。
 #
 # 两个前提决定了这页怎么写：
 #   1. ServerManager 是 Server 系专有，客户端 Windows 上根本没有 —— 那种情况下页面要如实说明
@@ -3451,7 +3451,7 @@ $cmbRoleFilter.Add_SelectedIndexChanged({ Show-RoleResult })
 }
 
 # ============================ 仪表盘页 ============================
-# 「系统监控与诊断」（想法.md 第三节 P1）。数据全在子进程里采集：
+# 「系统监控与诊断」。数据全在子进程里采集：
 # CPU 取样要 1 秒、系统事件日志查询要几百毫秒以上，不能在界面线程上等。
 
 $pageMon                = New-Object System.Windows.Forms.Panel
@@ -4037,7 +4037,7 @@ function Show-MonPage {
 $script:MonLoaded = $false
 
 # ============================ 安全页 ============================
-# 「安全与合规中心」（想法.md 第三节 P0）。只做能在本机直接验证的项，修也只修安全可逆的项。
+# 「安全与合规中心」。只做能在本机直接验证的项，修也只修安全可逆的项。
 
 $pageSec                = New-Object System.Windows.Forms.Panel
 $pageSec.Dock           = 'Fill'
@@ -4215,7 +4215,7 @@ $script:SecLoaded = $false
 $script:SecSummary = $null
 
 # ============================ 美化页 ============================
-# 「美化与个性化」（想法.md 第三节 P1）。这里不新增能力 —— 终端美化的实现在
+# 「美化与个性化」。这里不新增能力 —— 终端美化的实现在
 # lib\GuiReady.Console.ps1（Nerd Font + Oh My Posh + Fastfetch，含一键还原），
 # 这一页只是把它图形化：状态一眼可见、主题能选、按钮能点。
 #
@@ -4230,7 +4230,7 @@ $pnlContent.Controls.Add($pageBeauty)
 # 美化页控件按需构建（首次显示本页时执行）：页头、状态行、主题行、动作区与结果区
 function Build-BeautyPage {
 # HMOL PageHeader：38px 图标块 + 13.5pt 粗标题 + 9pt 副标题（右侧留给本页操作按钮）
-$hdrBeauty = New-PageHeader -Title '美化与个性化' -Subtitle '把 Server Core 的 conhost 打扮好看：Nerd Font + Oh My Posh 提示符 + Fastfetch 首屏信息。素材随发布包内置，安装过程不联网。' -Icon 'beauty' -Width 900
+$hdrBeauty = New-PageHeader -Title '美化与个性化' -Subtitle '把 Server Core 的 conhost 打扮好看：Nerd Font + Oh My Posh 提示符 + Fastfetch 首屏信息。素材按需从官方源下载（发布包不再内置）。' -Icon 'beauty' -Width 900
 $pageBeauty.Controls.Add($hdrBeauty)
 $lblBeautyHead = $hdrBeauty.Tag.Title
 $lblBeautyDesc = $hdrBeauty.Tag.Sub
@@ -4410,7 +4410,7 @@ function Show-BeautyPage {
 }
 
 # ============================ AI（DeepSeek Harness）页 ============================
-# 想法.md 第七节：指定集成 ccch1mneyyy/dsh-TUI。这页只做三件事：查依赖、装依赖、启动。
+# 集成 ccch1mneyyy/dsh-TUI。这页只做三件事：查依赖、装依赖、启动。
 # npm 包到底存不存在由 npm 回答（页面里那两行就是 npm view 的实测结果），不照抄文档下结论。
 
 $pageDsh                = New-Object System.Windows.Forms.Panel

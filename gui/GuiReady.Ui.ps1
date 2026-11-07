@@ -1,11 +1,11 @@
 ﻿# GuiReady 设计系统：统一封装的自绘组件。
 #
-# 规范来源：想法.md 第四节「UI 设计规范」（4.3 Token / 4.4 尺寸 / 4.5 组件）
+# 规范来源：本文件的设计 Token、尺寸与组件约定
 # 依赖（同一脚本作用域，定义在 GuiReady.GuiApp.ps1）：$Pal / New-Font / Set-Rounded
 # 本文件加载时只定义函数、不创建控件；GuiApp 必须在这几个函数被调用之前 dot-source 它。
 #
 # 为什么自绘而不引第三方 UI 库：目标是 Server Core，只保证 GDI 可用，
-# 第三方库普遍依赖现代渲染栈或额外运行时（依据见 想法.md 4.1 / 4.2）。
+# 第三方库普遍依赖现代渲染栈或额外运行时（Server Core 上通常不可用）。
 
 # ============================ 基础设施 ============================
 
@@ -1261,7 +1261,7 @@ function Test-GuiUiComponents {
 #   2. 窗口外壳要无边框 + 自绘投影 + 边缘拖拽缩放，必须重写 WndProc / 鼠标消息，
 #      这在 PowerShell 里做不了（SetStyle 是 protected）。
 # 两个类都只依赖 System.Windows.Forms / System.Drawing（GDI+），Server Core 上可用，
-# 不引入任何第三方库，也不需要 WPF（WPF 在 Server Core 上要额外组件，见 想法.md 4.1）。
+# 不引入任何第三方库，也不需要 WPF（WPF 在 Server Core 上要额外组件）。
 
 $script:UiTypesSource = @'
 namespace GrGui
