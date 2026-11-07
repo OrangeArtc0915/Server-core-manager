@@ -1,0 +1,15 @@
+[package]
+name = "scterm"
+version = "0.1.0"
+edition = "2021"
+description = "Windows Server Core 终端多路复用工具"
+
+# 阶段 0：零第三方依赖，全部 Win32 API 手写 FFI，保证单文件静态分发
+[dependencies]
+
+# 阶段 3 起改用 unwind：任何一个窗格/会话线程出错只影响自身，后台服务继续运行
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true
