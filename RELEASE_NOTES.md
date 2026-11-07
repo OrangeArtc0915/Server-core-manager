@@ -311,4 +311,4 @@ irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 |
 
 ## 许可证
 
-[MIT](https://github.com/OrangeArtc0915/Server-core-manager/blob/main/LICENSE) —— 自由使用、修改、分发（含商用与闭源分发），只需保留版权与许可声明。
+[GPL-3.0](https://github.com/OrangeArtc0915/Server-core-manager/blob/main/LICENSE) —— 自由使用、修改、分发；分发衍生作品时需按 GPL-3.0 提供对应源码，并保留版权与许可声明。

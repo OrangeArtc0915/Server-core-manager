@@ -67,42 +67,92 @@ Add-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 ## 功能一览
 
-### 图形界面（11 个页面 + 7 张状态卡片，只做深色主题）
+### 图形界面（28 个页面，原生 C# 界面，只做深色主题）
 
-> **深色是唯一主题**：目标场景是 Server Core —— 运维就在深色终端里干活，界面与终端同调不刺眼；且 Server Core 常年缺主题/显示个性化组件，浅色在远桌面里更晃眼。所有颜色都走设计 Token（`$Pal`），`-SelfTest` 里的「主题覆盖自检」会遍历 11 个页面的全部控件，把漏改的浅色件报出来。
+> **两套界面，同一个后端**：默认启动的是原生界面 `ui\bin\ScmUi.exe`（csc 现场编译，启动约 150 ms）；它起不来时启动器会安静回退到 PowerShell 版界面（`gui\GuiReady.GuiApp.ps1`），两条路都在包里。下文按原生界面介绍，功能与动作两边一致。
+>
+> **深色是唯一主题**：目标场景是 Server Core —— 运维就在深色终端里干活，界面与终端同调不刺眼；且 Server Core 常年缺主题/显示个性化组件，浅色在远桌面里更晃眼。所有颜色都走设计 Token（`ui\Theme.cs`），控件全部自绘，不会混进系统浅色控件。
 
 | 页面 | 内容 |
 |---|---|
-| **环境** | 7 张状态卡片（系统版本 / 图形组件 / 渲染管线 / .NET 运行时 / 登录会话 / 提权 UAC / Web 管理）+ 一键补全、重新探测、GUI 自检、自动登录、Windows Admin Center |
-| **软件** | 添加程序、启动、设置启动参数、后台常驻、启动诊断、查看兼容档案、移除 |
-| **商店** | 包管理器状态（Chocolatey / Scoop / npm / pip）+ 搜索 + **工具详情** + 安装 / 卸载。**本机还没有包管理器时（刚装好的 Server Core 就是这样），点搜索/安装会先弹一次确认：用户选「是」之后自动下载安装 Chocolatey，装完自动把你刚才那步操作做完**；页面上也常驻「自动安装 Chocolatey」主按钮。**当前主线是 Chocolatey**（`choco search --limit-output` 的 名称\|版本 格式是稳定的机器可读输出）；Scoop 可用安装与卸载、搜索未接入；npm / pip 只做检测 |
-| **角色** | 图形化封装 `Install-WindowsFeature` / `Uninstall-WindowsFeature`：能力胶囊（系统类型 / ServerManager / 按需功能 / 管理员）+ 过滤（全部 / 仅已安装 / 仅未安装 / 仅角色）+ 列表逐项安装 / 移除。**装完是否需要重启会写进日志**；Server Core 上用不到 MMC 管理单元，所以「包含管理工具」默认关闭。客户端 Windows 上没有 ServerManager，这一页会**如实说明并指向按需功能**，不给空列表 |
-| **仪表盘** | 4 张指标卡（CPU / 内存 / 系统盘 / 关键服务）+ 关键服务列表（带「重启」按钮）+ 最近的系统错误与警告事件 + 占内存最多的进程。CPU 用 `Get-Counter` 取样、取不到就退回 CIM 并标注来源；采集全在子进程，界面不卡 |
-| **安全** | 10 项**本机可验证**的安全基线（防火墙 / Defender 实时保护 / UAC / SMBv1 / 来宾账户 / 管理员组成员 / 网络共享 / RDP 与 NLA / 本地密码与锁定策略 / 最近 24h 登录失败），每项都带**原始证据**；可修项带「修复」按钮，只修安全且可逆的（改 UAC 这类只给建议）。密码策略用 `secedit` 导出的英文键名解析，不受系统语言影响 |
-| **美化** | 终端美化状态（Nerd Font / 中文回退 / oh-my-posh / fastfetch / scm-term / 当前主题 / PowerShell 7）+ 主题下拉 + 一键美化 / 打开美化终端 / 状态检查（实测回读 conhost 字体）/ 安装 PowerShell 7 / 一键还原。状态是同步读注册表与本地文件，不联网 |
-| **AI** | DeepSeek Harness（dsh-TUI）依赖检查：Node.js ≥ 22.19 / pnpm ≥ 10 / `@deepseek-ai/dsh` / `@deepseek-harness-tui/dsh-tui` / `DEEPSEEK_API_KEY`。**包名由 npm 实查回答**（不是照抄文档），一键装依赖、一键在新控制台里启动。**本机没有 Node.js 时会先问一次，选「是」后自动装包管理器 + nodejs 再一路装完**。密钥只提示用户自己 `setx`，工具不碰 |
-| **工具** | 默认只列 **7 个本机工具**（记事本、命令提示符、美化终端、MMC 控制台、资源监视器、系统信息、PowerShell ISE）；本机没有的会标上「（缺失）」并变浅色，**点它照样有反应** —— 会说明缺什么、去哪补，并问你要不要用命令提示符代替。与 Windows Admin Center 重复的 14 个管理工具收在「Windows Admin Center 里也有」一组里**默认收起**，**本机装了 WAC 并在运行时整组隐藏**（服务/事件/磁盘/注册表这些直接在 WAC 里用） |
-| **更多** | 全部 **45 个功能**，分 13 组：一键流程 / 探测与诊断 / 程序档案 / 补给 / **应用商店** / **角色与功能** / **监控与诊断** / **安全与合规** / **AI 辅助** / 会话与登录 / 使用与工具 / Windows Admin Center / 终端美化 |
-| **关于** | 作者 / QQ 群 / GitHub / 项目主页（链接可点），以及「打开 GitHub / 打开项目主页 / 打开日志目录 / 打开报告目录」按钮 |
-| **终端美化** | 4 个功能：状态检查（含实测回读 conhost 真实字体）/ **一键美化终端**（Nerd Font + Oh My Posh + Fastfetch，缺什么联网下载）/ 打开美化终端 / 一键还原；另有「安装 PowerShell 7（走清华镜像）」 |
+| **总览** | 4 张指标卡（CPU / 内存 / 系统盘 / 关键服务）+ 关键服务列表（带「重启」）+ 最近的系统错误与警告事件 + 占内存最多的进程 + 3 条趋势条；每 5 秒刷新，采集全在子进程里跑 |
+| **应用商店** | 24 条**手工精选**（9 类：容器 / Web / 数据 / 运维 / 监控 / 网络 / 开发 / 媒体 / AI）的卡片墙 + 分类与兼容性筛选 + 搜索 + 批量安装队列 + 导入导出 `packages.config`。**本机还没有包管理器时（刚装好的 Server Core 就是这样），点搜索/安装会先弹一次确认：选「是」之后自动装 Chocolatey，装完自动把你刚才那步操作做完**；页面上也常驻「自动安装 Chocolatey」主按钮 |
+| **环境补全** | 7 张状态卡片（系统版本 / 图形组件 / 渲染管线 / .NET 运行时 / 登录会话 / 提权 UAC / Web 管理）+ 一键补全、重新探测、GUI 自检、自动登录、Windows Admin Center |
+| **角色与功能** | 图形化封装 `Install-WindowsFeature` / `Uninstall-WindowsFeature`：能力胶囊 + 过滤（全部 / 已装 / 未装 / 仅角色）+ 列表逐项安装 / 移除 + 批量队列。装完是否需要重启会写进日志；「包含管理工具」默认关闭 |
+| **安全基线** | 10 项**本机可验证**的安全基线（防火墙 / Defender / UAC / SMBv1 / 来宾账户 / 管理员组 / 网络共享 / RDP 与 NLA / 密码与锁定策略 / 24h 登录失败），每项带**原始证据**；可修项带「修复」，只修安全且可逆的 |
+| **程序管理** | 添加程序、启动、设置启动参数、后台常驻、启动诊断、查看兼容档案、移除；会读 PE 头自动带入实测推荐参数 |
+| **SCM附属** | TUI_TOOL 里的三套附属工具（scterm / scm-top / CraftDock）：查看本地状态，**GitHub / Gitee 两条线路都下载编译好的发行包**，安装到 `payload\plugins\<工具>` |
+| **兼容档案** | 程序兼容档案：程序在 Server Core 上能不能跑、要补什么运行时、推荐哪些启动参数 |
+| **运行库** | Node / Python / Go / Java / PHP / Bun 各两个版本：官方 zip 解压到 `runtimes\<语言>\<版本>`，`current` 用 junction 指路，机器 PATH 只挂 current —— 切版本不用改脚本；国内镜像优先 |
+| **数据库** | PostgreSQL 16.4 / 17.0 与 MySQL 8.4 / 8.0：解压官方 zip、初始化实例、注册服务、**建库 / 备份 / 还原**；管理员密码用 DPAPI 加密存放 |
+| **系统工具** | 7 个本机工具（记事本、命令提示符、美化终端、MMC、资源监视器、系统信息、PowerShell ISE）；缺失的标「（缺失）」并说明去哪补、可一键用命令提示符代替；与 WAC 重复的 14 个工具默认收起 |
+| **终端美化** | Nerd Font / Oh My Posh / Fastfetch（**按需下载**）+ 6 套主题 + 一键美化 / 打开美化终端 / 实测回读 conhost 字体 / 一键还原 + 安装 PowerShell 7（清华镜像优先） |
+| **系统更新** | Windows Update：检查可用更新（系统自带 COM，不依赖第三方模块）、按编号 / 全部安装、已安装历史、自动更新策略（自动安装 / 手动 / 仅通知 / 关闭） |
+| **网络配置** | 网卡 / IP / 网关 / DNS / 路由：DHCP 与静态地址切换（改前自动备份）、网卡启停与重启、DNS 解析测试、路由表 |
+| **本地账户** | 本地用户与组：新建 / 启停 / 改密 / 调整组 / 删除（挡住当前账户与最后一个管理员）、组成员、登录会话 |
+| **服务管理** | 全量服务列表：启动 / 停止 / 重启 / 暂停 / 继续、启动类型（自动 / 延迟 / 手动 / 禁用）、失败恢复策略、依赖与详情 |
+| **防火墙** | 入站 / 出站规则：查看、开放端口（TCP/UDP + 来源地址）、启用 / 禁用、删除；显示三个配置文件的默认动作 |
+| **存储与备份** | 磁盘 / 卷 / 卷影副本三个视图：初始化磁盘、扩展卷、格式化（二次确认）、清理临时文件、创建 / 删除快照；Windows Server Backup 状态与立即备份 |
+| **系统任务** | 查看 Windows 计划任务（默认隐藏本工具自建的 `ScmOps-*`）：启用 / 禁用 / 立即运行 / 停止 / 删除 / 详情 |
+| **角色工具** | Hyper-V（虚拟机启停 / 保存 / 快照）、IIS（站点与应用池）、打印（队列）、SMB 共享（含会话与打开文件）；没装的角色会提示去补 |
+| **通知** | SMTP 与 Webhook（钉钉 / 飞书 / 企业微信 / 通用 JSON）：配置、测试、发送自定义消息；守护启动失败与端口巡检异常会自动发 |
+| **日志中心** | Windows 事件日志与工具自身日志的统一读取、筛选、导出；双击一行看完整消息 |
+| **任务中心** | 每个动作都有任务编号、起止时间、退出码与完整日志；双击看详情与审计轨迹 |
+| **自动化** | 五个视图：**进程守护**（崩溃自动拉起 + 退避）、**计划任务**（间隔 / 每天定时 + 动作链）、**目录备份**（zip 或整目录复制 + 保留 N 份）、**端口巡检**（TCP 探测 + 本机监听进程）、**下载队列**（BITS 后台传输，可暂停 / 继续 / 收尾） |
+| **操作审计** | 提交、执行、配置备份与恢复全在这里留痕；只追加、不修改，可按级别 / 时间 / 关键词筛选后导出 |
+| **远程主机** | WinRM 主机清单、连通性测试、批量执行命令；凭据用 DPAPI 加密 |
+| **全部功能** | 全部 **155 个动作 / 31 组**：左边选分组，中间选动作，右边填参数后运行（可先「仅预览」看要执行什么） |
+| **关于** | 作者 / QQ 群 / GitHub / 官网（链接可点）、打开日志与报告目录、**完整性自检**（文件清单 + 签名 + 目录权限） |
 
-> 「商店」「角色」「仪表盘」「安全」「AI」五页的数据都在**子进程**里取（`choco search` 是网络调用、`Get-WindowsFeature` 要问 CBS、`Get-Counter` 取样要 1 秒、事件日志查询要几百毫秒），结果写成 JSON 由界面轮询回填 —— 和环境卡片同一套做法（`New-GuiQueryHost`），界面不会卡住；查询超时会自己收尾，不会永远停在「正在…」。
+> 每页右上角的「高级」按钮会**就地弹窗**打开本页对应的动作分组（不跳走），配合「全部功能」页使用：日常点卡片，边角参数走「高级」。
 
-### 45 个功能动作
+### 附属工具（SCM附属）
+
+`TUI_TOOL/` 里的三套工具各自占一个 GitHub 分支（源码），Gitee 不放源码。页面里两条线路下载的都是编译好的发行包，解压到 `payload\plugins\<工具>`：
+
+| 工具 | 内容 | GitHub（发行包） | Gitee（发行包） |
+|---|---|---|---|
+| scterm | Rust 单文件终端多路复用 | [scterm-v0.1.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/scterm-v0.1.0) | [scterm-v0.1.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/scterm-v0.1.0) |
+| scm-top | 零依赖 TUI 监控（PowerShell） | [scm-top-v0.1.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/scm-top-v0.1.0) | [scm-top-v0.1.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/scm-top-v0.1.0) |
+| CraftDock | TypeScript 终端服务器管理 | [craftdock-v1.0.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/craftdock-v1.0.0) | [craftdock-v1.0.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/craftdock-v1.0.0) |
+
+> 下载包都会校验 zip 魔数；两个仓库的发行版旁都带 `.sha256`。已安装时整体替换，失败保留旧版本。
+
+> 商店、角色、总览、安全、运行库、数据库、自动化这些页的数据都在**子进程**里取（`choco search` 是网络调用、`Get-WindowsFeature` 要问 CBS、`Get-Counter` 取样要 1 秒、事件日志查询要几百毫秒），结果写成 JSON 由界面读回 —— 原生界面走 `ui\Bridge.cs`，PowerShell 版走查询宿主，界面不会卡住；查询超时会自己收尾，不会永远停在「正在…」。
+
+### 155 个功能动作
 
 - **一键流程（4）**：一键就绪（自动重启 / 需要重启时暂停）、续跑未完成的流程、查看流程状态
 - **探测与诊断（4）**：环境探测、exe 兼容性预检、GUI 能力自检（真的建窗 + 抓图取证）、启动并诊断
 - **程序档案（3）**：查询某个程序的兼容档案、列出全部档案、添加你自己的档案条目
-- **补给（2）**：安装 App Compatibility FOD（官方路线）、按程序需求补齐 .NET 运行时
-- **应用商店（5）**：包管理器状态（只读）、安装 Chocolatey（包管理器本体）、安装软件包、卸载软件包、查看软件包详情（只读）
-- **角色与功能（3）**：角色/功能状态（只读）、安装角色/功能、移除角色/功能
-- **监控与诊断（2）**：系统快照（只读）、服务控制（启动 / 停止 / 重启，做完复核真实状态）
-- **安全与合规（3）**：安全基线审计（只读）、本工具完整性自检（只读：目录权限 / 文件清单 / 脚本签名）、安全基线一键修复（只修安全可逆的 6 项）
-- **AI 辅助（3）**：dsh-TUI 依赖检查（只读，含 npm 实查包名）、安装 dsh-TUI 依赖、启动 dsh-TUI
-- **会话与登录（6）**：RDP / 会话 / UAC / .NET 状态、远程会话一键修复、开机自动登录（状态 / 启用 / 关闭）、设置登录 Shell（cmd / 自动进 sconfig / 恢复原值）
+- **补给（3）**：安装 App Compatibility FOD（官方路线）、按程序需求补齐 .NET 运行时、补齐桌面体验 DLL
+- **应用商店（9）**：包管理器状态、安装 Chocolatey、安装 / 卸载软件包、安装精选应用（含前置检查）、批量安装队列、导入 / 导出软件清单、查看详情
+- **运行库（5）**：状态、安装版本、切换 current、卸载版本、修复 PATH
+- **数据库（7）**：状态、安装引擎、初始化实例、服务注册 / 启停 / 注销、备份、建库、还原
+- **角色与功能（5）**：状态、安装 / 移除、批量安装 / 批量移除
+- **监控与诊断（2）**：系统快照、服务控制（做完复核真实状态）
+- **安全与合规（3）**：安全基线审计、本工具完整性自检、安全基线一键修复
+- **AI 辅助（3）**：dsh-TUI 依赖检查（含 npm 实查包名）、安装依赖、启动
+- **会话与登录（8）**：RDP / 会话 / UAC / .NET 状态、远程会话修复、重启与取消、自动登录（状态 / 启用 / 关闭）、设置登录 Shell
 - **使用与工具（1）**：持久化启动程序（计划任务）
 - **Windows Admin Center（4）**：状态检查、一键安装并自动配置、服务控制、打开界面
+- **文件与日志（9）**：新建 / 重命名 / 删除 / 保存 / 复制 / 移动 / 压缩 / 解压、导出日志
+- **配置备份（2）**：导出配置备份（ZIP）、从备份恢复
+- **远程运维（1）**：远程批量执行命令
+- **守护与计划（8）**：添加 / 删除守护、立即检查、启用暂停守护；添加 / 删除计划、立即执行、启用暂停计划
+- **备份与巡检（6）**：添加 / 执行 / 删除目录备份；添加 / 巡检 / 删除端口目标
+- **下载队列（6）**：添加下载、暂停、继续、收尾、取消、移除
 - **终端美化（5）**：状态检查、一键美化终端、打开美化终端、一键还原、安装 PowerShell 7
+- **Windows 更新（4）**：检查、安装（选中 / 全部）、已安装历史、自动更新策略
+- **网络配置（5）**：状态、设置 IP / DHCP、网卡启停重启、DNS 解析测试、路由表
+- **本地账户（6）**：用户列表、组列表、新建 / 修改 / 删除用户、登录会话
+- **服务管理（5）**：服务列表、启停重启、启动类型、失败恢复、服务详情
+- **防火墙（4）**：规则列表、开放端口、启用禁用、删除规则
+- **存储与备份（12）**：磁盘卷、扩展 / 格式化 / 初始化、清理临时文件、卷影副本（列表 / 创建 / 删除）、Windows 备份（状态 / 立即备份 / 历史 / 安装功能）
+- **系统任务（3）**：列表、详情、启停 / 运行 / 停止 / 删除
+- **角色工具（12）**：Hyper-V（列表 / 操作 / 快照）、IIS（站点 / 操作）、打印（列表 / 操作）、SMB 共享（列表 / 新建 / 删除 / 断开句柄）、角色可用性检测
+- **通知（4）**：配置、测试、自定义发送、查看配置与记录
+- **SCM附属（2）**：下载附属工具发行包（GitHub 线路）、下载附属工具发行包（Gitee 线路）
 
 ### 终端美化（在 Server Core 的 conhost 上做出好看的控制台）
 
@@ -122,7 +172,42 @@ Server Core 上没有 Windows Terminal 可用，所以这个功能是**直接把
 > 把控制台切到 UTF-8（`chcp 65001`）后，同一个 Nerd Font 立刻被接受（回读 `face=[MesloLGS NF]`）。
 > 另外 `HKCU\Console\CodePage` 和「按标题记忆」两种写法对新建控制台**都不生效**（都实测过）。
 > 所以 `scm-term.cmd` 会先 `chcp 65001`、再用 Console API 应用字体，然后才启动带 oh-my-posh 的 PowerShell。
-> 素材全部内置在发布包的 `setup\console\`（约 32 MB），安装过程**不联网**。
+> 素材不再打进发布包：Nerd Font、`oh-my-posh.exe`、`fastfetch.exe` 在第一次「一键美化终端」时**按需从官方源下载**（缺什么下什么）；完全离线时把它们放进 `setup\console\`，动作里勾「不联网下载」。
+
+### 自动化（守护 / 计划 / 备份 / 巡检 / 下载）
+
+「自动化」页把五件平时要靠手写计划任务的事做成了表单，定时一律交给 **Windows 计划任务**（`ScmOps-*`），界面关掉、用户注销也照跑：
+
+| 功能 | 做什么 | 怎么落地 |
+|---|---|---|
+| **进程守护** | 每 N 分钟检查一次进程；不在就用原参数拉起；连续启动失败按 15→30→60→120→240→300 秒退避 | 计划任务 `ScmOps-Guard-<编号>`；可选「当前登录用户（交互会话）」或 SYSTEM |
+| **计划任务** | 按间隔、每天或每周定时，依次执行一串**已有动作**（`reboot;backup-export` 这种动作链） | `ScmOps-Plan-<编号>` 调用 `Run-GuiReadyOps.ps1 -Mode plan-run`，每一步仍走正常动作执行器（任务记录与审计都在） |
+| **目录备份** | 源目录 → zip 或整目录复制，按时间戳命名，只保留最新 N 份；目标不能放在源目录里 | `ScmOps-Backup-<编号>` 每天定时执行 |
+| **端口巡检** | 一组 主机:端口 逐个 TCP 探测（带超时），本机端口顺带查监听进程 | 不排期，页面上点「巡检一次」 |
+| **下载队列** | http/https 文件交给 BITS 后台传输：断点续传、可暂停 / 继续 / 收尾 / 取消 | 不排期；默认存到 `payload\downloads` |
+
+> 创建计划任务需要**管理员权限**；权限不足时会明确提示「请以管理员身份重开」，不会留下半条记录。守护/计划/备份的记录都在 `state\ops\ops.json`，删记录会一并注销对应任务。
+>
+> 下载队列用的是 **BITS**，它要求当前进程有用户的交互登录会话 —— 在桌面里打开本工具没问题；如果你把工具挂到「以 SYSTEM 运行」的计划任务里，添加下载会明确提示这一点。
+
+### 系统管理（更新 / 网络 / 账户 / 服务 / 防火墙 / 存储 / 任务 / 角色 / 通知）
+
+这些页覆盖 Server Core 上原本只能开 `sconfig`、`diskmgmt`、`services.msc` 或敲命令的场景：
+
+| 页面 | 能做什么 | 数据来源 |
+|---|---|---|
+| **系统更新** | 检查 / 安装 / 历史 / 自动更新策略 | 系统自带 `Microsoft.Update.Session` COM，不依赖第三方模块 |
+| **网络配置** | 看网卡与路由；DHCP / 静态 IP 切换；网卡启停重启；DNS 解析测试 | `NetTCPIP` 模块；改 IP 前先把当前配置写进 `backup\` |
+| **本地账户** | 用户与组、启停、改密、调组、删除、登录会话 | `LocalAccounts` + `quser`；挡住「当前账户」与「最后一个管理员」 |
+| **服务管理** | 全量服务、启停重启、启动类型、失败恢复、依赖 | `Win32_Service` + `sc.exe`，改完回读 |
+| **防火墙** | 规则查看（入站 / 出站）、开放端口、启停、删除 | `NetSecurity` 模块；非管理员会明确提示 |
+| **存储与备份** | 磁盘 / 卷 / 卷影副本；扩展、格式化、初始化、清理临时文件 | `Storage` + VSS WMI + Windows Server Backup 模块（没装会提示） |
+| **系统任务** | 查看系统计划任务、启停 / 运行 / 停止 / 删除 | `ScheduledTasks`；本工具自建的 `ScmOps-*` 不在这里删 |
+| **角色工具** | Hyper-V / IIS / 打印 / SMB 共享（装了角色才有） | 对应 PowerShell 模块；没装的角色只显示提示 |
+| **通知** | SMTP / Webhook（钉钉、飞书、企业微信、通用 JSON） | 配置存 `state\notify\`，SMTP 密码用 DPAPI LocalMachine 加密 |
+
+> 所有列表都支持**点列头排序**与「导出 CSV」（UTF-8 BOM，Excel 直接打开）；`Ctrl+K` 可以快速跳转到任意页面。
+> 写操作全部走动作执行器，仍然可以在「全部功能」里预览参数；破坏性操作（格式化、初始化磁盘、删除用户）在界面上会二次确认。
 
 ### Windows Admin Center 一键安装
 
@@ -176,11 +261,11 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 ```
 
 两条线路装的是同一个发布包，脚本内容也一致。脚本里的下载顺序是：
-**GitHub Releases → Gitee Releases → GitHub 分支源码打包**，前一条不通或拿到的不是真 zip 就自动换下一条。
+**GitHub Releases → Gitee Releases**，前一条不通或拿到的不是真 zip 就自动换下一条（两条都只下发行包，不下载源码）。
 
 （Gitee 对不存在的下载路径会返回 `200` + 一段 JSON，所以脚本会按 zip 魔数 `PK` 校验内容，不是只看状态码。）
 
-它会：下载最新发布包 → 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → 安装 `scm` 一行命令。
+它会：下载指定版本的发布包（默认 `v2.0`）→ 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → 安装 `scm` 一行命令。
 
 装完之后，**在任意目录输入 `scm` 回车**就能打开图形界面（首次会像 `sconfig` 一样弹一次提权确认）。
 
@@ -189,13 +274,14 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # 改安装目录
 $env:SCM_NO_COMMAND = '1'     # 不装 scm 命令
+$env:SCM_VERSION = 'v2.0'     # 指定发布版本（两个仓库用同一个 tag）
 irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
 ```
 
-也可以先把 [install.ps1](install.ps1) 存成文件，再当普通脚本跑，这样能直接传参：
+也可以先把 [install.ps1](install.ps1) 存成文件，再按 UTF-8 读进来跑，这样能直接传参（不要直接 `.\install.ps1`：Windows PowerShell 5.1 会按 ANSI 读无 BOM 文件，中文会破坏语法）：
 
 ```powershell
-.\install.ps1 -Dest 'D:\SCM' -NoCommand
+& ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM' -NoCommand
 ```
 
 > **重复执行等于升级**：只覆盖程序文件，不会动你已有的程序列表（`launcher\programs.json`）、日志和断点状态。
@@ -220,9 +306,11 @@ ServerCoreManager.zip
 ├─ Install-GuiReadyCommand.ps1
 ├─ Resume-GuiReadyPipeline.ps1
 ├─ install.ps1 / pack.ps1 / LICENSE / README*
-├─ gui\    ← 图形界面（GuiReady.GuiApp.ps1 主界面 + 动作清单 + 动作执行器）
+├─ gui\    ← PowerShell 版界面（GuiReady.GuiApp.ps1 主界面 + 动作清单 + 动作执行器 + 各 runner）
+├─ ui\     ← 原生 C# 界面源码（csc 现场编译成 ui\bin\ScmUi.exe，启动器优先用它）
 ├─ lib\    ← 全部能力模块 + catalog.json 兼容档案
-├─ setup\console\ ← 终端美化素材（Nerd Font / oh-my-posh / fastfetch，安装时不联网）
+├─ store\  ← 应用商店精选清单（catalog.json，24 条）
+├─ setup\console\ ← 终端美化用的 Oh My Posh 主题（字体与 exe 首次美化时按需下载）
 └─ launcher\ ← RDP 会话用的轻量面板（可作为登录 Shell 替代 explorer.exe）
 ```
 
@@ -233,11 +321,11 @@ ServerCoreManager.zip
 
 ## 国内源与离线使用
 
-原则：**能内置就内置，必须下载的优先国内源**。所有"要联网"的地方都在下表中，实测数据来自一台国内的 Windows Server 2025 Core 测试机。
+原则：**不必要的网络请求一律不做；必须联网的优先国内源**（终端美化素材不随包分发，装的时候按需下载）。所有"要联网"的地方都在下表中，实测数据来自一台国内的 Windows Server 2025 Core 测试机。
 
 | 依赖 | 来源 | 说明 |
 |---|---|---|
-| 终端美化素材（Nerd Font / Oh My Posh / Fastfetch） | 发布包内置 `setup\console\`（约 32 MB） | 安装过程**不联网** |
+| 终端美化素材（Nerd Font / Oh My Posh / Fastfetch） | 官方源**按需下载** | 缺什么下什么，需要联网；暂无国内镜像，可用 `SCM_CONSOLE_MIRROR` 指向内网源 |
 | PowerShell 7（可选功能） | **清华 TUNA 镜像** | 本机实测是真文件（`application/zip`，101 MB）；拿不到时自动回退 GitHub 官方。**注意**：清华会拒绝部分网络的访问（实测有网络被返回 403，响应头 `X-TUNA-MIRROR-ID: neomirrors`），这种网络下请用「指定本地 zip」或 `-Url` 参数 |
 | .NET 运行时 | 微软官方 CDN | 清华 / 阿里云 / 华为云**都没有** .NET 镜像（实测 404、门户 HTML 或非文件）；官方 CDN 国内实测约 **470 KB/s** |
 | Windows Admin Center | 微软官方 `aka.ms` | 无国内镜像；官方 CDN 实测约 **720 KB/s**；可用 `-NoDownload` 走离线内网包 |
@@ -278,8 +366,9 @@ scm-term   # 或直接跑工具
 2. **看「环境」页** —— 7 张卡片告诉你缺什么（卡片在后台探测，窗口一出来就能操作，数据几秒后自己填上）
 3. **点「一键补全」** —— 装官方 App Compatibility FOD（约几百 MB，从 Windows Update 拉取）
 4. **重启** —— 必须重启，图形组件才会生效。工具支持**跨重启断点续跑**，重启后再打开会接着往下走
-5. **「软件」页添加程序** —— 会自动带入实测推荐参数
+5. **「程序管理」页添加程序** —— 会自动带入实测推荐参数
 6. **启动** —— 起不来就点「启动诊断」，它会看事件日志、WER 记录、缺失的 DLL/运行时，并给出处置建议
+7. **「自动化」页** —— 要让程序挂了自动拉起、每天定时重启 / 备份、盯端口，都在这里加；定时走 Windows 计划任务，界面关掉也照跑
 
 > **关掉窗口时会自动给你一个终端**：点右上角 X、按 Alt+F4、点「退出（打开终端）」按钮、按 Esc —— 四种关闭方式行为一致，
 > 关掉界面后会**自动弹一个终端**（装了美化终端就是 UTF-8 + Nerd Font + oh-my-posh 的 `scm-term`，没装就是普通 PowerShell），
@@ -330,9 +419,11 @@ LSA 机密写入（密码不以明文落注册表）→ 真实重启 → 自动�
 > 想自己看启动明细：设 `SCM_BOOT_TRACE=1` 再启动，各阶段耗时（毫秒）会追加到 `state\boot-trace.txt`。
 > 后台探测的原始结果在 `state\probe.json`（本次）与 `state\env-cache.json`（上次完整结果）。
 
-### 全功能实测（11 个页面 + 44 个动作）
+### 全功能实测（28 个页面 + 155 个动作）
 
-界面用 `-SelfTest` 与 `-LayoutDump` 过一遍（页面渲染、控件数、越界检查），44 个动作再用无头执行器**逐个跑** —— 只读和对本机安全的动作真跑，会改系统状态的动作只跑预览（`DryRun`）。实测环境：Windows 10 22H2（build 19044），管理员会话。
+界面布局用一套反射脚手架把 28 个页面在 **1240×820** 与 **1024×700** 两种尺寸下逐页显示，并审计整棵控件树：**越界 0 处、重叠 0 处**。动作清单 155 条 / 31 组直接由 `Run-GuiReadyActions.ps1 -Mode list` 读出 —— 原生界面、动作执行器、无头执行共用同一份定义。
+
+早前那轮把当时的 44 条动作**逐个跑**过（只读和对本机安全的真跑，会改系统状态的只跑预览）。实测环境：Windows 10 22H2（build 19044），管理员会话。
 
 | 分类 | 数量 | 结果 |
 |---|---|---|
@@ -340,7 +431,23 @@ LSA 机密写入（密码不以明文落注册表）→ 真实重启 → 自动�
 | 仅预览（`DryRun`，不动系统） | 17 | 全部通过 |
 | 按设计拒绝（本机不适用） | 1 | `fod` 在客户端 Windows 上主动中止并说明原因 |
 
-**这轮实测改掉的 5 个真问题**（都是跑出来的，不是看出来的）：
+本轮新增的 20 条（守护与计划 / 备份与巡检 / 下载队列）也逐条跑过。本机（Windows 10，普通用户会话）用于验证权限不足时的失败路径；**计划任务真正的注册 / 启停 / 注销在 Windows Server 2025 Core（build 26100）真机上用管理员账号验过**，结果见下表：
+
+| 场景 | 结果 |
+|---|---|
+| 目录备份打包 + 保留 1 份，连跑两次 | 生成两个 zip；旧包按保留策略被清理，目录只剩 1 份 |
+| 进程守护：进程不在 → 拉起 → 再查 | 第一次 `started`，第二次 `running`（回读到 PID） |
+| 守护 / 计划 / 备份的计划任务 | 注册后 `Get-ScheduledTask` 为 Ready；暂停变 Disabled；删除后任务无残留 |
+| 计划动作链 `monitor-snapshot` | 成功 1 / 失败 0，任务记录照常落盘 |
+| 端口巡检 `127.0.0.1:445,59899` | 445 开放 519 ms（监听进程 System）；59899 超时 800 ms |
+| BITS 下载：添加 → 暂停 → 继续 → 收尾 | 37.5 MB 文件完整落盘（39278760 字节），队列清空 |
+| 非管理员添加守护 | 明确提示「需要管理员权限」，不写半条记录 |
+| 任务重复间隔的写法 | `[TimeSpan]::MaxValue` 会生成非法 XML（`0x80041318`），已改成「每天 0 点触发 + 重复 1 天」 |
+| 原生界面在 Server Core 上 | 18 个页面 × 两种分辨率（1240×820 / 1024×700）：越界 0、重叠 0、异常 0 |
+
+> 两个由真机测试暴露的细节已修：BITS 在「没有交互登录会话」时会报 `0x800704DD`，现在会直接说明原因（BITS 必须跑在用户桌面会话里）；下载失败时详情里会带上 BITS 自己的错误原因，大小未知（`BytesTotal = UInt64.MaxValue`）不再显示成天文数字。
+
+**早前那轮实测改掉的 5 个真问题**（都是跑出来的，不是看出来的）：
 
 1. **工具详情的解析**：`choco info` 会把多个键塞进同一行（`Title: 7-Zip | Published: 2026/9/4`），且 `Package url` 那行没有冒号 —— 按实测格式重写了切块逻辑；找不到的包现在会明确说「没找到」而不是显示空格子。
 2. **装完包管理器后没重启就不认**：`Chocolatey / node / pnpm` 装完，已经运行的进程 PATH 还是旧的，工具会一直显示「未安装」。改成「先查 PATH，再回退已知安装位置」。
@@ -352,8 +459,8 @@ LSA 机密写入（密码不以明文落注册表）→ 真实重启 → 自动�
 
 ### GUI 能力自检
 
-工具自带 `-SelfTest` 与 `-LayoutDump`：前者核对页面/卡片/按钮数量（并会用后台探测产出的 JSON 再渲染一遍卡片，
-验证数据往返没问题），后者把控件树的真实坐标打出来并标出越界。用于在 Server Core 上验证界面真的渲染出来了，而不只是「进程还在」。
+- **PowerShell 版界面**自带 `-SelfTest` 与 `-LayoutDump`：前者核对页面/卡片/按钮数量（并会用后台探测产出的 JSON 再渲染一遍卡片，验证数据往返没问题），后者把控件树的真实坐标打出来并标出越界。
+- **原生界面**没有内置这两个开关（它更快，也更容易用反射脚手架直接审计）：测试脚本把 `ui\bin\ScmUi.exe` 当程序集加载、创建主窗口、逐页 `ShowPage`，统计每页的越界与重叠，并在进程内直接调用页面方法验证视图切换。两条路都用于确认「界面真的渲染出来了」，而不只是「进程还在」。
 
 ---
 
@@ -517,20 +624,43 @@ $sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); 
 ├─ 签名\                        给 .exe 用的 signtool 包装脚本（需 Windows SDK；本项目用不到）
 │
 ├─ manifest.sha256              发布包里的完整性清单（打包时生成，逐个文件 SHA256）
+├─ ui\                          原生界面（C#，csc 现场编译）
+│   ├─ Shell.cs                 主窗口：标题栏 / 侧栏 / 28 页宿主 / 日志栏 / 退出即开终端
+│   ├─ Pages.cs, Pages2.cs      总览 / 环境 / 日志 / 任务 / 程序 / 档案 / 角色 / 安全 / 工具 / 美化 / 审计 / 远程 / 关于
+│   ├─ ToolsPage.cs             SCM附属（附属工具下载：GitHub 源码 / Gitee 编译包）
+│   ├─ StorePage.cs             应用商店（卡片墙 + 筛选 + 批量队列）
+│   ├─ RuntimePage.cs           运行库
+│   ├─ DatabasePage.cs          数据库（含建库 / 还原）
+│   ├─ OpsPage.cs               自动化（守护 / 计划 / 备份 / 巡检 / 下载）
+│   ├─ SysPage.cs               系统管理页面的公共骨架（表 + 多个视图 + CSV 导出）
+│   ├─ SysPages.cs              系统更新 / 网络 / 账户 / 服务 / 防火墙 / 存储 / 系统任务 / 角色工具 / 通知
+│   ├─ ActionConsole.cs         全部功能（动作台）+「高级」弹窗
+│   ├─ Bridge.cs                界面 ↔ PowerShell runner 的 JSON 桥
+│   ├─ Theme.cs, Draw.cs, Controls.cs, Table.cs, Dialog.cs, Backdrop.cs …
+│   └─ build-ui.ps1             用系统自带 csc.exe 编译（自动补 UTF-8 BOM）
 ├─ gui\
 │   ├─ GuiReady.GuiApp.ps1      主界面（含 -SelfTest / -LayoutDump 诊断开关）
-│   ├─ GuiReady.Actions.ps1     45 个动作的清单（GUI 与无头执行器共用同一份）
+│   ├─ GuiReady.Actions.ps1     155 个动作的清单（两套界面与无头执行器共用同一份）
 │   ├─ GuiReady.Ui.ps1          设计系统：Token 组件 + 子进程查询宿主 + 列表行
 │   ├─ Run-GuiReadyAction.ps1   动作执行器（子进程运行，界面不卡）
 │   ├─ Run-GuiReadyStore.ps1    商店查询（子进程里查源状态 / 搜索，结果写 JSON）
 │   ├─ Run-GuiReadyRole.ps1     角色查询（子进程里读角色/功能清单，结果写 JSON）
 │   ├─ Run-GuiReadyMonitor.ps1  监控采集（子进程里取 CPU/内存/磁盘/服务/事件）
 │   ├─ Run-GuiReadySecurity.ps1 安全审计（子进程里跑 10 项基线检查）
+│   ├─ Run-GuiReadyRuntime.ps1  运行库（列表 / 安装 / 切换 / 卸载 / PATH）
+│   ├─ Run-GuiReadyDatabase.ps1 数据库（状态 / 初始化 / 服务 / 备份 / 建库 / 还原）
+│   ├─ Run-GuiReadyOps.ps1      自动化（守护 / 计划 / 备份 / 巡检 / 下载）
+│   ├─ Run-GuiReadySys.ps1      系统管理（更新 / 网络 / 账户 / 服务 / 防火墙 / 存储 / 任务 / 角色工具 / 通知）
+│   ├─ Run-GuiReadyPlugins.ps1  附属工具（清单 / 本地状态 / GitHub + Gitee 下载）
+│   ├─ Run-GuiReadyIntegrity.ps1 启动时的文件清单核对
 │   ├─ Run-GuiReadyDsh.ps1      dsh-TUI 依赖检查（含 npm 实查包名）
 │   └─ Run-GuiReadyProbe.ps1    环境探针（子进程里查环境，卡片不再卡界面）
 │
 ├─ setup\
-│   └─ console\                 终端美化素材（Nerd Font / oh-my-posh / fastfetch / scm-term）
+│   └─ console\                 终端美化用的主题（字体与 exe 首次美化时按需下载）
+│
+├─ store\
+│   └─ catalog.json             应用商店精选清单（24 条，含兼容性凭据）
 │
 ├─ lib\
 │   ├─ GuiReady.Common.ps1      日志、权限、JSON 报告、SYSTEM 提权计划任务
@@ -550,6 +680,19 @@ $sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); 
 │   ├─ GuiReady.Monitor.ps1     系统监控：快照采集（只读）+ 服务控制
 │   ├─ GuiReady.Security.ps1    安全合规：10 项基线检查 + 有限的自动修复
 │   ├─ GuiReady.Integrity.ps1   完整性：文件清单（SHA256）+ 脚本签名校验 + 目录权限汇总
+│   ├─ GuiReady.Runtime.ps1     运行库：多版本解压 / junction current / PATH
+│   ├─ GuiReady.Database.ps1    数据库：解压 / 初始化 / 服务 / 建库 / 备份 / 还原
+│   ├─ GuiReady.Ops.ps1         自动化：守护 / 计划任务 / 备份 / 巡检 / BITS 下载
+│   ├─ GuiReady.Update.ps1      Windows Update（检查 / 安装 / 历史 / 自动更新策略）
+│   ├─ GuiReady.Network.ps1     网络：网卡 / IP / DNS / 路由
+│   ├─ GuiReady.Accounts.ps1    本地用户 / 组 / 登录会话
+│   ├─ GuiReady.Services.ps1    服务：启停 / 启动类型 / 失败恢复 / 依赖
+│   ├─ GuiReady.Firewall.ps1    防火墙规则与端口
+│   ├─ GuiReady.Storage.ps1     磁盘 / 卷 / 卷影副本 / Windows Server Backup
+│   ├─ GuiReady.SysTasks.ps1    系统计划任务
+│   ├─ GuiReady.RoleTools.ps1   Hyper-V / IIS / 打印 / SMB 共享
+│   ├─ GuiReady.Notify.ps1      通知（SMTP / Webhook / DPAPI 密码）
+│   ├─ GuiReady.Plugins.ps1     附属工具清单 / 双线路下载 / 解压替换
 │   ├─ GuiReady.Dsh.ps1         DeepSeek Harness：依赖检测 / 安装 / 启动
 │   ├─ GuiReady.Diag.ps1        排障采集
 │   ├─ GuiReady.Matrix.ps1      版本适配矩阵
@@ -587,16 +730,14 @@ Remove-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 ## 支持作者
 
-这个工具是免费的、开源的（MIT），没有付费功能，也没有广告。如果它确实帮你省下了折腾 Server Core 的时间，可以请作者喝杯咖啡 —— 微信与支付宝收款码见 **[docs/helpus.md](docs/helpus.md)**。
+这个工具是免费的、开源的（GPL-3.0），没有付费功能，也没有广告。
 
-赞助完全自愿，不影响任何功能，也不影响提 issue 的处理顺序。
-
-还有更省事的支持方式：把使用体验、踩到的坑写进 [Issues](https://github.com/OrangeArtc0915/Server-core-manager/issues)，或者告诉身边同样在折腾 Server Core 的人。
+支持方式很简单：把使用体验、踩到的坑写进 [Issues](https://github.com/OrangeArtc0915/Server-core-manager/issues)，或者告诉身边同样在折腾 Server Core 的人。
 
 ---
 
 ## 许可证
 
-[MIT](LICENSE) —— 自由使用、修改、分发（包括商用与闭源分发），只需保留版权与许可声明。
+[GPL-3.0](LICENSE) —— 自由使用、修改、分发；分发衍生作品时需按 GPL-3.0 提供对应源码，并保留版权与许可声明。
 
 本项目包含的所有「实测结论」都来自真实环境的测试记录，欢迎提交你验证过的机型与程序档案（`lib/catalog.json`）。

@@ -116,7 +116,7 @@ In an **administrator** PowerShell:
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
 
-It downloads the latest release package, extracts it to `C:\Program Files\ServerCoreManager`, clears the "from the Internet" file block, and installs the `scm` command.
+It downloads the specified release package (default `v2.0`; GitHub Releases first, then Gitee Releases), extracts it to `C:\Program Files\ServerCoreManager`, clears the "from the Internet" file block, and installs the `scm` command.
 
 Afterwards, **type `scm` in any directory** to open the GUI (it self-elevates once, exactly like `sconfig`).
 
@@ -125,13 +125,14 @@ To change defaults, use environment variables (`iex` cannot forward parameters):
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # change install directory
 $env:SCM_NO_COMMAND = '1'     # skip the scm command
+$env:SCM_VERSION = 'v2.0'     # release tag used by both GitHub and Gitee
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
 
-Or save [install.ps1](install.ps1) as a file and run it as a normal script, which accepts parameters directly:
+Or save [install.ps1](install.ps1) as a file and load it as UTF-8 so it accepts parameters directly (do not run `.\install.ps1` directly: Windows PowerShell 5.1 reads BOM-less files as ANSI, and the Chinese text can break parsing):
 
 ```powershell
-.\install.ps1 -Dest 'D:\SCM' -NoCommand
+& ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM' -NoCommand
 ```
 
 > **Re-running performs an upgrade**: program files are overwritten, but your program list (`launcher\programs.json`), logs and resume state are preserved.
@@ -274,6 +275,6 @@ Remove-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 ## License
 
-[MIT](LICENSE) — free to use, modify and distribute (including commercial and closed-source distribution); just keep the copyright and permission notice.
+[GPL-3.0](LICENSE) — free to use, modify and distribute; derivative works must be distributed under GPL-3.0 with corresponding source, keeping the copyright and license notice.
 
 Every "measured result" in this project comes from a real test record. Contributions of verified hardware/software profiles (`lib/catalog.json`) are welcome.
