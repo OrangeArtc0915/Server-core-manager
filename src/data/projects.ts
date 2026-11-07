@@ -64,6 +64,19 @@ export const projectsData: Project[] = [
 		featured: false,
 		tags: ["Minecraft", "TUI", "Windows Server Core", "开源"],
 	},
+	{
+		id: "scterm",
+		title: "scterm",
+		description:
+			"为 Windows Server Core 打造的终端多路复用工具：在原生 conhost 上实现标签页、窗格分屏、布局模板与会话恢复，内置 64 套配色、回看搜索、Quake 热键、标记模式与矩形选择；零第三方依赖、单文件 exe，默认直接托管 PowerShell（缺失时回退 Windows PowerShell 5.1），也可切回自研 cmd 风格 shell。",
+		image: "",
+		category: "scm",
+		techStack: ["Rust", "Win32 API", "ConPTY", "VT", "PowerShell"],
+		status: "in-progress",
+		startDate: "2026-10-31",
+		featured: false,
+		tags: ["Windows Server Core", "终端", "TUI", "Rust"],
+	},
 ];
 
 // Get project statistics

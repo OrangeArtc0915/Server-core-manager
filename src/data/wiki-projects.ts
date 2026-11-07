@@ -1,5 +1,5 @@
 // 文档（wiki）按项目拆分，这里放每个项目的展示信息
-export type WikiProjectKey = "scm" | "craftdock";
+export type WikiProjectKey = "scm" | "craftdock" | "scterm";
 
 export interface WikiProject {
 	key: WikiProjectKey;
@@ -28,6 +28,15 @@ export const wikiProjects: WikiProject[] = [
 		icon: "material-symbols:terminal",
 		tags: ["Minecraft", "TUI", "Node.js SEA"],
 		repo: "https://github.com/OrangeArtc0915/CraftDock",
+	},
+	{
+		key: "scterm",
+		name: "scterm",
+		subtitle:
+			"Windows Server Core 上的终端多路复用工具：标签页、窗格分屏、布局模板、会话恢复、回看搜索与 PowerShell 托管。",
+		icon: "material-symbols:keyboard-command-key",
+		tags: ["Windows Server Core", "Rust", "TUI", "PowerShell"],
+		repo: "https://github.com/OrangeArtc0915/Server-core-manager",
 	},
 ];
 

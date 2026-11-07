@@ -41,7 +41,7 @@ const wikiCollection = defineCollection({
 		description: z.string().optional().default(""),
 		group: z.enum(["入门", "使用", "进阶", "参考", "支持"]),
 		order: z.number(),
-		project: z.enum(["scm", "craftdock"]).optional().default("scm"),
+		project: z.enum(["scm", "craftdock", "scterm"]).optional().default("scm"),
 	}),
 });
 
