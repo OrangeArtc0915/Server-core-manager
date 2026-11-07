@@ -1,4 +1,4 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
   Server Core Manager —— 命令行一行安装
 
@@ -7,9 +7,12 @@
   解析会在下面的 [CmdletBinding()] 处直接报 "Unexpected attribute 'CmdletBinding'"，
   也就是说「命令行一行安装」这条主推路径会当场失效。别顺手给它加 BOM。
 
-  代价：在 Windows PowerShell 5.1 里用 `.\install.ps1` 从磁盘运行时，
-  5.1 会按 ANSI 读取无 BOM 文件，中文提示会显示为乱码（功能不受影响）。
-  用 PowerShell 7 跑，或直接走 irm | iex，都没有这个问题。
+  代价：Windows PowerShell 5.1 从磁盘 `.\install.ps1` 时会按 ANSI 读无 BOM 文件，
+  中文不仅乱码，个别字节还可能破坏语法。要本地跑，请让 5.1 按 UTF-8 读：
+      iex (Get-Content .\install.ps1 -Raw -Encoding UTF8)
+  传参时：
+      & ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM'
+  PowerShell 7 可以直接 .\install.ps1；主推路径 irm | iex 不受影响。
 
   推荐用法（在【管理员】PowerShell 里执行一行）：
       # 国内推荐走 Gitee
@@ -18,18 +21,18 @@
       irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 
   两条线路装的是同一个发布包，本脚本内容也完全一致（发版时同步推送）。
-  下载顺序：GitHub Releases → Gitee Releases → GitHub 分支源码打包，前一条不通就自动换下一条。
+  下载顺序：GitHub Releases → Gitee Releases，前一条不通就自动换下一条。
 
   因为 iex 没法传参数，需要改默认值时用环境变量：
       $env:SCM_DEST       = 'D:\SCM'    指定安装目录（默认 C:\Program Files\ServerCoreManager）
       $env:SCM_NO_COMMAND = '1'         不安装 scm 一行命令
-      $env:SCM_BRANCH     = 'main'      指定分支（仅下载分支压缩包时用到）
+      $env:SCM_VERSION    = 'v2.0'      指定发布版本（两个仓库用同一个 tag）
       $env:SCM_MIRROR_GITHUB = 'http://内网镜像'   把 https://github.com 换成你的镜像/内网源
       $env:SCM_MIRROR_GITEE  = 'https://gitee.com/你的账号/你的仓库'  换一个 Gitee 基址镜像
       $env:SCM_MIRROR_TUNA   = 'https://mirrors.tuna.tsinghua.edu.cn'  清华镜像基址（工具内部装 PowerShell 7 用）
 
-  也可以先存成文件、再当普通脚本跑，这样能直接传参：
-      .\install.ps1 -Dest 'D:\SCM' -NoCommand
+  也可以先存成文件、再按 UTF-8 读进来跑，这样能直接传参：
+      & ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM' -NoCommand
 
   重复执行视为升级：只覆盖程序文件，不会删除你已有的程序列表（launcher\programs.json）、
   日志与断点状态（logs\ / reports\ / state\）。
@@ -40,7 +43,7 @@
 [CmdletBinding()]
 param(
     [string]$Dest = '',
-    [string]$Branch = '',
+    [string]$Version = '',
     [string]$CommandName = 'scm',
     [switch]$NoCommand
 )
@@ -53,11 +56,11 @@ $Repo      = 'Server-core-manager'
 $AssetName = 'ServerCoreManager.zip'
 
 # Gitee 线路：仓库里只放本脚本与发布包（不含项目源码），面向国内用户。
-# $GiteeVer 写死是故意的：Gitee 的发行版必须挂在 tag 上，没有 GitHub 那样的 releases/latest 别名。
+# 两个仓库用同一个版本 tag；写死默认值，避免 GitHub 的 releases/latest 被附属工具发行版抢走。
 # 发版时要把本文件一起同步推到 Gitee，两边保持同一份内容。
 $GiteeOwner = 'orangearc655743'
 $GiteeRepo  = 'server-core-manager'
-$GiteeVer   = 'v2.0'
+$ScmVer     = 'v2.0'
 
 # 用 irm | iex 运行时 $PSCommandPath 为空。这种情况下一律不能用 exit：
 # 实测 exit 会直接终止宿主，把用户刚打开的 PowerShell 窗口关掉，报错信息根本来不及看。
@@ -97,12 +100,12 @@ try {
 } catch { }
 
 if (-not $Dest)   { if ($env:SCM_DEST) { $Dest = $env:SCM_DEST } }
-if (-not $Branch) { if ($env:SCM_BRANCH) { $Branch = $env:SCM_BRANCH } else { $Branch = 'main' } }
+if (-not $Version) { if ($env:SCM_VERSION) { $Version = $env:SCM_VERSION } else { $Version = $ScmVer } }
 if ($env:SCM_NO_COMMAND -eq '1') { $NoCommand = $true }
 if (-not $Dest)   { $Dest = Join-Path $env:ProgramFiles 'ServerCoreManager' }
 
 Write-Step ('安装目录 : ' + $Dest)
-Write-Step ('下载分支 : ' + $Branch)
+Write-Step ('发布版本 : ' + $Version)
 Write-Host ''
 
 # ---------------------------------------------------------------- 下载
@@ -207,31 +210,27 @@ function Get-ExpectedSha256 {
     return ''
 }
 
-$releaseUrl = ('https://github.com/{0}/{1}/releases/latest/download/{2}' -f $Owner, $Repo, $AssetName)
-$branchUrl  = ('https://github.com/{0}/{1}/archive/refs/heads/{2}.zip' -f $Owner, $Repo, $Branch)
+$releaseUrl = ('https://github.com/{0}/{1}/releases/download/{2}/{3}' -f $Owner, $Repo, $Version, $AssetName)
 
 # 国内源：GitHub 在国内常常很慢/不可达。设了 SCM_MIRROR_GITHUB 就把 github.com 前缀换成你的镜像
 # （没设就用官方地址，不做任何自动改写）。
 $MirrorGitHub = if ($env:SCM_MIRROR_GITHUB) { ([string]$env:SCM_MIRROR_GITHUB).TrimEnd('/') } else { '' }
 if ($MirrorGitHub) {
     $releaseUrl = ($releaseUrl -replace '^https://github\.com', $MirrorGitHub)
-    $branchUrl  = ($branchUrl  -replace '^https://github\.com', $MirrorGitHub)
     Write-Step ('已启用镜像: ' + $MirrorGitHub)
 }
 
-# Gitee 线路（国内直连）。注意 Gitee 的下载地址格式与 GitHub 不同：
-# 是 /releases/download/<tag>/<文件名>，没有 releases/latest 这种别名，所以 tag 用的是上面的 $GiteeVer。
+# Gitee 线路（国内直连）。下载地址格式与 GitHub 不同：/releases/download/<tag>/<文件名>。
 $GiteeBase = if ($env:SCM_MIRROR_GITEE) { ([string]$env:SCM_MIRROR_GITEE).TrimEnd('/') } else { ('https://gitee.com/{0}/{1}' -f $GiteeOwner, $GiteeRepo) }
-$giteeUrl  = ($GiteeBase + '/releases/download/' + $GiteeVer + '/' + $AssetName)
+$giteeUrl  = ($GiteeBase + '/releases/download/' + $Version + '/' + $AssetName)
 
 Write-Step '下载发布压缩包 ...'
 
-# 顺序：GitHub Releases → Gitee Releases → GitHub 分支源码。
+# 顺序：GitHub Releases → Gitee Releases。两条线路都是发行包，不下载源码。
 # 每条线路下完都要过 Test-ZipFile：Gitee 对错误路径是假 200，只认状态码会把 JSON 当压缩包。
 $lines = @(
     [pscustomobject]@{ Name = 'GitHub Releases'; Url = $releaseUrl },
-    [pscustomobject]@{ Name = 'Gitee Releases';  Url = $giteeUrl },
-    [pscustomobject]@{ Name = 'GitHub 分支源码'; Url = $branchUrl }
+    [pscustomobject]@{ Name = 'Gitee Releases';  Url = $giteeUrl }
 )
 
 $ok   = $false
@@ -295,8 +294,7 @@ try {
     if ($RunAsFile) { exit 1 } else { return }
 }
 
-# Releases 压缩包是平铺的；分支源码压缩包外面套一层 Server-core-manager-main\。
-# 靠入口文件定位真正的根目录，两种情况都能认。
+# Releases 压缩包是平铺的（个别镜像可能在外面套一层目录），靠入口文件定位真正的根目录。
 $marker = Get-ChildItem -LiteralPath $stage -Recurse -Filter 'Start-GuiReadyApp.ps1' -File -ErrorAction SilentlyContinue |
           Sort-Object { $_.FullName.Length } | Select-Object -First 1
 if (-not $marker) {
