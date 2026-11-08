@@ -219,13 +219,13 @@ Server Core 上没有 Windows Terminal 可用，所以这个功能是**直接把
 ### 为什么没有「安装 Windows Terminal」这个功能
 
 > **结论：Windows Terminal 在 Server Core 上用不了（实测，不是推测），所以本工具不再提供这个功能。**
-> 它的界面是 XAML 栈，而 Server Core 缺 `Windows.UI.Xaml.dll` / `twinui.dll`（`WinUX.dll` 同样不在）：
-> - **MSIX 打包版**：注册直接失败 —— `0x80073CF6`「无法注册包」+ `0x80040154`「初始化 windows.capability 扩展时没有注册类」；`Add-AppxProvisionedPackage`（DISM 预置包）同样报 `0x8007007E`
-> - **ZIP 免安装版**（不走 AppX 部署，包里自带 `Microsoft.UI.Xaml.dll`）：进程起来后立刻 APPCRASH（故障模块 `KERNELBASE.dll`，异常码 `e06d7363`），出不了窗口
-> - 实测环境：Windows Server 2025 Core 26100.32230。**装好 App Compatibility FOD 并重启之后仍然如此**（FOD 不带 `Windows.UI.Xaml.dll` / `twinui.dll`）
-> - 顺带确认：WT 1.24 的包要求 `Windows.Desktop ≥ 10.0.19041` —— **Server 2016 / 2019 也直接排除**
+> 它的界面是 UWP XAML 栈，而 Server Core 把 `Windows.UI.Xaml.dll` / `Windows.UI.Composition.dll` / `Windows.UI.Core.dll` 整条运行时裁掉了（`dwm.exe` / `dwmcore.dll` 虽然在，也不够）：
+> - **MSIX 打包版**（WT 1.25 + `Microsoft.UI.Xaml.2.8` 依赖）：`Add-AppxPackage` 报 `0x80073D19`（用户配置文件不可用）；机器级 `Add-AppxProvisionedPackage` 直接报「找不到指定的模块」—— **Server Core 的 AppX 部署提供程序本身被裁掉了**
+> - **ZIP 免安装版**（不走 AppX，包里自带 `Microsoft.UI.Xaml.dll`）：进程起来后立刻 APPCRASH（故障模块 `KERNELBASE.dll`，异常码 `e06d7363`），出不了窗口
+> - 实测环境：Windows Server 2025 Core 26100.32230。**装好 App Compatibility FOD 并重启之后仍然如此**（FOD 不带 UWP XAML / Composition 运行时）
+> - 顺带确认：WT 1.25 的包要求 `Windows.Desktop ≥ 10.0.19041` —— **Server 2016 / 2019 也直接排除**
 >
-> 想在 Server Core 上要个好看的终端，用本工具的 **「更多 → 终端美化」**（Nerd Font + Oh My Posh + Fastfetch，直接美化 conhost）。
+> 想在 Server Core 上要个好看的终端，用本工具的 **「更多 → 终端美化」**（Nerd Font + Oh My Posh + Fastfetch，直接美化 conhost）；需要标签 / 分屏可以用 **SCM附属 → scterm**。
 
 ### 程序兼容档案（`lib/catalog.json`）
 
@@ -582,7 +582,7 @@ $sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); 
 4. **不是远程桌面方案的替代品** —— 本工具是在 Server Core 本机补齐图形能力，程序在本机渲染。若想做「无头机器上跑 GUI、通过网络看画面」（IDD 远程渲染方向），属于另一个方向。
 5. **Electron 程序的 GPU 加速用不上** —— 只能走软件渲染，所以建议带上禁用 GPU 的参数。这是 Server Core 环境的客观限制，不是本工具的缺陷。
 6. **FOD 从 Windows Update 下载体积较大且对网络敏感**，可能失败。工具内置了常见错误码的中文处置建议（`0x800f0954` / `0x800f0831` / `0x80240021` 等）。
-7. **Windows Terminal 在 Server Core 上不可用**（实测）：它是 XAML 程序，Server Core 缺 `Windows.UI.Xaml.dll` / `twinui.dll` / `WinUX.dll` —— MSIX 版注册失败（`0x80073CF6` + `0x80040154`），ZIP 免安装版启动即崩（`e06d7363`）。FOD 也补不上（2025 Core 上 Windows Update 路径被 CBS 拒绝）。**因此本工具已彻底移除 Windows 终端相关功能与离线包**，改为「终端美化」——把 conhost 本身做漂亮（见上一节）。
+7. **Windows Terminal 在 Server Core 上不可用**（实测 WT 1.25 / Server 2025 Core 26100）：它是 UWP XAML 程序，Server Core 缺 `Windows.UI.Xaml.dll` / `Windows.UI.Composition.dll` / `Windows.UI.Core.dll` —— MSIX 版无法部署（`0x80073D19`，DISM 预置报「找不到指定的模块」），便携 ZIP 版启动即崩（`e06d7363`）。`dwm.exe` 在跑也不够，缺的是 UWP XAML / Composition 运行时，FOD 也补不上。**因此本工具已彻底移除 Windows 终端相关功能与离线包**，改为「终端美化」；需要标签 / 分屏用 SCM附属里的 scterm。
 
 ---
 
