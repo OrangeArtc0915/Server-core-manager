@@ -25,6 +25,38 @@ export interface TimelineItem {
 
 export const timelineData: TimelineItem[] = [
 	{
+		id: "v2-2",
+		title: "2026-11 · 监控告警、系统维护与诊断工具",
+		description:
+			"把日常运维闭环补齐：性能历史采样与 HTML 报表、阈值 / 事件告警（含维护窗口静默）、证书 / 驱动 / 启动项 / 系统状态备份；新增诊断工具（端口扫描 / DNS / 连通性 / pktmon 抓包 / 进程分析）、软件与权限（软件清单 / 静默卸载 / SMB / NTFS）、批量管理（采集 / 执行 / 装包 / 传文件 / 分发脚本）、脚本库与报告中心。页面 28 → 35，动作 155 → 200。",
+		type: "achievement",
+		startDate: "2026-11-13",
+		skills: ["C#", "WinForms", "PowerShell", "pktmon", "SMB", "NTFS"],
+		achievements: [
+			"监控告警：采样落 CSV、内联 SVG 的 HTML 报表、阈值 / 事件规则与维护窗口静默",
+			"系统维护：证书、驱动与硬件、启动项、系统状态备份（默认不含驱动，包体约 4.5 MB）",
+			"诊断工具：监听端口 / 端口扫描 / DNS / 连通性 / 代理 / pktmon 抓包，进程树、快照与结束进程",
+			"软件与权限：注册表软件清单与静默卸载、SMB 共享授权、NTFS ACL",
+			"批量管理：远程采集 / 执行 / 装包 / 上传下载 / 分发脚本，结果逐台汇总",
+			"脚本库与报告中心：内置维护脚本预览后执行，报表打包、邮件附件与每日任务",
+		],
+		links: [
+			{
+				name: "功能一览",
+				url: "/wiki/features/",
+				type: "website",
+			},
+			{
+				name: "发布包（Gitee）",
+				url: "https://gitee.com/orangearc655743/server-core-manager/releases",
+				type: "website",
+			},
+		],
+		icon: "material-symbols:monitor-heart",
+		color: "#22D3EE",
+		featured: true,
+	},
+	{
 		id: "v2-1",
 		title: "v2.1 · 运行库、数据库与卡片商店",
 		description:

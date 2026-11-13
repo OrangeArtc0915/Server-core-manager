@@ -26,7 +26,7 @@ export const projectsData: Project[] = [
 		id: "server-core-manager",
 		title: "Server Core Manager",
 		description:
-			"让带图形界面的程序在 Windows Server Core 上真正跑起来。补齐官方图形组件、装常用工具与语言运行时、部署数据库、添加程序并排障，全部一键完成，工具自己也是图形界面。28 个页面、155 个功能动作、21 个系统工具入口。",
+			"让带图形界面的程序在 Windows Server Core 上真正跑起来。补齐官方图形组件、装常用工具与语言运行时、部署数据库、添加程序并排障，全部一键完成，工具自己也是图形界面。35 个页面、200 个功能动作、21 个系统工具入口。",
 		image: "",
 		category: "scm",
 		techStack: [
