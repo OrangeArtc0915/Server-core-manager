@@ -33,7 +33,14 @@ foreach ($f in @('GuiReady.Common.ps1', 'GuiReady.Detect.ps1', 'GuiReady.PeInspe
                  'GuiReady.Monitor.ps1', 'GuiReady.Security.ps1', 'GuiReady.Dsh.ps1',
                  'GuiReady.Files.ps1', 'GuiReady.Logs.ps1', 'GuiReady.Integrity.ps1',
                  'GuiReady.Tasks.ps1', 'GuiReady.Hosts.ps1', 'GuiReady.Remote.ps1', 'GuiReady.Runtime.ps1',
-                 'GuiReady.Database.ps1')) {
+                 'GuiReady.Database.ps1', 'GuiReady.Ops.ps1',
+                 'GuiReady.Update.ps1', 'GuiReady.Network.ps1', 'GuiReady.Accounts.ps1',
+                 'GuiReady.Services.ps1', 'GuiReady.Firewall.ps1', 'GuiReady.Storage.ps1',
+                 'GuiReady.SysTasks.ps1', 'GuiReady.RoleTools.ps1', 'GuiReady.Notify.ps1',
+                 'GuiReady.Plugins.ps1', 'GuiReady.TasksPlus.ps1', 'GuiReady.Metrics.ps1',
+                 'GuiReady.Maintenance.ps1', 'GuiReady.Batch.ps1', 'GuiReady.ScriptLib.ps1',
+                 'GuiReady.NetDiag.ps1', 'GuiReady.Proc.ps1', 'GuiReady.Software.ps1',
+                 'GuiReady.Perms.ps1', 'GuiReady.Reports.ps1')) {
     $p = Join-Path $libDir $f
     if (Test-Path -LiteralPath $p) { . $p }
 }

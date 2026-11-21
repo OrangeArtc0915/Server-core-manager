@@ -813,7 +813,7 @@ function Get-GuiReadyConsoleStatus {
     }
 
     if (-not $font.Installed) {
-        $o.Conclusion = '还没美化：Nerd Font 未安装。用「终端美化 → 一键美化终端」安装（素材随发布包内置，不联网）。'
+        $o.Conclusion = '还没美化：Nerd Font 未安装。用「终端美化 → 一键美化终端」安装（素材按需从官方源下载，需要联网）。'
     } elseif ($keys.WhitelistKeys.Count -eq 0) {
         $o.Conclusion = '字体装了但没进控制台白名单：conhost 不会列出它。请重跑一次「一键美化终端」。'
     } elseif (-not $o.LauncherInstalled) {

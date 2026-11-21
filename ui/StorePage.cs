@@ -275,6 +275,13 @@ namespace ScmUi
             if (_busy) return;
             string q = _query.ValueText.Trim();
             if (q.Length == 0) { Log("[WARN] 先输入要搜索的名字"); return; }
+            // 没装 Chocolatey 时先问一句，装完自动接着搜（README 里承诺的行为）
+            EnsureChoco(() => DoSearch(q));
+        }
+
+        private void DoSearch(string q)
+        {
+            if (_busy) return;
             _busy = true;
             SetState("搜索中…", "Info");
             Log("[STEP] 搜索 " + q + "（Chocolatey 优先，npm 补充）");
@@ -320,6 +327,47 @@ namespace ScmUi
                     SetState("搜索失败", "Danger");
                     Log("[WARN] 搜索失败: " + err);
                 }), 180000);
+        }
+
+        // ---------------------------------------------------------- Chocolatey 兜底
+        private bool ChocoReady
+        {
+            get { return _chocoText.Length > 0 && _chocoText != "未安装"; }
+        }
+
+        // 没有 Chocolatey → 确认 → 装 → 自动继续刚才那一步
+        private void EnsureChoco(Action resume)
+        {
+            if (ChocoReady) { resume(); return; }
+            if (!Dialogs.Confirm(FindForm(), "先装 Chocolatey",
+                "本机没有 Chocolatey，搜索和安装 choco 包都会失败。\n\n" +
+                "现在安装吗？装完会自动继续刚才的操作。", "先装 Chocolatey"))
+            {
+                Log("[INFO] 已取消；装好后可以点「装 Chocolatey」再试");
+                return;
+            }
+
+            bool started = Actions.RunAction("pkg-install-choco",
+                new Dictionary<string, object> { { "DryRun", false } },
+                line => SafeInvoke(() => Log(line)),
+                r => SafeInvoke(() =>
+                {
+                    Log((r.ExitCode == 0 ? "[OK] " : "[ERROR] ") +
+                        "安装 Chocolatey 结束，退出码 " + r.ExitCode);
+                    if (r.ExitCode == 0)
+                    {
+                        _chocoText = "可用";     // 先乐观置位，避免 resume 又弹一次同样的确认
+                        LoadStatus();
+                        Log("[STEP] 继续刚才的操作");
+                        resume();
+                    }
+                    else
+                    {
+                        Log("[WARN] Chocolatey 没装成，刚才的操作没有继续");
+                    }
+                }),
+                err => SafeInvoke(() => Log("[WARN] 安装 Chocolatey 未启动: " + err)));
+            if (started) Log("[STEP] 已提交动作 安装 Chocolatey（pkg-install-choco）");
         }
 
         private void ShowOutdated()
@@ -381,7 +429,18 @@ namespace ScmUi
                 view.Add(c);
             }
             _grid.SetCards(view, keepScroll);
-            UpdateState();
+            if (view.Count == 0 && _all.Count > 0)
+            {
+                // 空列表要说明原因，否则「实测可用」看起来像筛坏了
+                string why = _compat == "verified"
+                    ? "精选库里还没有实测通过的条目（当前全部是「未实测」）"
+                    : "没有符合筛选的应用，试试放宽分类或兼容性条件";
+                SetState("0 个结果 · " + why, "Warn");
+            }
+            else
+            {
+                UpdateState();
+            }
             UpdateBatchButton();
         }
 
@@ -535,6 +594,12 @@ namespace ScmUi
         {
             if (!c.Curated)
             {
+                // 非精选（搜索结果）：choco 包没装包管理器时先补，装完自动回到这一步
+                if (string.Equals(c.Source, "choco", StringComparison.OrdinalIgnoreCase) && !ChocoReady)
+                {
+                    EnsureChoco(() => InstallCard(c));
+                    return;
+                }
                 if (!Dialogs.Confirm(FindForm(), "安装软件包",
                     "通过 " + (c.Source.Length > 0 ? c.Source : "choco") + " 安装「" + c.PackageId + "」？\n\n" +
                     "会联网下载并写入系统，需要管理员权限。", "安装")) return;
@@ -564,7 +629,11 @@ namespace ScmUi
 
                         string msg = "「" + c.Name + "」\n\n" + string.Join("\n", lines.ToArray()) + "\n\n继续安装？";
                         if (!Dialogs.Confirm(FindForm(), "安装前预检", msg, "继续安装")) return;
-                        RunCuratedInstall(c);
+                        string itype = Bridge.Str(p, "InstallType", "choco");
+                        if (string.Equals(itype, "choco", StringComparison.OrdinalIgnoreCase) && !ChocoReady)
+                            EnsureChoco(() => RunCuratedInstall(c));
+                        else
+                            RunCuratedInstall(c);
                     });
                 },
                 err => SafeInvoke(() =>
@@ -708,33 +777,33 @@ namespace ScmUi
 
         private void ExportManifest()
         {
-            var v = Dialogs.Prompt(FindForm(), "导出已装软件清单",
-                "用 choco export 生成 packages.config；路径留空会自动写到 reports 目录。",
-                new List<PromptField> { new PromptField("导出路径（可空）") }, "导出");
-            if (v == null) return;
+            string reports = System.IO.Path.Combine(Bridge.Root, "reports");
+            string path = Dialogs.SaveFile(FindForm(), "导出已装软件清单",
+                "packages.config|*.config|所有文件|*.*", "packages.config", reports);
+            if (path == null) return;
 
             var args = new Dictionary<string, object>();
-            args["Path"] = v[0].Trim();
+            args["Path"] = path;
             args["DryRun"] = false;
             bool started = Actions.RunAction("manifest-export", args,
                 line => SafeInvoke(() => Log(line)),
                 r => SafeInvoke(() => Log((r.ExitCode == 0 ? "[OK] " : "[ERROR] ") +
                                          "清单导出结束，退出码 " + r.ExitCode)),
                 err => SafeInvoke(() => Log("[WARN] 清单导出未启动: " + err)));
-            if (started) Log("[STEP] 已提交动作 导出已装软件清单（manifest-export）");
+            if (started) Log("[STEP] 已提交动作 导出已装软件清单（manifest-export）：" + path);
         }
 
         private void ImportManifest()
         {
-            var v = Dialogs.Prompt(FindForm(), "导入已装软件清单",
-                "选择 packages.config（或 .config）后会把里面的软件全部装上。",
-                new List<PromptField> { new PromptField("packages.config 路径") }, "导入");
-            if (v == null || v[0].Trim().Length == 0) return;
+            string path = Dialogs.OpenFile(FindForm(), "导入已装软件清单",
+                "packages.config|*.config|所有文件|*.*",
+                System.IO.Path.Combine(Bridge.Root, "reports"));
+            if (string.IsNullOrEmpty(path)) return;
             if (!Dialogs.Confirm(FindForm(), "确认导入",
-                "会按清单逐个安装软件，耗时较长。确定开始？", "开始安装")) return;
+                "会按 " + System.IO.Path.GetFileName(path) + " 逐个安装软件，耗时较长。确定开始？", "开始安装")) return;
 
             var args = new Dictionary<string, object>();
-            args["Path"] = v[0].Trim();
+            args["Path"] = path;
             args["DryRun"] = false;
             bool started = Actions.RunAction("manifest-import", args,
                 line => SafeInvoke(() => Log(line)),
@@ -744,7 +813,7 @@ namespace ScmUi
                     LoadInstalled();
                 }),
                 err => SafeInvoke(() => Log("[WARN] 清单导入未启动: " + err)));
-            if (started) Log("[STEP] 已提交动作 导入已装软件清单（manifest-import）");
+            if (started) Log("[STEP] 已提交动作 导入已装软件清单（manifest-import）：" + path);
         }
 
         // ---------------------------------------------------------- 布局

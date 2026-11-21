@@ -515,4 +515,35 @@ namespace ScmUi
             if (_current != null && _formWidth != _form.ClientSize.Width) BuildForm();
         }
     }
+
+    // ============================================================
+    // 「高级」弹窗：把动作台嵌进一个模态窗口，定位到本页对应的分组。
+    // 旧 PowerShell 版就是这样（不离开当前页），C# 版之前退化成跳转页面。
+    // ============================================================
+    internal sealed class ActionDialog : Form
+    {
+        public ActionDialog(string group)
+        {
+            Text = "高级设置 · " + group;
+            StartPosition = FormStartPosition.CenterParent;
+            FormBorderStyle = FormBorderStyle.SizableToolWindow;
+            ShowInTaskbar = false;
+            MinimizeBox = false;
+            BackColor = Theme.Bg;
+            ClientSize = new Size(1120, 700);
+            MinimumSize = new Size(900, 560);
+
+            var page = new MorePage { Dock = DockStyle.Fill };
+            Controls.Add(page);
+            page.EnsureBuild();
+            page.Activate();
+            page.FocusGroup(group);
+
+            KeyPreview = true;
+            KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Escape) { e.Handled = true; Close(); }
+            };
+        }
+    }
 }

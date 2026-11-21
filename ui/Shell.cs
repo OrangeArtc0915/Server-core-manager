@@ -88,12 +88,30 @@ namespace ScmUi
             { "security", "安全与合规" },
             { "app",      "使用与工具" },
             { "catalog",  "程序档案" },
+            { "tools",    "SCM附属" },
             { "runtime",  "运行库" },
             { "database", "数据库" },
             { "tool",     "使用与工具" },
             { "beauty",   "终端美化" },
+            { "update",   "Windows 更新" },
+            { "network",  "网络配置" },
+            { "accounts", "本地账户" },
+            { "services", "服务管理" },
+            { "firewall", "防火墙" },
+            { "storage",  "存储与备份" },
+            { "systasks", "系统任务" },
+            { "roletools", "角色工具" },
+            { "notify",   "通知" },
+            { "maint",    "证书管理" },
+            { "metrics",  "告警规则" },
+            { "batch",    "批量管理" },
+            { "scripts",  "脚本库" },
+            { "diag",     "网络诊断" },
+            { "soft",     "软件管理" },
+            { "reports",  "报告中心" },
             { "logs",     "文件与日志" },
             { "tasks",    "一键流程" },
+            { "ops",      "守护与计划" },
             { "audit",    "配置备份" },
             { "hosts",    "远程运维" },
             { "about",    "安全与合规" }
@@ -140,9 +158,11 @@ namespace ScmUi
 
         private void OpenAdvanced()
         {
-            if (_advGroup.Length == 0 || OpenActionGroup == null) return;
-            Log("[STEP] 本页高级设置：打开「全部功能 → " + _advGroup + "」");
-            OpenActionGroup(_advGroup);
+            if (_advGroup.Length == 0) return;
+            Log("[STEP] 本页高级设置：" + _advGroup);
+            // 就地弹窗（不离开当前页）：内容就是「全部功能」的动作台，定位到本页对应的分组
+            using (var dlg = new ActionDialog(_advGroup))
+                dlg.ShowDialog(FindForm());
         }
 
         public void EnsureBuild()
@@ -293,10 +313,11 @@ namespace ScmUi
         private readonly Panel _host;
         private readonly Panel _log;
         private UiButton _stopBtn;
-        private UiButton _clearBtn, _openBtn, _dirBtn, _foldBtn;
+        private UiButton _clearBtn, _copyBtn, _openBtn, _dirBtn, _foldBtn;
         private bool _logFolded;
+        private bool _logSelecting;
+        private int _logSelA = -1, _logSelB = -1;
         private int _logScroll;   // 0 = 停在最新一行；>0 表示往上翻了 N 行
-        private int _logHit = -1;
         private readonly Timer _logTimer = new Timer { Interval = 50 };
         private bool _logDirty;
         private readonly Backdrop _backdrop;
@@ -325,14 +346,32 @@ namespace ScmUi
             new NavSpec("role",     "角色与功能",   "role",     "环境与安全"),
             new NavSpec("security", "安全基线",     "security", "环境与安全"),
             new NavSpec("app",      "程序管理",     "app",      "程序"),
-            new NavSpec("catalog",  "SCM附属",      "app",      "程序"),
+            new NavSpec("tools",    "SCM附属",      "tool",     "程序"),
+            new NavSpec("catalog",  "兼容档案",     "app",      "程序"),
             new NavSpec("runtime",  "运行库",       "runtime",  "程序"),
             new NavSpec("database", "数据库",       "database", "程序"),
             new NavSpec("tool",     "系统工具",     "tool",     "程序"),
             new NavSpec("beauty",   "终端美化",     "beauty",   "程序"),
+            new NavSpec("update",   "系统更新",     "update",   "系统管理"),
+            new NavSpec("network",  "网络配置",     "network",  "系统管理"),
+            new NavSpec("diag",     "诊断工具",     "network",  "系统管理"),
+            new NavSpec("accounts", "本地账户",     "accounts", "系统管理"),
+            new NavSpec("services", "服务管理",     "services", "系统管理"),
+            new NavSpec("soft",     "软件与权限",   "security", "系统管理"),
+            new NavSpec("firewall", "防火墙",       "security", "系统管理"),
+            new NavSpec("storage",  "存储与备份",   "storage",  "系统管理"),
+            new NavSpec("systasks", "系统任务",     "tasks",    "系统管理"),
+            new NavSpec("roletools","角色工具",     "role",     "系统管理"),
+            new NavSpec("notify",   "通知",         "notify",   "系统管理"),
+            new NavSpec("maint",    "系统维护",     "tool",     "系统管理"),
             new NavSpec("logs",     "日志中心",     "logs",     "运维"),
+            new NavSpec("metrics",  "监控告警",     "monitor",  "运维"),
+            new NavSpec("batch",    "批量管理",     "hosts",    "运维"),
+            new NavSpec("scripts",  "脚本库",       "tool",     "运维"),
+            new NavSpec("reports",  "报告中心",     "logs",     "运维"),
             new NavSpec("tasks",    "任务中心",     "tasks",    "运维"),
-            new NavSpec("audit",    "结构审计",     "audit",    "运维"),
+            new NavSpec("ops",      "自动化",       "ops",      "运维"),
+            new NavSpec("audit",    "操作审计",     "audit",    "运维"),
             new NavSpec("hosts",    "远程主机",     "hosts",    "运维"),
             new NavSpec("more",     "全部功能",     "more",     "系统"),
             new NavSpec("about",    "关于",         "about",    "系统")
@@ -444,6 +483,37 @@ namespace ScmUi
                         "  action=" + (Actions.Busy ? Actions.CurrentId : "-") + "\r\n");
                 }
                 catch { }
+
+                // 关窗 = 回到命令行：界面关掉之后如果没有 shell，Server Core 会话看起来就像"死"了。
+                // 三种关法（X / Alt+F4 / Esc）走同一处，系统关机 / 注销时不弹。
+                if (!e.Cancel && e.CloseReason != CloseReason.WindowsShutDown &&
+                    e.CloseReason != CloseReason.TaskManagerClosing)
+                {
+                    ExitShell.Open();
+                }
+            };
+
+            // Esc 退出（和旧版一致）；对话框是独立窗口，不会抢这个键
+            KeyPreview = true;
+            KeyDown += (s, e) =>
+            {
+                if (e.Control && e.KeyCode == Keys.K)
+                {
+                    OpenPalette();
+                    e.Handled = true;
+                    return;
+                }
+                if (e.Control && e.KeyCode == Keys.C)
+                {
+                    CopyLogSelection();
+                    e.Handled = true;
+                    return;
+                }
+                if (e.KeyCode == Keys.Escape && !e.Handled)
+                {
+                    e.Handled = true;
+                    Close();
+                }
             };
             Shown += (s, e) =>
             {
@@ -461,7 +531,42 @@ namespace ScmUi
                         (Environment.TickCount - Program.StartTick).ToString());
                 }
                 catch { }
+
+                // 启动静默核对文件清单（旧界面每次启动都做，C# 版原来只有关于页手动按钮）。
+                // 通过就安静；不通过才在日志里报警 —— 别每次开都刷两行。
+                Bridge.Run(@"gui\Run-GuiReadyIntegrity.ps1", "status", null,
+                    d =>
+                    {
+                        var data = d.ContainsKey("Data") ? d["Data"] : null;
+                        var map = data as Dictionary<string, object>;
+                        if (map == null) return;
+                        // 开发目录里没有 manifest.sha256（打包时才生成），这种情况不该报警
+                        if (!Bridge.Bool(map, "ManifestExists")) return;
+                        bool ok = Bridge.Bool(map, "Ok");
+                        int mod = Bridge.StrList(map, "Modified").Count;
+                        int miss = Bridge.StrList(map, "Missing").Count;
+                        int extra = Bridge.StrList(map, "Extra").Count;
+                        if (!ok)
+                            BeginInvoke((Action)(() => AppendLog(
+                                "[WARN] 文件清单核对未通过：修改 " + mod + " / 缺失 " + miss +
+                                " / 多出 " + extra + "；到「关于 → 完整性自检」看详情")));
+                    },
+                    err => { }, 120000);
             };
+        }
+
+        // Ctrl+K：页面跳转面板（按组显示，可输入关键词过滤）
+        private void OpenPalette()
+        {
+            var items = new List<KeyValuePair<string, string>>();
+            foreach (var spec in NavSpecs)
+                items.Add(new KeyValuePair<string, string>(spec.Key, spec.Group + " / " + spec.Text));
+            items.Add(new KeyValuePair<string, string>("more", "系统 / 全部功能（动作台）"));
+            using (var dlg = new PaletteDialog(items))
+            {
+                dlg.ShowDialog(this);
+                if (!string.IsNullOrEmpty(dlg.SelectedKey)) ShowPage(dlg.SelectedKey, true);
+            }
         }
 
         private void SetShellRegion()
@@ -497,6 +602,9 @@ namespace ScmUi
             _title.MouseDown += (s, e) => { dragging = true; dragStart = e.Location; };
             _title.MouseMove += (s, e) => { if (dragging) { Left += e.X - dragStart.X; Top += e.Y - dragStart.Y; } };
             _title.MouseUp += (s, e) => { dragging = false; };
+            _title.DoubleClick += (s, e) =>
+                WindowState = WindowState == FormWindowState.Maximized
+                    ? FormWindowState.Normal : FormWindowState.Maximized;
             _title.Paint += (s, e) =>
             {
                 var g = e.Graphics;
@@ -509,6 +617,10 @@ namespace ScmUi
                           new Rectangle(28, 0, 240, _title.Height));
                 Draw.Text(g, "Windows Server Core", Theme.Font(8.5f), Theme.Hint,
                           new Rectangle(152, 0, 220, _title.Height));
+                if (_title.Width > 560)
+                    Draw.Text(g, "v2.1", Theme.Font(8.5f), Theme.Hint,
+                              new Rectangle(_title.Width - 210, 0, 50, _title.Height),
+                              ContentAlignment.MiddleRight);
             };
         }
 
@@ -596,8 +708,11 @@ namespace ScmUi
             {
                 _logLines.Clear();
                 _logScroll = 0;
+                _logSelA = _logSelB = -1;
                 _log.Invalidate();
             };
+            _copyBtn = new UiButton("复制", ButtonKind.Ghost, 52, 24);
+            _copyBtn.Click += (s, e) => CopyLogSelection();
             _openBtn = new UiButton("打开日志", ButtonKind.Ghost, 76, 24);
             _openBtn.Click += (s, e) => OpenLatestLog();
             _dirBtn = new UiButton("日志目录", ButtonKind.Ghost, 76, 24);
@@ -613,6 +728,7 @@ namespace ScmUi
                 if (_current != null) _current.Relayout();
             };
             _log.Controls.Add(_clearBtn);
+            _log.Controls.Add(_copyBtn);
             _log.Controls.Add(_openBtn);
             _log.Controls.Add(_dirBtn);
             _log.Controls.Add(_foldBtn);
@@ -628,7 +744,7 @@ namespace ScmUi
 
             _log.Resize += (s, e) => LayoutLogTools();
 
-            // 滚轮回溯历史；双击某一行复制到剪贴板（截图里直接看不了长日志，得能拿走）
+            // 滚轮回溯历史；按住左键拖选多行（Ctrl+C / 「复制」按钮拿走），双击复制单行
             _log.MouseWheel += (s, e) =>
             {
                 int max = Math.Max(0, _logLines.Count - LogVisibleLines());
@@ -637,11 +753,22 @@ namespace ScmUi
                 if (next > max) next = max;
                 if (next != _logScroll) { _logScroll = next; _log.Invalidate(); }
             };
-            _log.MouseClick += (s, e) =>
+            _log.MouseDown += (s, e) =>
             {
-                _logHit = LogIndexAt(e.Y);
+                if (e.Button != MouseButtons.Left) return;
+                int idx = LogIndexAt(e.Y);
+                if (idx < 0) return;
+                _logSelA = _logSelB = idx;
+                _logSelecting = true;
                 _log.Invalidate();
             };
+            _log.MouseMove += (s, e) =>
+            {
+                if (!_logSelecting) return;
+                int idx = LogIndexAt(e.Y);
+                if (idx >= 0 && idx != _logSelB) { _logSelB = idx; _log.Invalidate(); }
+            };
+            _log.MouseUp += (s, e) => _logSelecting = false;
             _log.MouseDoubleClick += (s, e) =>
             {
                 int idx = LogIndexAt(e.Y);
@@ -677,10 +804,12 @@ namespace ScmUi
                 int y = 34;
                 int width = Math.Max(80, _log.Width - 32);
                 int start = Math.Max(0, _logLines.Count - LogVisibleLines() - _logScroll);
+                int selFrom = Math.Min(_logSelA, _logSelB);
+                int selTo = Math.Max(_logSelA, _logSelB);
                 for (int i = start; i < _logLines.Count && y + 20 <= _log.Height; i++)
                 {
                     var rect = new Rectangle(16, y, width, 20);
-                    if (i == _logHit)
+                    if (_logSelA >= 0 && i >= selFrom && i <= selTo)
                         using (var b = new SolidBrush(Theme.AccentDim))
                             g.FillRectangle(b, 8, y - 1, _log.Width - 16, 21);
                     DrawLogLine(g, _logLines[i], rect);
@@ -707,7 +836,7 @@ namespace ScmUi
         private void LayoutLogTools()
         {
             int right = _log.Width - 14;
-            foreach (var b in new[] { _foldBtn, _dirBtn, _openBtn, _clearBtn })
+            foreach (var b in new[] { _foldBtn, _dirBtn, _openBtn, _copyBtn, _clearBtn })
             {
                 if (b == null) continue;
                 right -= b.Width;
@@ -715,6 +844,31 @@ namespace ScmUi
                 right -= 6;
             }
             _stopBtn.Location = new Point(Math.Max(8, right - _stopBtn.Width), 5);
+        }
+
+        // 复制选中的日志行；没选就复制当前可见的全部（排障时经常要整段贴出来）
+        private void CopyLogSelection()
+        {
+            if (_logLines.Count == 0) return;
+            int from, to;
+            if (_logSelA >= 0)
+            {
+                from = Math.Min(_logSelA, _logSelB);
+                to = Math.Max(_logSelA, _logSelB);
+            }
+            else
+            {
+                from = 0;
+                to = _logLines.Count - 1;
+            }
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                for (int i = from; i <= to && i < _logLines.Count; i++) sb.AppendLine(_logLines[i]);
+                Clipboard.SetText(sb.ToString());
+                AppendLog("[INFO] 已复制 " + (to - from + 1) + " 行日志到剪贴板");
+            }
+            catch { }
         }
 
         // 打开 logs\ 里最新的一个日志文件（每次动作都会写 gui-<动作>-<时间>.log）
@@ -830,12 +984,18 @@ namespace ScmUi
         public void AppendLog(string line)
         {
             _logLines.Add(line);
-            // 从 200 提到 500：翻历史时不会被一屏刷新冲掉
-            if (_logLines.Count > 500) _logLines.RemoveAt(0);
+            // 3500 行 ≈ 旧 PowerShell 版的历史深度：动作输出几百行也不会把前面的冲掉
+            if (_logLines.Count > 3500)
+            {
+                _logLines.RemoveAt(0);
+                // 行号整体前移一位，选中区间跟着挪，否则高亮会错位
+                if (_logSelA > 0) _logSelA--;
+                if (_logSelB > 0) _logSelB--;
+                if (_logSelA == 0 && _logSelB == 0) _logSelA = _logSelB = -1;
+            }
             if (_logScroll > 0) _logScroll++;          // 用户正翻旧行时保持视口不动
             if (_logScroll > Math.Max(0, _logLines.Count - LogVisibleLines()))
                 _logScroll = Math.Max(0, _logLines.Count - LogVisibleLines());
-            _logHit = -1;
             // 动作输出是逐行回来的，一条一重绘会白烧 CPU（每帧约 3ms）。
             // 这里合并成最多 20fps：新行只置脏，50ms 后统一画一次。
             _logDirty = true;
@@ -854,8 +1014,10 @@ namespace ScmUi
             Register("env",      () => new EnvPage());
             Register("logs",     () => new LogsPage());
             Register("tasks",    () => new TasksPage());
+            Register("ops",      () => new OpsPage());
             Register("store",    () => new StorePage());
             Register("app",      () => new AppPage());
+            Register("tools",    () => new ToolsPage());
             Register("catalog",  () => new CatalogPage());
             Register("runtime",  () => new RuntimePage());
             Register("database", () => new DatabasePage());
@@ -865,6 +1027,22 @@ namespace ScmUi
             Register("security", () => new SecurityPage());
             Register("tool",     () => new ToolPage());
             Register("beauty",   () => new BeautyPage());
+            Register("update",   () => new UpdatePage());
+            Register("network",  () => new NetworkPage());
+            Register("accounts", () => new AccountsPage());
+            Register("services", () => new ServicesPage());
+            Register("firewall", () => new FirewallPage());
+            Register("storage",  () => new StoragePage());
+            Register("systasks", () => new SysTasksPage());
+            Register("roletools", () => new RoleToolsPage());
+            Register("notify",   () => new NotifyPage());
+            Register("maint",    () => new MaintPage());
+            Register("metrics",  () => new MetricsPage());
+            Register("batch",    () => new BatchPage());
+            Register("scripts",  () => new ScriptsPage());
+            Register("diag",     () => new DiagPage());
+            Register("soft",     () => new SoftwarePage());
+            Register("reports",  () => new ReportsPage());
             Register("more",     () => new MorePage());
             Register("about",    () => new AboutPage());
         }
@@ -885,15 +1063,33 @@ namespace ScmUi
                 case "security": return 20;
                 case "logs": return 10;
                 case "tasks": return 10;
+                case "ops": return 10;
                 case "audit": return 10;
                 case "hosts": return 10;
                 case "app": return 15;
+                case "tools": return 30;
                 case "catalog": return 15;
                 case "runtime": return 20;
                 case "database": return 15;
                 case "store": return 20;
                 case "env": return 20;
                 case "beauty": return 30;
+                case "update": return 60;
+                case "network": return 15;
+                case "accounts": return 15;
+                case "services": return 20;
+                case "firewall": return 30;
+                case "storage": return 20;
+                case "systasks": return 20;
+                case "roletools": return 30;
+                case "notify": return 15;
+                case "maint": return 30;
+                case "metrics": return 15;
+                case "batch": return 30;
+                case "scripts": return 60;
+                case "diag": return 15;
+                case "soft": return 20;
+                case "reports": return 30;
                 case "tool": return 60;
                 case "more": return 60;
                 default: return 0;
@@ -1019,6 +1215,45 @@ namespace ScmUi
                 System.IO.File.AppendAllText(path,
                     DateTime.Now.ToString("HH:mm:ss") + " " +
                     (ex == null ? "(null)" : ex.ToString()) + Environment.NewLine + Environment.NewLine);
+            }
+            catch { }
+        }
+    }
+
+    // ============================================================
+    // 退出界面 = 回到命令行。
+    // Server Core 没有桌面，界面关掉之后如果什么都不剩，会话看起来就像"死了"。
+    // 装了美化终端就起 scm-term，没装就起普通 PowerShell（-NoExit，工作目录是工具目录）。
+    // ============================================================
+    internal static class ExitShell
+    {
+        private static bool _opened;
+
+        public static void Open()
+        {
+            if (_opened) return;
+            _opened = true;
+            try
+            {
+                if (Environment.GetEnvironmentVariable("SCM_NO_EXIT_TERM") == "1") return;
+                if (System.Diagnostics.Process.GetCurrentProcess().SessionId <= 0) return;
+
+                string root = Bridge.Root;
+                string term = System.IO.Path.Combine(root, @"bin\scm-term.cmd");
+                string sysTerm = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"System32\scm-term.cmd");
+
+                string file, args;
+                if (System.IO.File.Exists(term)) { file = term; args = ""; }
+                else if (System.IO.File.Exists(sysTerm)) { file = sysTerm; args = ""; }
+                else { file = "powershell.exe"; args = "-NoLogo -NoExit"; }
+
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file)
+                {
+                    Arguments = args,
+                    WorkingDirectory = root,
+                    UseShellExecute = true
+                });
             }
             catch { }
         }

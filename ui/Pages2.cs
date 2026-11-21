@@ -372,8 +372,8 @@ namespace ScmUi
         public CatalogPage()
         {
             Key = "catalog";
-            TitleText = "SCM附属";
-            Subtitle = "SCM 的附属工具与扩展（内容待定）；目前先沿用内置程序兼容档案：程序在 Server Core 上能不能跑、要补什么运行时、推荐哪些启动参数。";
+            TitleText = "兼容档案";
+            Subtitle = "程序在 Server Core 上能不能跑、要补什么运行时、推荐哪些启动参数；这里是内置与自建的程序兼容档案。";
             Glyph = "app";
             Accent = Theme.AccentOf("app");
 
@@ -596,8 +596,8 @@ namespace ScmUi
         public AuditPage()
         {
             Key = "audit";
-            TitleText = "结构审计";
-            Subtitle = "提交、执行、配置备份与恢复全在这里留痕；审计只追加、不修改，可按级别/时间/关键词筛选后导出。";
+            TitleText = "操作审计";
+            Subtitle = "提交、执行、配置备份与恢复全在这里留痕；只追加、不修改，可按级别/时间/关键词筛选后导出。目录与文件完整性检查在「关于 → 完整性自检」。";
             Glyph = "audit";
             Accent = Theme.AccentOf("audit");
 
@@ -898,12 +898,13 @@ namespace ScmUi
         private readonly List<string> _trusted = new List<string>();
         private int _tagIdx;
         private bool _busy;
+        private string _sumBase = "";
 
         public HostsPage()
         {
             Key = "hosts";
             TitleText = "远程主机";
-            Subtitle = "维护 WinRM 主机清单、测试连通性、批量执行命令；凭据用 DPAPI 加密，双击看完整信息。";
+            Subtitle = "维护 WinRM 主机清单、测试连通性、批量执行命令；可勾选多台一起测试 / 执行，凭据用 DPAPI 加密，双击看完整信息。";
             Glyph = "hosts";
             Accent = Theme.AccentOf("hosts");
 
@@ -930,6 +931,8 @@ namespace ScmUi
             _bar.Controls.Add(_tagBtn);
 
             _table = new DataTable { Location = new Point(0, 118) };
+            // 勾选列：批量测试 / 批量命令默认只作用于勾上的主机
+            _table.Columns.Add(new DataColumn("选", 44));
             _table.Columns.Add(new DataColumn("名称", 100));
             _table.Columns.Add(new DataColumn("地址", 130));
             _table.Columns.Add(new DataColumn("端口", 50, true));
@@ -942,6 +945,8 @@ namespace ScmUi
             _table.Columns.Add(new DataColumn("备注", 150));
             _table.RowActivated += ShowHostDetail;
             _table.ActivateOnDoubleClick = true;
+            _table.CheckColumn = 0;
+            _table.CheckChanged += (idx, on) => UpdateCheckedHint();
             Controls.Add(_table);
 
             _actions = new Panel { Height = 40, BackColor = Color.Transparent };
@@ -969,17 +974,27 @@ namespace ScmUi
         // 走既有 runner：Run-GuiReadyRemote.ps1 -Mode test（会顺带回写主机的最近测试结果）
         private void TestSelected()
         {
-            int idx = _table.SelectedIndex;
-            if (idx < 0 || idx >= _table.Rows.Count)
+            // 勾了主机就批量测这些；没勾就测当前选中行
+            var checkedHosts = CheckedAddresses();
+            string spec;
+            if (checkedHosts.Count > 0)
             {
-                Log("[WARN] 先在列表里选中一台主机");
-                return;
+                spec = string.Join(",", checkedHosts.ToArray());
             }
-            string address = _table.Rows[idx][1];
-            Log("[STEP] 测试连接 " + address + "（最多 30 秒）");
+            else
+            {
+                int idx = _table.SelectedIndex;
+                if (idx < 0 || idx >= _table.Rows.Count)
+                {
+                    Log("[WARN] 先在列表里选中一台主机（或勾选多台）");
+                    return;
+                }
+                spec = _table.Rows[idx][2];
+            }
+            Log("[STEP] 测试连接 " + spec + "（最多 30 秒）");
 
             var args = new Dictionary<string, object>();
-            args["Hosts"] = address;
+            args["Hosts"] = spec;
             args["TimeoutSec"] = 30;
             Bridge.Run(@"gui\Run-GuiReadyRemote.ps1", "test", args,
                 d =>
@@ -1189,8 +1204,11 @@ namespace ScmUi
 
         private void BatchCommand()
         {
+            var checkedHosts = CheckedAddresses();
             var h = SelectedHost();
-            string spec = h == null ? "" : Bridge.Str(h, "Address");
+            string spec = checkedHosts.Count > 0
+                ? string.Join(",", checkedHosts.ToArray())
+                : (h == null ? "" : Bridge.Str(h, "Address"));
             var fields = new List<PromptField>
             {
                 new PromptField("目标主机", spec, false, "留空 = 全部启用的主机；也可填名称/地址，逗号分隔"),
@@ -1227,10 +1245,36 @@ namespace ScmUi
         // 页头胶囊：文字一变宽窄就变，Slot 要跟着重算，否则胶囊会溢出页头
         private void SetSum(string text, string kind)
         {
+            _sumBase = text;
             _sum.SetText(text);
             _sum.SetKind(kind);
             Head.Slot.Width = _sum.Width;
             Head.Slot.Left = Math.Max(0, Head.Width - Head.Slot.Width - 4);
+        }
+
+        // 勾选列：批量测试 / 批量命令只作用于勾上的主机
+        private List<string> CheckedAddresses()
+        {
+            var list = new List<string>();
+            foreach (var i in _table.Checked)
+            {
+                if (i < 0 || i >= _view.Count) continue;
+                string addr = Bridge.Str(_view[i], "Address");
+                if (addr.Length > 0) list.Add(addr);
+            }
+            return list;
+        }
+
+        private void UpdateCheckedHint()
+        {
+            int n = _table.Checked.Count;
+            string text = n > 0
+                ? "已选 " + n + " 台 · 测试连接 / 批量命令会作用于这些主机"
+                : _sumBase;
+            _sum.SetText(text);
+            _sum.SetKind(n > 0 ? "Info" : "Neutral");
+            Head.Slot.Width = _sum.Width;
+            Head.Slot.Left = Math.Max(0, Head.Width - _sum.Width - 4);
         }
 
         // 走既有 runner：Run-GuiReadyRemote.ps1 -Mode hosts
@@ -1346,6 +1390,7 @@ namespace ScmUi
                 string test = Bridge.Str(h, "LastTestStatus");
                 rows.Add(new[]
                 {
+                    "",
                     name,
                     address,
                     ((int)Bridge.Num(h, "Port")).ToString(),
@@ -1359,6 +1404,7 @@ namespace ScmUi
                 });
             }
             _table.SetRows(rows);
+            UpdateCheckedHint();
         }
 
         private static string TaskTime(string iso)
@@ -2166,6 +2212,26 @@ namespace ScmUi
                 string extra = tool.Hint.Length > 0 ? ("  " + tool.Hint)
                     : "  Server Core 默认不带它，到「环境补全」页点「一键补全」装官方桌面体验（FOD），装完重启再试。";
                 Log("[WARN] 找不到 " + tool.Name + "（" + tool.Exe + "）。" + extra);
+                // 只写日志等于没反馈：给个说明 + 用命令提示符代替的去处
+                if (Dialogs.Confirm(FindForm(), "找不到 " + tool.Name,
+                    "本机没有 " + tool.Name + "（" + tool.Exe + "）。\n\n" + extra.Trim() +
+                    "\n\n要用「命令提示符」打开同目录代替吗？", "打开命令提示符"))
+                {
+                    try
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = "cmd.exe",
+                            Arguments = "/k cd /d \"" + Bridge.Root + "\"",
+                            UseShellExecute = true
+                        });
+                        Log("[INFO] 已用命令提示符代替 " + tool.Name);
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("[WARN] 打开命令提示符失败: " + ex.Message);
+                    }
+                }
                 return;
             }
             try
@@ -2656,7 +2722,7 @@ namespace ScmUi
             {
                 new[] { "作者：", "mmm" },
                 new[] { "QQ 群：", "1034243331" },
-                new[] { "版本：", "v2.0　构建 " + BuildStamp() },
+                new[] { "版本：", "v2.2　构建 " + BuildStamp() },
                 new[] { "GitHub：", "https://github.com/OrangeArtc0915/Server-core-manager" },
                 new[] { "官网：", "https://orangeartc0915.github.io/Server-core-manager/" }
             };

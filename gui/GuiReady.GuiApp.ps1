@@ -807,7 +807,7 @@ $lblTitle.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]:
 $lblTitle.Add_DoubleClick({ Toggle-ShellMax })
 $pnlTitle.Controls.Add($lblTitle)
 
-$lblTitleVer          = New-Label -Text 'v2.0' -Size 8.6 -Color Hint
+$lblTitleVer          = New-Label -Text 'v2.2' -Size 8.6 -Color Hint
 $lblTitleVer.Location = New-Object System.Drawing.Point(220, 16)
 $lblTitleVer.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Start-ShellDrag } })
 $pnlTitle.Controls.Add($lblTitleVer)
@@ -1109,7 +1109,7 @@ foreach ($__mod in $script:GuiModules) {
 }
 $pnlNavTop.Height = $__y
 
-$lblVer = New-Label -Text ('v2.0  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.25 -Color Hint
+$lblVer = New-Label -Text ('v2.2  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.25 -Color Hint
 $lblVer.Dock = 'Bottom'
 $lblVer.Height = 30
 $lblVer.TextAlign = 'MiddleLeft'
@@ -8800,7 +8800,7 @@ $lblAuQQ               = New-Label -Text 'QQ 群：1034243331' -Size 10
 $lblAuQQ.Location      = New-Object System.Drawing.Point(20, 46)
 $cardAbout.Controls.Add($lblAuQQ)
 
-$lblAuVer              = New-Label -Text ('版本：v2.0    构建 ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 10
+$lblAuVer              = New-Label -Text ('版本：v2.2    构建 ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 10
 $lblAuVer.Location     = New-Object System.Drawing.Point(20, 76)
 $cardAbout.Controls.Add($lblAuVer)
 

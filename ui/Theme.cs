@@ -114,6 +114,13 @@ namespace ScmUi
                 case "logs":     return Hex("#FBBF24");
                 case "tasks":    return Hex("#34D399");
                 case "audit":    return Hex("#C084FC");
+                case "ops":      return Hex("#A78BFA");
+                case "update":   return Hex("#38BDF8");
+                case "network":  return Hex("#22D3EE");
+                case "accounts": return Hex("#F472B6");
+                case "services": return Hex("#34D399");
+                case "storage":  return Hex("#FBBF24");
+                case "notify":   return Hex("#A78BFA");
                 case "hosts":    return Hex("#60A5FA");
                 default:         return Hex("#94A3B8");
             }
@@ -244,6 +251,61 @@ namespace ScmUi
                         g.DrawRectangle(pen, 14, 3, 7, 7);
                         g.DrawRectangle(pen, 14, 14, 7, 7);
                         g.DrawRectangle(pen, 3, 14, 7, 7);
+                        break;
+                    case "ops":
+                        // 齿轮：自动化 / 定时
+                        g.DrawEllipse(pen, 4.5f, 4.5f, 15, 15);
+                        g.DrawEllipse(pen, 9.5f, 9.5f, 5, 5);
+                        g.DrawLine(pen, 12, 1.5f, 12, 4.5f);
+                        g.DrawLine(pen, 12, 19.5f, 12, 22.5f);
+                        g.DrawLine(pen, 1.5f, 12, 4.5f, 12);
+                        g.DrawLine(pen, 19.5f, 12, 22.5f, 12);
+                        break;
+                    case "update":
+                        // 环形箭头 + 向下箭头（升级）
+                        g.DrawArc(pen, 4, 4, 16, 16, 40, 280);
+                        g.DrawLines(pen, P(17, 3, 20, 7, 15.5f, 7.5f));
+                        g.DrawLine(pen, 12, 9, 12, 16);
+                        g.DrawLines(pen, P(9, 13, 12, 16, 15, 13));
+                        break;
+                    case "network":
+                        // 地球
+                        g.DrawEllipse(pen, 3, 3, 18, 18);
+                        g.DrawEllipse(pen, 8, 3, 8, 18);
+                        g.DrawLine(pen, 3, 12, 21, 12);
+                        break;
+                    case "accounts":
+                        // 人像
+                        g.DrawEllipse(pen, 8, 3, 8, 8);
+                        g.DrawArc(pen, 4, 13, 16, 12, 200, 140);
+                        break;
+                    case "services":
+                        // 滑杆
+                        g.DrawLine(pen, 3, 6, 21, 6);
+                        g.DrawLine(pen, 3, 12, 21, 12);
+                        g.DrawLine(pen, 3, 18, 21, 18);
+                        g.DrawEllipse(pen, 7, 4, 4, 4);
+                        g.DrawEllipse(pen, 13, 10, 4, 4);
+                        g.DrawEllipse(pen, 9, 16, 4, 4);
+                        break;
+                    case "storage":
+                        // 磁盘
+                        g.DrawRectangle(pen, 3, 5, 18, 14);
+                        g.DrawLine(pen, 3, 14, 21, 14);
+                        using (var br = new SolidBrush(color))
+                        {
+                            g.FillEllipse(br, 6, 16.5f, 1.8f, 1.8f);
+                            g.FillEllipse(br, 10, 16.5f, 1.8f, 1.8f);
+                        }
+                        g.DrawLine(pen, 6, 9, 18, 9);
+                        break;
+                    case "notify":
+                        // 铃铛
+                        g.DrawArc(pen, 5, 4, 14, 14, 180, 180);
+                        g.DrawLine(pen, 5, 11, 5, 15);
+                        g.DrawLine(pen, 19, 11, 19, 15);
+                        g.DrawLine(pen, 3, 15, 21, 15);
+                        g.DrawArc(pen, 10, 17, 4, 4, 0, 180);
                         break;
                     case "about":
                         g.DrawEllipse(pen, 3, 3, 18, 18);

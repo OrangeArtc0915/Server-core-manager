@@ -14,6 +14,8 @@ namespace ScmUi
         public string Hint;
         public int Height;      // >0 时覆盖默认高度（多行编辑器用）
         public bool Secret;     // 密码框
+        public List<string> Options;   // 非空 = 下拉（点一下循环切换）
+        public int Selected;
 
         public PromptField(string label, string value = "", bool multiline = false, string hint = "")
         {
@@ -22,6 +24,16 @@ namespace ScmUi
             Multiline = multiline;
             Hint = hint;
         }
+
+        public PromptField(string label, string value, List<string> options, int selected = 0)
+        {
+            Label = label;
+            Value = value ?? "";
+            Options = options;
+            Selected = selected;
+        }
+
+        public bool IsCombo { get { return Options != null && Options.Count > 0; } }
     }
 
     // ============================================================
@@ -38,6 +50,8 @@ namespace ScmUi
         private readonly string _message;
         private readonly int _messageHeight;
         private readonly List<UiInput> _inputs = new List<UiInput>();
+        private readonly List<UiButton> _combos = new List<UiButton>();
+        private readonly List<PromptField> _fields;
         private readonly bool _hasMultiline;
         private Point _dragStart;
         private bool _dragging;
@@ -47,6 +61,7 @@ namespace ScmUi
         {
             _title = title ?? "";
             _message = message ?? "";
+            _fields = fields ?? new List<PromptField>();
             Width = Math.Max(360, width);
 
             if (!string.IsNullOrEmpty(_message))
@@ -95,12 +110,34 @@ namespace ScmUi
                 body.Controls.Add(label);
                 y += 22;
 
-                var input = new UiInput(Width - 44, "", boxH, f.Multiline) { Location = new Point(22, y) };
-                input.ValueText = f.Value;
-                if (f.Secret) input.Box.UseSystemPasswordChar = true;
-                _inputs.Add(input);
-                body.Controls.Add(input);
-                y += boxH + 8;
+                if (f.IsCombo)
+                {
+                    var combo = new UiButton(ComboText(f), ButtonKind.Normal, Width - 44, boxH)
+                    {
+                        Location = new Point(22, y)
+                    };
+                    var captured = f;
+                    combo.Click += (s, e) =>
+                    {
+                        captured.Selected = (captured.Selected + 1) % captured.Options.Count;
+                        combo.Text = ComboText(captured);
+                        combo.Invalidate();
+                    };
+                    _inputs.Add(null);
+                    _combos.Add(combo);
+                    body.Controls.Add(combo);
+                    y += boxH + 8;
+                }
+                else
+                {
+                    var input = new UiInput(Width - 44, "", boxH, f.Multiline) { Location = new Point(22, y) };
+                    input.ValueText = f.Value;
+                    if (f.Secret) input.Box.UseSystemPasswordChar = true;
+                    _inputs.Add(input);
+                    _combos.Add(null);
+                    body.Controls.Add(input);
+                    y += boxH + 8;
+                }
 
                 if (!string.IsNullOrEmpty(f.Hint))
                 {
@@ -144,7 +181,11 @@ namespace ScmUi
                 ok.Location = new Point(body.Width - 22 - ok.Width, body.Height - 46);
                 using (var path = Draw.Round(new Rectangle(0, 0, Width, Height), Theme.RShell))
                     Region = new Region(path);
-                if (_inputs.Count > 0) _inputs[0].Box.Focus();
+                if (_inputs.Count > 0)
+                {
+                    for (int i = 0; i < _inputs.Count; i++)
+                        if (_inputs[i] != null) { _inputs[i].Box.Focus(); break; }
+                }
             };
             Resize += (s, e) =>
             {
@@ -185,10 +226,23 @@ namespace ScmUi
             };
         }
 
+        private static string ComboText(PromptField f)
+        {
+            if (f.Options == null || f.Options.Count == 0) return "（无选项）";
+            int i = f.Selected;
+            if (i < 0 || i >= f.Options.Count) i = 0;
+            return f.Options[i] + "  ⇄";
+        }
+
         private void Accept()
         {
             var values = new string[_inputs.Count];
-            for (int i = 0; i < _inputs.Count; i++) values[i] = _inputs[i].ValueText;
+            for (int i = 0; i < _inputs.Count; i++)
+            {
+                var combo = _combos.Count > i ? _combos[i] : null;
+                if (combo != null) values[i] = _fields[i].Options[_fields[i].Selected];
+                else values[i] = _inputs[i] == null ? "" : _inputs[i].ValueText;
+            }
             Values = values;
             Accepted = true;
             Close();
@@ -378,6 +432,122 @@ namespace ScmUi
         }
     }
 
+    // ------------------------------------------------------------ 命令面板（Ctrl+K）
+    internal sealed class PaletteDialog : Form
+    {
+        public string SelectedKey = "";
+
+        private readonly ListBox _list;
+        private readonly UiInput _input;
+        private readonly List<KeyValuePair<string, string>> _all;
+        private Point _dragStart;
+        private bool _dragging;
+
+        public PaletteDialog(List<KeyValuePair<string, string>> items)
+        {
+            _all = items ?? new List<KeyValuePair<string, string>>();
+            FormBorderStyle = FormBorderStyle.None;
+            StartPosition = FormStartPosition.CenterParent;
+            ShowInTaskbar = false;
+            BackColor = Theme.Card;
+            DoubleBuffered = true;
+            Width = 620;
+            Height = 470;
+            KeyPreview = true;
+
+            _input = new UiInput(Width - 40) { Location = new Point(20, 58) };
+            Controls.Add(_input);
+
+            _list = new ListBox
+            {
+                Location = new Point(20, 104),
+                Size = new Size(Width - 40, Height - 104 - 44),
+                BorderStyle = BorderStyle.None,
+                BackColor = Theme.Sunken,
+                ForeColor = Theme.Sub,
+                Font = Theme.Font(10f),
+                IntegralHeight = false
+            };
+            _list.DoubleClick += (s, e) => Accept();
+            Controls.Add(_list);
+
+            var hint = new Label
+            {
+                Text = "↑↓ 选择 · 回车打开 · Esc 关闭",
+                AutoSize = true,
+                ForeColor = Theme.Hint,
+                BackColor = Theme.Card,
+                Font = Theme.Font(8.25f),
+                Location = new Point(22, Height - 30)
+            };
+            Controls.Add(hint);
+
+            _input.Box.TextChanged += (s, e) => Filter(_input.ValueText.Trim());
+            KeyDown += (s, e) =>
+            {
+                if (e.KeyCode == Keys.Escape) { Close(); }
+                else if (e.KeyCode == Keys.Enter) { e.SuppressKeyPress = true; Accept(); }
+                else if (e.KeyCode == Keys.Down)
+                {
+                    e.SuppressKeyPress = true;
+                    if (_list.Items.Count > 0) _list.SelectedIndex = Math.Min(_list.Items.Count - 1, _list.SelectedIndex + 1);
+                }
+                else if (e.KeyCode == Keys.Up)
+                {
+                    e.SuppressKeyPress = true;
+                    if (_list.Items.Count > 0) _list.SelectedIndex = Math.Max(0, _list.SelectedIndex - 1);
+                }
+            };
+
+            Shown += (s, e) =>
+            {
+                using (var path = Draw.Round(new Rectangle(0, 0, Width, Height), Theme.RShell))
+                    Region = new Region(path);
+                _input.Box.Focus();
+                Filter("");
+            };
+            MouseDown += (s, e) => { if (e.Y < 56) { _dragging = true; _dragStart = e.Location; } };
+            MouseMove += (s, e) => { if (_dragging) { Left += e.X - _dragStart.X; Top += e.Y - _dragStart.Y; } };
+            MouseUp += (s, e) => _dragging = false;
+
+            Paint += (s, e) =>
+            {
+                var g = e.Graphics;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                using (var pen = new Pen(Theme.Border))
+                    g.DrawLine(pen, 0, 55, Width, 55);
+                using (var b = new SolidBrush(Theme.Accent))
+                    g.FillRectangle(b, 22, 20, 3, 16);
+                Draw.Text(g, "跳转 / 命令", Theme.Font(10.5f, true), Theme.Text,
+                          new Rectangle(34, 14, Width - 60, 28));
+            };
+        }
+
+        private void Filter(string kw)
+        {
+            _list.BeginUpdate();
+            _list.Items.Clear();
+            foreach (var kv in _all)
+            {
+                if (kw.Length == 0 || kv.Value.IndexOf(kw, StringComparison.OrdinalIgnoreCase) >= 0)
+                    _list.Items.Add(kv.Value);
+            }
+            _list.EndUpdate();
+            if (_list.Items.Count > 0) _list.SelectedIndex = 0;
+        }
+
+        private void Accept()
+        {
+            if (_list.SelectedIndex < 0) return;
+            string label = (string)_list.SelectedItem;
+            foreach (var kv in _all)
+            {
+                if (kv.Value == label) { SelectedKey = kv.Key; break; }
+            }
+            Close();
+        }
+    }
+
     internal static class Dialogs
     {
         // 返回 null 表示取消
@@ -399,6 +569,51 @@ namespace ScmUi
             {
                 dlg.ShowDialog(owner);
                 return dlg.Accepted;
+            }
+        }
+
+        // 系统文件对话框：手填绝对路径容易打错，导入导出统一走这里
+        public static string SaveFile(IWin32Window owner, string title, string filter,
+                                      string defaultName, string initialDir = "")
+        {
+            using (var d = new SaveFileDialog
+            {
+                Title = title,
+                Filter = filter,
+                FileName = defaultName,
+                OverwritePrompt = true,
+                AddExtension = true
+            })
+            {
+                if (!string.IsNullOrEmpty(initialDir) && System.IO.Directory.Exists(initialDir))
+                    d.InitialDirectory = initialDir;
+                return d.ShowDialog(owner) == DialogResult.OK ? d.FileName : null;
+            }
+        }
+
+        public static string OpenFile(IWin32Window owner, string title, string filter,
+                                      string initialDir = "")
+        {
+            using (var d = new OpenFileDialog
+            {
+                Title = title,
+                Filter = filter,
+                CheckFileExists = true
+            })
+            {
+                if (!string.IsNullOrEmpty(initialDir) && System.IO.Directory.Exists(initialDir))
+                    d.InitialDirectory = initialDir;
+                return d.ShowDialog(owner) == DialogResult.OK ? d.FileName : null;
+            }
+        }
+
+        public static string Folder(IWin32Window owner, string title, string initial = "")
+        {
+            using (var d = new FolderBrowserDialog { Description = title, ShowNewFolderButton = true })
+            {
+                if (!string.IsNullOrEmpty(initial) && System.IO.Directory.Exists(initial))
+                    d.SelectedPath = initial;
+                return d.ShowDialog(owner) == DialogResult.OK ? d.SelectedPath : null;
             }
         }
 

@@ -1,0 +1,211 @@
+﻿# GuiReady 网络配置：网卡 / IP / 网关 / DNS / 路由 / 解析测试。
+#
+# 改 IP 是最容易「把自己关在门外」的操作，所以：
+#   * 任何写操作前先把当前配置（Get-NetIPConfiguration + netsh 文本）存到 backup\；
+#   * 日志里明确写出「改的是哪块网卡、从什么改成什么」；
+#   * 动作支持 -DryRun，先看清要做什么。
+
+function Get-GuiReadyNetAdapters {
+    $rows = @()
+    $adapters = @(Get-NetAdapter -ErrorAction SilentlyContinue | Sort-Object ifIndex)
+    foreach ($a in $adapters) {
+        $ips = @()
+        $prefix = ''
+        $gw = @()
+        $dns = @()
+        $dhcp = ''
+        try {
+            foreach ($ip in @(Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue)) {
+                $ips += ('{0}/{1}' -f $ip.IPAddress, $ip.PrefixLength)
+            }
+        } catch { }
+        try {
+            $cfg = Get-NetIPConfiguration -InterfaceIndex $a.ifIndex -ErrorAction Stop
+            if ($cfg.IPv4DefaultGateway) { $gw += [string]$cfg.IPv4DefaultGateway.NextHop }
+            foreach ($d in @($cfg.DNSServer | Where-Object { $_.AddressFamily -eq 2 })) {
+                foreach ($x in @($d.ServerAddresses)) { if ($x -and ($x -notmatch ':')) { $dns += [string]$x } }
+            }
+        } catch { }
+        try { $dhcp = [string](Get-NetIPInterface -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction Stop).Dhcp } catch { }
+
+        $rows += [pscustomobject]@{
+            Name        = [string]$a.Name
+            Description = [string]$a.InterfaceDescription
+            ifIndex     = [int]$a.ifIndex
+            Status      = [string]$a.Status
+            LinkSpeed   = [string]$a.LinkSpeed
+            Mac         = [string]$a.MacAddress
+            Ip          = ($ips -join ' ')
+            Gateway     = ($gw -join ',')
+            Dns         = ($dns -join ',')
+            Dhcp        = $dhcp
+        }
+    }
+    return $rows
+}
+
+function Get-GuiReadyNetworkStatus {
+    $adapters = @(Get-GuiReadyNetAdapters)
+    $routes = @()
+    try {
+        $routes = @(Get-NetRoute -ErrorAction Stop | Where-Object { $_.DestinationPrefix -eq '0.0.0.0/0' } |
+                   Select-Object -First 10 | ForEach-Object {
+                       [pscustomobject]@{ IfIndex = [int]$_.ifIndex; NextHop = [string]$_.NextHop; Metric = [int]$_.RouteMetric; IfMetric = [int]$_.InterfaceMetric }
+                   })
+    } catch { }
+    return [pscustomobject]@{
+        Adapters = $adapters
+        Routes   = $routes
+        Hostname = $env:COMPUTERNAME
+        DnsCache = $(try { (Get-DnsClientCache -ErrorAction Stop | Measure-Object).Count } catch { 0 })
+    }
+}
+
+# 把改之前的配置留一份，出问题能照着抄回去
+function Save-GuiReadyNetworkBackup {
+    param([string]$Tag = 'network')
+    $root = $script:GuiReadyRoot
+    if (-not $root) { $root = Split-Path -Parent $PSScriptRoot }
+    $dir = Join-Path $root 'backup'
+    if (-not (Test-Path -LiteralPath $dir)) { New-Item -ItemType Directory -Path $dir -Force | Out-Null }
+    $file = Join-Path $dir ('{0}-{1}.txt' -f $Tag, (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    $lines = @()
+    $lines += '# ' + (Get-Date).ToString('o')
+    $lines += (Get-GuiReadyNetworkStatus | ConvertTo-Json -Depth 6)
+    $lines += ''
+    $lines += (netsh interface ipv4 show config 2>&1 | Out-String)
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    [System.IO.File]::WriteAllText($file, ($lines -join "`r`n"), $utf8)
+    Write-Log ('已备份当前网络配置：' + $file) 'INFO'
+    return $file
+}
+
+function Set-GuiReadyNetworkIp {
+    param(
+        [Parameter(Mandatory = $true)][string]$Adapter,
+        [switch]$Dhcp,
+        [string]$Ip = '',
+        [int]$PrefixLength = 24,
+        [string]$Gateway = '',
+        [string]$Dns = '',
+        [switch]$DryRun
+    )
+    Assert-Administrator | Out-Null
+    $a = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $Adapter -or [string]$_.ifIndex -eq $Adapter } | Select-Object -First 1
+    if (-not $a) { throw ('找不到网卡：' + $Adapter) }
+
+    $before = @(Get-GuiReadyNetAdapters | Where-Object { $_.ifIndex -eq $a.ifIndex })
+    $dnsList = @()
+    foreach ($x in ([string]$Dns -split '[;,\s]+')) { if ($x.Trim()) { $dnsList += $x.Trim() } }
+
+    if ($DryRun) {
+        Write-Log ('[预览] 网卡 {0}（ifIndex {1}）' -f $a.Name, $a.ifIndex) 'DRY'
+        if ($Dhcp) {
+            Write-Log '  将切换为 DHCP（自动获取 IP 与 DNS）' 'DRY'
+        } else {
+            if (-not $Ip) { throw '静态地址模式下 Ip 不能为空' }
+            Write-Log ('  将设为 {0}/{1}，网关 {2}' -f $Ip, $PrefixLength, $(if ($Gateway) { $Gateway } else { '（无）' })) 'DRY'
+            if ($dnsList.Count -gt 0) { Write-Log ('  DNS：' + ($dnsList -join ', ')) 'DRY' }
+        }
+        return [pscustomobject]@{ Adapter = $a.Name; Planned = $true; Before = $before }
+    }
+
+    Save-GuiReadyNetworkBackup -Tag ('network-' + $a.Name) | Out-Null
+
+    if ($Dhcp) {
+        Write-Log ('把 {0} 切到 DHCP…' -f $a.Name) 'STEP'
+        foreach ($ip in @(Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue)) {
+            try { Remove-NetIPAddress -IPAddress $ip.IPAddress -InterfaceIndex $a.ifIndex -Confirm:$false -ErrorAction Stop } catch { Write-Log ('  移除旧地址失败（继续）：' + $_.Exception.Message) 'WARN' }
+        }
+        try { Remove-NetRoute -InterfaceIndex $a.ifIndex -DestinationPrefix '0.0.0.0/0' -Confirm:$false -ErrorAction SilentlyContinue } catch { }
+        Set-NetIPInterface -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -Dhcp Enabled -ErrorAction Stop
+        Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ResetServerAddresses -ErrorAction SilentlyContinue
+    } else {
+        if (-not $Ip) { throw '静态地址模式下 Ip 不能为空' }
+        Write-Log ('把 {0} 设为 {1}/{2}…' -f $a.Name, $Ip, $PrefixLength) 'STEP'
+        try { Set-NetIPInterface -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -Dhcp Disabled -ErrorAction SilentlyContinue } catch { }
+        foreach ($old in @(Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue)) {
+            if ([string]$old.IPAddress -ne $Ip) {
+                try { Remove-NetIPAddress -IPAddress $old.IPAddress -InterfaceIndex $a.ifIndex -Confirm:$false -ErrorAction SilentlyContinue } catch { }
+            }
+        }
+        $exist = @(Get-NetIPAddress -InterfaceIndex $a.ifIndex -AddressFamily IPv4 -ErrorAction SilentlyContinue | Where-Object { $_.IPAddress -eq $Ip })
+        if ($exist.Count -eq 0) {
+            if ($Gateway) {
+                New-NetIPAddress -InterfaceIndex $a.ifIndex -IPAddress $Ip -PrefixLength $PrefixLength -DefaultGateway $Gateway -ErrorAction Stop | Out-Null
+            } else {
+                New-NetIPAddress -InterfaceIndex $a.ifIndex -IPAddress $Ip -PrefixLength $PrefixLength -ErrorAction Stop | Out-Null
+            }
+        }
+        if ($dnsList.Count -gt 0) {
+            Set-DnsClientServerAddress -InterfaceIndex $a.ifIndex -ServerAddresses $dnsList -ErrorAction Stop
+        }
+    }
+
+    Start-Sleep -Milliseconds 800
+    $after = @(Get-GuiReadyNetAdapters | Where-Object { $_.ifIndex -eq $a.ifIndex })
+    foreach ($x in $after) { Write-Log ('  现在：{0} / IP {1} / 网关 {2} / DNS {3} / DHCP {4}' -f $x.Name, $x.Ip, $x.Gateway, $x.Dns, $x.Dhcp) 'OK' }
+    return [pscustomobject]@{ Adapter = $a.Name; Before = $before; After = $after }
+}
+
+function Set-GuiReadyNetworkAdapter {
+    param([Parameter(Mandatory = $true)][string]$Adapter,
+          [Parameter(Mandatory = $true)][ValidateSet('enable', 'disable', 'restart')][string]$Action,
+          [switch]$DryRun)
+    Assert-Administrator | Out-Null
+    $a = Get-NetAdapter -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq $Adapter -or [string]$_.ifIndex -eq $Adapter } | Select-Object -First 1
+    if (-not $a) { throw ('找不到网卡：' + $Adapter) }
+    if ($DryRun) { Write-Log ('[预览] 网卡 {0} → {1}' -f $a.Name, $Action) 'DRY'; return }
+    Write-Log ('网卡 {0} → {1}' -f $a.Name, $Action) 'STEP'
+    switch ($Action) {
+        'enable'  { Enable-NetAdapter -Name $a.Name -Confirm:$false -ErrorAction Stop }
+        'disable' { Disable-NetAdapter -Name $a.Name -Confirm:$false -ErrorAction Stop }
+        'restart' { Restart-NetAdapter -Name $a.Name -Confirm:$false -ErrorAction Stop }
+    }
+    Start-Sleep -Milliseconds 800
+    $now = Get-NetAdapter -Name $a.Name -ErrorAction SilentlyContinue
+    Write-Log ('现在状态：' + [string]$now.Status) 'OK'
+}
+
+function Test-GuiReadyDns {
+    param([Parameter(Mandatory = $true)][string]$Name, [string]$Server = '')
+    $sw = [System.Diagnostics.Stopwatch]::StartNew()
+    $rows = @()
+    try {
+        if ($Server) {
+            $r = @(Resolve-DnsName -Name $Name -Server $Server -ErrorAction Stop)
+        } else {
+            $r = @(Resolve-DnsName -Name $Name -ErrorAction Stop)
+        }
+        foreach ($x in $r) {
+            $rows += [pscustomobject]@{
+                Name    = [string]$x.Name
+                Type    = [string]$x.Type
+                Value   = $(if ($x.IPAddress) { [string]$x.IPAddress } elseif ($x.NameHost) { [string]$x.NameHost } else { [string]$x.Strings })
+                Ttl     = $(if ($x.TTL) { [int]$x.TTL } else { 0 })
+                Server  = $Server
+            }
+        }
+    } catch {
+        throw ('解析失败：' + $_.Exception.Message)
+    } finally {
+        $sw.Stop()
+    }
+    Write-Log ('解析 {0}：{1} 条记录，{2} ms' -f $Name, $rows.Count, $sw.ElapsedMilliseconds) 'OK'
+    return [pscustomobject]@{ Items = $rows; Ms = [int]$sw.ElapsedMilliseconds }
+}
+
+function Get-GuiReadyRoutes {
+    param([int]$Max = 60)
+    try {
+        return @(Get-NetRoute -ErrorAction Stop | Sort-Object DestinationPrefix |
+                 Select-Object -First $Max | ForEach-Object {
+                     [pscustomobject]@{
+                         Destination = [string]$_.DestinationPrefix
+                         NextHop     = [string]$_.NextHop
+                         Interface   = [string]$_.InterfaceAlias
+                         Metric      = [int]$_.RouteMetric
+                     }
+                 })
+    } catch { return @() }
+}

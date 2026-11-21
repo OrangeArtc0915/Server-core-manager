@@ -67,9 +67,9 @@ Add-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 ## 功能一览
 
-### 图形界面（28 个页面，原生 C# 界面，只做深色主题）
+### 图形界面（35 个页面，原生 C# 界面，只做深色主题）
 
-> **两套界面，同一个后端**：默认启动的是原生界面 `ui\bin\ScmUi.exe`（csc 现场编译，启动约 150 ms）；它起不来时启动器会安静回退到 PowerShell 版界面（`gui\GuiReady.GuiApp.ps1`），两条路都在包里。下文按原生界面介绍，功能与动作两边一致。
+> **两套界面，同一个后端**：默认启动的是原生界面 `ui\bin\ScmUi.exe`（csc 现场编译，启动约 150 ms）；它起不来时启动器会安静回退到 PowerShell 版界面（`gui\GuiReady.GuiApp.ps1`），两条路都在包里。原生界面用的动作清单与 PowerShell 版完全一致；「监控告警 / 系统维护 / 批量管理 / 脚本库 / 诊断工具 / 软件与权限 / 报告中心」7 页目前只在原生界面提供，PowerShell 回退界面仍可在「全部功能」里运行对应动作。
 >
 > **深色是唯一主题**：目标场景是 Server Core —— 运维就在深色终端里干活，界面与终端同调不刺眼；且 Server Core 常年缺主题/显示个性化组件，浅色在远桌面里更晃眼。所有颜色都走设计 Token（`ui\Theme.cs`），控件全部自绘，不会混进系统浅色控件。
 
@@ -96,15 +96,41 @@ Add-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 | **系统任务** | 查看 Windows 计划任务（默认隐藏本工具自建的 `ScmOps-*`）：启用 / 禁用 / 立即运行 / 停止 / 删除 / 详情 |
 | **角色工具** | Hyper-V（虚拟机启停 / 保存 / 快照）、IIS（站点与应用池）、打印（队列）、SMB 共享（含会话与打开文件）；没装的角色会提示去补 |
 | **通知** | SMTP 与 Webhook（钉钉 / 飞书 / 企业微信 / 通用 JSON）：配置、测试、发送自定义消息；守护启动失败与端口巡检异常会自动发 |
+| **系统维护** | 四个视图：**证书**（查看 / 导入 / 导出 / 删除 / 到期提醒）、**驱动与硬件**（驱动列表 / 问题设备 / SMART / 导出还原）、**启动项**（注册表 / 启动文件夹 / 服务 / 计划任务）、**备份**（系统状态快照 / 共享备份） |
 | **日志中心** | Windows 事件日志与工具自身日志的统一读取、筛选、导出；双击一行看完整消息 |
 | **任务中心** | 每个动作都有任务编号、起止时间、退出码与完整日志；双击看详情与审计轨迹 |
 | **自动化** | 五个视图：**进程守护**（崩溃自动拉起 + 退避）、**计划任务**（间隔 / 每天定时 + 动作链）、**目录备份**（zip 或整目录复制 + 保留 N 份）、**端口巡检**（TCP 探测 + 本机监听进程）、**下载队列**（BITS 后台传输，可暂停 / 继续 / 收尾） |
 | **操作审计** | 提交、执行、配置备份与恢复全在这里留痕；只追加、不修改，可按级别 / 时间 / 关键词筛选后导出 |
 | **远程主机** | WinRM 主机清单、连通性测试、批量执行命令；凭据用 DPAPI 加密 |
-| **全部功能** | 全部 **155 个动作 / 31 组**：左边选分组，中间选动作，右边填参数后运行（可先「仅预览」看要执行什么） |
+| **监控告警** | 性能历史采样与 HTML 报表、阈值 / 事件告警规则、关键事件订阅；可发通知或自动执行动作；**维护窗口**内自动静默告警 |
+| **诊断工具** | 三个视图：**网络**（监听端口 / TCP 端口扫描 / DNS 解析 / 连通性 / 代理设置 / pktmon 抓包与 pcapng）、**进程**（PID / CPU / 内存 / 服务 / 监听端口 / 命令行、进程树、详情、结束进程）、**快照历史**（Top 进程定时落盘与回看） |
+| **软件与权限** | 三个视图：**软件清单**（注册表 Uninstall 清单、导出 CSV、静默卸载）、**共享权限**（SMB 共享与账户授权 / 收回）、**NTFS 权限**（路径 ACL 查询 / 设置 / 有效权限近似） |
+| **批量管理** | 对远程主机批量采集状态、执行命令、安装软件包，以及**上传 / 下载文件、分发执行脚本**，结果逐台汇总 |
+| **脚本库** | 内置清理临时文件 / 收集诊断包 / 重置网络 / 磁盘检查 / 导出资产清单，预览后执行 |
+| **报告中心** | 统一列出 `reports\` 下的性能报表 / 诊断包 / 导出文件：打包 ZIP（含 SHA256）、作为邮件附件发送、注册每日自动打包任务 |
+| **全部功能** | 全部 **200 个动作 / 45 组**：左边选分组，中间选动作，右边填参数后运行（可先「仅预览」看要执行什么） |
 | **关于** | 作者 / QQ 群 / GitHub / 官网（链接可点）、打开日志与报告目录、**完整性自检**（文件清单 + 签名 + 目录权限） |
 
 > 每页右上角的「高级」按钮会**就地弹窗**打开本页对应的动作分组（不跳走），配合「全部功能」页使用：日常点卡片，边角参数走「高级」。
+
+### 命令行（scm &lt;verb&gt;）
+
+`scm` 不带参数仍然打开界面；带参数时走 CLI，所有命令都支持 `--json`：
+
+```powershell
+scm status                         # 系统概览
+scm metrics --days 7 --report      # 性能报表
+scm alerts check                   # 立即检查告警
+scm backup --share \\nas\backup    # 系统状态备份并复制到共享
+scm update [--install]             # 检查 / 安装 Windows 更新
+scm run metrics-sample             # 运行动作（有审计）
+scm tools list | download scterm   # 附属工具
+scm certs | drivers | startup      # 证书 / 驱动 / 启动项
+scm batch collect --hosts all      # 批量采集
+scm scripts list | run cleanup-temp
+```
+
+> 入口是根目录的 `ScmCli.ps1`；`scm` 命令已把参数透传进去，不需要额外安装。
 
 ### 附属工具（SCM附属）
 
@@ -120,7 +146,7 @@ Add-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 > 商店、角色、总览、安全、运行库、数据库、自动化这些页的数据都在**子进程**里取（`choco search` 是网络调用、`Get-WindowsFeature` 要问 CBS、`Get-Counter` 取样要 1 秒、事件日志查询要几百毫秒），结果写成 JSON 由界面读回 —— 原生界面走 `ui\Bridge.cs`，PowerShell 版走查询宿主，界面不会卡住；查询超时会自己收尾，不会永远停在「正在…」。
 
-### 155 个功能动作
+### 200 个功能动作
 
 - **一键流程（4）**：一键就绪（自动重启 / 需要重启时暂停）、续跑未完成的流程、查看流程状态
 - **探测与诊断（4）**：环境探测、exe 兼容性预检、GUI 能力自检（真的建窗 + 抓图取证）、启动并诊断
@@ -153,6 +179,20 @@ Add-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 - **角色工具（12）**：Hyper-V（列表 / 操作 / 快照）、IIS（站点 / 操作）、打印（列表 / 操作）、SMB 共享（列表 / 新建 / 删除 / 断开句柄）、角色可用性检测
 - **通知（4）**：配置、测试、自定义发送、查看配置与记录
 - **SCM附属（2）**：下载附属工具发行包（GitHub 线路）、下载附属工具发行包（Gitee 线路）
+- **性能历史（4）**：采样一次、生成 HTML 报表、采样任务安装 / 移除
+- **告警规则（7）**：添加 / 删除 / 启停规则、立即检查、告警任务、事件订阅 / 取消
+- **证书管理（3）**：导入、导出（cer / pfx）、删除
+- **驱动与硬件（2）**：导出驱动、导入驱动
+- **启动项（1）**：启用 / 禁用（注册表 / 启动文件夹 / 服务 / 计划任务）
+- **备份增强（3）**：系统状态备份、复制到共享、每日备份任务
+- **批量管理（6）**：批量执行、批量采集、批量装包、批量上传文件、批量下载文件、批量分发脚本
+- **网络诊断（5）**：端口扫描、DNS 解析、连通性测试、pktmon 抓包、停止抓包
+- **进程分析（2）**：记录进程快照、结束进程（关键进程保护）
+- **软件管理（2）**：静默卸载、导出软件清单
+- **共享与权限（3）**：授予 / 收回 SMB 共享权限、设置 NTFS 权限
+- **维护窗口（2）**：开始 / 结束维护窗口（告警静默）
+- **报告中心（4）**：打包最近报表、打包并发送报告、安装 / 取消每日报告任务
+- **脚本库（1）**：运行内置维护脚本
 
 ### 终端美化（在 Server Core 的 conhost 上做出好看的控制台）
 
@@ -265,7 +305,7 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 
 （Gitee 对不存在的下载路径会返回 `200` + 一段 JSON，所以脚本会按 zip 魔数 `PK` 校验内容，不是只看状态码。）
 
-它会：下载指定版本的发布包（默认 `v2.0`）→ 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → 安装 `scm` 一行命令。
+它会：下载指定版本的发布包（默认 `v2.2`）→ 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → 安装 `scm` 一行命令。
 
 装完之后，**在任意目录输入 `scm` 回车**就能打开图形界面（首次会像 `sconfig` 一样弹一次提权确认）。
 
@@ -274,7 +314,7 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # 改安装目录
 $env:SCM_NO_COMMAND = '1'     # 不装 scm 命令
-$env:SCM_VERSION = 'v2.0'     # 指定发布版本（两个仓库用同一个 tag）
+$env:SCM_VERSION = 'v2.2'     # 指定发布版本（两个仓库用同一个 tag）
 irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
 ```
 
@@ -419,9 +459,11 @@ LSA 机密写入（密码不以明文落注册表）→ 真实重启 → 自动�
 > 想自己看启动明细：设 `SCM_BOOT_TRACE=1` 再启动，各阶段耗时（毫秒）会追加到 `state\boot-trace.txt`。
 > 后台探测的原始结果在 `state\probe.json`（本次）与 `state\env-cache.json`（上次完整结果）。
 
-### 全功能实测（28 个页面 + 155 个动作）
+### 全功能实测（35 个页面 + 200 个动作）
 
-界面布局用一套反射脚手架把 28 个页面在 **1240×820** 与 **1024×700** 两种尺寸下逐页显示，并审计整棵控件树：**越界 0 处、重叠 0 处**。动作清单 155 条 / 31 组直接由 `Run-GuiReadyActions.ps1 -Mode list` 读出 —— 原生界面、动作执行器、无头执行共用同一份定义。
+界面布局用一套反射脚手架把 35 个页面在 **1240×820** 与 **1024×700** 两种尺寸下逐页显示，并审计整棵控件树：**越界 0 处、重叠 0 处**。动作清单 200 条 / 45 组直接由 `Run-GuiReadyActions.ps1 -Mode list` 读出 —— 原生界面、动作执行器、无头执行共用同一份定义。
+
+诊断工具 / 软件与权限 / 报告中心三页的读取路径也逐视图跑过：监听端口 71 条、进程 120 条、进程快照、软件清单 295 条、SMB 授权 21 条、NTFS ACL、报告列表 38 个文件。本轮新增的 21 条动作（网络诊断 / 进程分析 / 软件管理 / 共享与权限 / 维护窗口 / 报告中心 / 批量文件）全部通过动作执行器实跑：端口扫描 / DNS / 连通性 / 进程快照 / 软件导出 / 报告打包 / 进程结束为真跑，SMB 授权、NTFS 设置、维护窗口、报告任务为预览或即时撤销。
 
 早前那轮把当时的 44 条动作**逐个跑**过（只读和对本机安全的真跑，会改系统状态的只跑预览）。实测环境：Windows 10 22H2（build 19044），管理员会话。
 
@@ -614,7 +656,8 @@ $sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); 
 ├─ 一键运行.bat                 双击入口（自动提权 → 图形界面）
 ├─ 打开命令行菜单.bat           旧的控制台菜单入口
 ├─ 安装一行命令.bat             把 scm 装进 PATH
-├─ Start-GuiReadyApp.ps1        统一入口（默认 GUI，-Console 走菜单）
+├─ Start-GuiReadyApp.ps1        统一入口（无参数开 GUI；带 `scm <verb>` 参数走 CLI）
+├─ ScmCli.ps1                   命令行分发（status / metrics / backup / run …）
 ├─ Start-GuiReady.ps1           15 项两级控制台菜单
 ├─ Install-GuiReadyCommand.ps1  一行命令的安装器
 ├─ Resume-GuiReadyPipeline.ps1  跨重启断点续跑
@@ -625,9 +668,16 @@ $sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); 
 │
 ├─ manifest.sha256              发布包里的完整性清单（打包时生成，逐个文件 SHA256）
 ├─ ui\                          原生界面（C#，csc 现场编译）
-│   ├─ Shell.cs                 主窗口：标题栏 / 侧栏 / 28 页宿主 / 日志栏 / 退出即开终端
+│   ├─ Shell.cs                 主窗口：标题栏 / 侧栏 / 35 页宿主 / 日志栏 / 退出即开终端
 │   ├─ Pages.cs, Pages2.cs      总览 / 环境 / 日志 / 任务 / 程序 / 档案 / 角色 / 安全 / 工具 / 美化 / 审计 / 远程 / 关于
-│   ├─ ToolsPage.cs             SCM附属（附属工具下载：GitHub 源码 / Gitee 编译包）
+│   ├─ ToolsPage.cs             SCM附属（附属工具下载：GitHub / Gitee 发行包）
+│   ├─ MaintPage.cs             系统维护（证书 / 驱动 / 启动项 / 备份）
+│   ├─ MetricsPage.cs           监控告警（性能历史 / 规则 / 事件 / 维护窗口）
+│   ├─ BatchPage.cs             批量管理（采集 / 执行 / 装包 / 上传下载 / 分发脚本）
+│   ├─ ScriptsPage.cs           脚本库
+│   ├─ DiagPage.cs              诊断工具（网络 / 进程 / 快照历史）
+│   ├─ SoftwarePage.cs          软件与权限（软件清单 / 共享 / NTFS）
+│   ├─ ReportsPage.cs           报告中心（打包 / 发送 / 每日任务）
 │   ├─ StorePage.cs             应用商店（卡片墙 + 筛选 + 批量队列）
 │   ├─ RuntimePage.cs           运行库
 │   ├─ DatabasePage.cs          数据库（含建库 / 还原）
@@ -640,7 +690,7 @@ $sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); 
 │   └─ build-ui.ps1             用系统自带 csc.exe 编译（自动补 UTF-8 BOM）
 ├─ gui\
 │   ├─ GuiReady.GuiApp.ps1      主界面（含 -SelfTest / -LayoutDump 诊断开关）
-│   ├─ GuiReady.Actions.ps1     155 个动作的清单（两套界面与无头执行器共用同一份）
+│   ├─ GuiReady.Actions.ps1     200 个动作的清单（两套界面与无头执行器共用同一份）
 │   ├─ GuiReady.Ui.ps1          设计系统：Token 组件 + 子进程查询宿主 + 列表行
 │   ├─ Run-GuiReadyAction.ps1   动作执行器（子进程运行，界面不卡）
 │   ├─ Run-GuiReadyStore.ps1    商店查询（子进程里查源状态 / 搜索，结果写 JSON）
@@ -652,6 +702,13 @@ $sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); 
 │   ├─ Run-GuiReadyOps.ps1      自动化（守护 / 计划 / 备份 / 巡检 / 下载）
 │   ├─ Run-GuiReadySys.ps1      系统管理（更新 / 网络 / 账户 / 服务 / 防火墙 / 存储 / 任务 / 角色工具 / 通知）
 │   ├─ Run-GuiReadyPlugins.ps1  附属工具（清单 / 本地状态 / GitHub + Gitee 下载）
+│   ├─ Run-GuiReadyMetrics.ps1  性能历史 / 告警 / 事件
+│   ├─ Run-GuiReadyMaint.ps1    证书 / 驱动 / 启动项 / 备份
+│   ├─ Run-GuiReadyBatch.ps1    多机批量采集 / 执行 / 装包 / 上传下载 / 分发脚本
+│   ├─ Run-GuiReadyScripts.ps1  脚本库（列表 / 预览 / 执行）
+│   ├─ Run-GuiReadyDiag.ps1     网络与进程诊断（端口 / DNS / 连通性 / 抓包 / 进程）
+│   ├─ Run-GuiReadySoftware.ps1 软件清单 / 卸载 / SMB / NTFS
+│   ├─ Run-GuiReadyReports.ps1  报告中心（列表 / 打包 / 发送 / 每日任务）
 │   ├─ Run-GuiReadyIntegrity.ps1 启动时的文件清单核对
 │   ├─ Run-GuiReadyDsh.ps1      dsh-TUI 依赖检查（含 npm 实查包名）
 │   └─ Run-GuiReadyProbe.ps1    环境探针（子进程里查环境，卡片不再卡界面）
@@ -661,6 +718,13 @@ $sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); 
 │
 ├─ store\
 │   └─ catalog.json             应用商店精选清单（24 条，含兼容性凭据）
+│
+├─ scripts\                     脚本库（带 @scm-* 元数据，可预览 / 校验后执行）
+│   ├─ cleanup-temp.ps1         清理临时目录与 CBS 日志
+│   ├─ collect-diagnostics.ps1  收集诊断包到 reports
+│   ├─ reset-network.ps1        重置 Winsock / TCPIP
+│   ├─ check-disk.ps1           磁盘健康 + chkdsk /scan
+│   └─ export-inventory.ps1     导出软件 / 硬件 / 网络清单
 │
 ├─ lib\
 │   ├─ GuiReady.Common.ps1      日志、权限、JSON 报告、SYSTEM 提权计划任务
@@ -693,6 +757,17 @@ $sb = [scriptblock]::Create((Get-Content -Raw -Encoding UTF8 '.\install.ps1')); 
 │   ├─ GuiReady.RoleTools.ps1   Hyper-V / IIS / 打印 / SMB 共享
 │   ├─ GuiReady.Notify.ps1      通知（SMTP / Webhook / DPAPI 密码）
 │   ├─ GuiReady.Plugins.ps1     附属工具清单 / 双线路下载 / 解压替换
+│   ├─ GuiReady.TasksPlus.ps1   通用计划任务助手（采样 / 告警 / 备份）
+│   ├─ GuiReady.Metrics.ps1     性能历史 / 告警规则 / 事件订阅
+│   ├─ GuiReady.Maintenance.ps1 证书 / 驱动 / 启动项 / 系统状态备份
+│   ├─ GuiReady.Batch.ps1       多机批量采集 / 执行 / 装包 / 上传下载 / 分发脚本
+│   ├─ GuiReady.ScriptLib.ps1   脚本库（元数据 / 预览 / 执行）
+│   ├─ GuiReady.NetDiag.ps1     网络诊断（端口 / DNS / 代理 / 连通性 / pktmon）
+│   ├─ GuiReady.Proc.ps1        进程分析（列表 / 树 / 详情 / 快照 / 结束）
+│   ├─ GuiReady.Software.ps1    软件清单 / 静默卸载 / 导出
+│   ├─ GuiReady.Perms.ps1       SMB 共享授权 / NTFS ACL / 有效权限
+│   ├─ GuiReady.Reports.ps1     报告中心（列表 / 打包 / 发送 / 每日任务）
+│   ├─ GuiReady.Cli.ps1         命令行分发（status / metrics / backup / run …）
 │   ├─ GuiReady.Dsh.ps1         DeepSeek Harness：依赖检测 / 安装 / 启动
 │   ├─ GuiReady.Diag.ps1        排障采集
 │   ├─ GuiReady.Matrix.ps1      版本适配矩阵

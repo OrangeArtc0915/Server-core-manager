@@ -5,11 +5,21 @@ param(
     [switch]$Console,
     [switch]$KeepConsole,
     # 强制走 PowerShell 版界面（原生界面出问题时的手动开关）
-    [switch]$PowerShellGui
+    [switch]$PowerShellGui,
+    # 自检 / 布局诊断：只有 PowerShell 版界面实现了，自动切过去
+    [switch]$SelfTest,
+    [switch]$LayoutDump,
+    # scm <verb> ... 的命令行参数；有参数时走 CLI，不开界面
+    [Parameter(ValueFromRemainingArguments = $true)][string[]]$CliArgs
 )
 
 $ErrorActionPreference = 'Continue'
 $here = $PSScriptRoot
+
+if ($CliArgs -and $CliArgs.Count -gt 0) {
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $here 'ScmCli.ps1') @CliArgs
+    exit $LASTEXITCODE
+}
 
 # 提权重启会拉起一个新进程；用环境变量把「这次要走 PowerShell 版界面」带过去
 # （Start-Process -Verb RunAs 不会带命令行参数，只有环境会被继承）。
@@ -51,7 +61,11 @@ if ($Console) {
 # 原则：能开就开；开不起来就安静回退到 PowerShell 版 —— 两条路都在包里，用户不会打不开。
 # 手动跳过原生界面：-PowerShellGui 或环境变量 SCM_FORCE_PS_GUI=1
 $nativeExe = Join-Path $here 'ui\bin\ScmUi.exe'
-$forcePs = $PowerShellGui -or ($env:SCM_FORCE_PS_GUI -eq '1')
+$forcePs = $PowerShellGui -or ($env:SCM_FORCE_PS_GUI -eq '1') -or $SelfTest -or $LayoutDump
+if ($SelfTest -or $LayoutDump) {
+    # 自检/布局诊断不该在退出时再弹终端
+    $env:SCM_NO_EXIT_TERM = '1'
+}
 if (-not $forcePs -and (Test-Path -LiteralPath $nativeExe)) {
     $nativeCode = $null
     $nativeError = ''
@@ -86,7 +100,7 @@ if (Test-Path -LiteralPath $gui) {
     # 看起来就是"双击没反应"。这里兜住异常、打印原因并等一次回车。
     $failed = $false
     try {
-        & $gui -KeepConsole:$KeepConsole
+        & $gui -KeepConsole:$KeepConsole -SelfTest:$SelfTest -LayoutDump:$LayoutDump
     } catch {
         $failed = $true
         Write-Host ''

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Globalization;
 using System.Windows.Forms;
 
 namespace ScmUi
@@ -42,6 +43,8 @@ namespace ScmUi
         private int _hoverRow = -1;
         private int _selected = -1;
         private int _scroll;
+        private int _sortCol = -1;
+        private bool _sortAsc = true;
 
         public event Action<int> RowActivated;
 
@@ -56,6 +59,8 @@ namespace ScmUi
             Rows.Clear();
             Rows.AddRange(rows);
             Checked.Clear();
+            _sortCol = -1;
+            _sortAsc = true;
             if (_selected >= Rows.Count) _selected = -1;
             if (!keepScroll) _scroll = 0;
             int max = Math.Max(0, Rows.Count - VisibleRows);
@@ -102,6 +107,23 @@ namespace ScmUi
 
         protected override void OnMouseClick(MouseEventArgs e)
         {
+            // 点列头 = 按该列排序（再点一次反向）。数字列按数值比，其余按字符串。
+            if (e.Button == MouseButtons.Left && e.Y < HeaderHeight)
+            {
+                int x = 12;
+                for (int i = 0; i < Columns.Count; i++)
+                {
+                    if (e.X >= x - 6 && e.X < x + Columns[i].Width - 6)
+                    {
+                        if (_sortCol == i) _sortAsc = !_sortAsc;
+                        else { _sortCol = i; _sortAsc = true; }
+                        SortRows();
+                        return;
+                    }
+                    x += Columns[i].Width;
+                }
+                return;
+            }
             if (e.Button == MouseButtons.Left)
             {
                 int idx = RowAt(e.Y);
@@ -163,6 +185,26 @@ namespace ScmUi
                 });
         }
 
+        private void SortRows()
+        {
+            int col = _sortCol;
+            bool asc = _sortAsc;
+            Rows.Sort((a, b) =>
+            {
+                string x = col < a.Length ? (a[col] ?? "") : "";
+                string y = col < b.Length ? (b[col] ?? "") : "";
+                double dx, dy;
+                if (double.TryParse(x, NumberStyles.Any, CultureInfo.CurrentCulture, out dx) &&
+                    double.TryParse(y, NumberStyles.Any, CultureInfo.CurrentCulture, out dy))
+                    return asc ? dx.CompareTo(dy) : dy.CompareTo(dx);
+                int c = string.Compare(x, y, StringComparison.CurrentCultureIgnoreCase);
+                return asc ? c : -c;
+            });
+            _selected = -1;
+            _scroll = 0;
+            Invalidate();
+        }
+
         protected override void OnMouseWheel(MouseEventArgs e)
         {
             int max = Math.Max(0, Rows.Count - VisibleRows);
@@ -181,6 +223,32 @@ namespace ScmUi
             return i;
         }
 
+        // 根据整行文字判断状态色（不要求各页传额外字段，旧表也能立刻受益）
+        private static Color? RowTint(string[] row)
+        {
+            if (row == null) return null;
+            bool warn = false, ok = false;
+            foreach (var cell in row)
+            {
+                if (string.IsNullOrEmpty(cell)) continue;
+                if (cell.IndexOf("失败") >= 0 || cell.IndexOf("错误") >= 0 ||
+                    cell.IndexOf("异常") >= 0 || cell.IndexOf("未通过") >= 0 ||
+                    cell.IndexOf("不可用") >= 0)
+                    return Color.FromArgb(20, Theme.Err);
+                if (cell.IndexOf("警告") >= 0 || cell.IndexOf("未安装") >= 0 ||
+                    cell.IndexOf("未启动") >= 0 || cell.IndexOf("未配置") >= 0 ||
+                    cell.IndexOf("部分") >= 0)
+                    warn = true;
+                else if (cell.IndexOf("成功") >= 0 || cell.IndexOf("正常") >= 0 ||
+                         cell.IndexOf("已安装") >= 0 || cell.IndexOf("已启动") >= 0 ||
+                         cell.IndexOf("通过") >= 0)
+                    ok = true;
+            }
+            if (warn) return Color.FromArgb(16, Theme.Warn);
+            if (ok) return Color.FromArgb(12, Theme.Ok);
+            return null;
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             var g = e.Graphics;
@@ -194,11 +262,16 @@ namespace ScmUi
 
             int x = 12;
             var f = Theme.Font(9f, true);
-            foreach (var c in Columns)
+            for (int ci = 0; ci < Columns.Count; ci++)
             {
+                var c = Columns[ci];
                 Draw.Text(g, c.Header, f, Theme.Hint,
                           new Rectangle(x, 0, c.Width - 12, HeaderHeight),
                           c.Right ? ContentAlignment.MiddleRight : ContentAlignment.MiddleLeft);
+                if (ci == _sortCol)
+                    Draw.Text(g, _sortAsc ? "▲" : "▼", Theme.Font(7f), Accent,
+                              new Rectangle(x + c.Width - 24, 0, 16, HeaderHeight),
+                              ContentAlignment.MiddleRight);
                 x += c.Width;
             }
             using (var pen = new Pen(Theme.Border))
@@ -220,6 +293,15 @@ namespace ScmUi
                     if (sel)
                         using (var b = new SolidBrush(Accent))
                             g.FillRectangle(b, 0, y, 3, RowHeight);
+                }
+                else
+                {
+                    // 行级淡色：状态列写着失败/警告/成功时给一条很淡的底色，
+                    // 扫长列表比逐行读文字快得多（旧 PowerShell 版就是按行着色的）
+                    Color? tint = RowTint(row);
+                    if (tint.HasValue)
+                        using (var b = new SolidBrush(tint.Value))
+                            g.FillRectangle(b, 0, y, Width, RowHeight);
                 }
                 int cx = 12;
                 for (int ci = 0; ci < Columns.Count && ci < row.Length; ci++)

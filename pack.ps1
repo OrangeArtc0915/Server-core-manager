@@ -3,7 +3,7 @@
   打包发布压缩包（给 GitHub Releases 用）
 
   产出两个文件到 dist\ ：
-    ServerCoreManager.zip              固定名字。install.ps1 靠 releases/latest/download/ServerCoreManager.zip 取它，
+    ServerCoreManager.zip              固定名字。install.ps1 按 releases/download/<版本>/ServerCoreManager.zip 取它，
                                        所以每次发版【必须】上传这个同名文件。
     ServerCoreManager-<版本>.zip       带版本号，给人看的。
 
@@ -44,20 +44,20 @@ if (-not $OutDir) { $OutDir = Join-Path $root 'dist' }
 
 $files = @(
     'README.md', 'README.en.md', 'LICENSE',
-    'install.ps1', 'pack.ps1', 'RELEASE_NOTES.md',
+    'install.ps1', 'pack.ps1', 'RELEASE_NOTES.md', 'ScmCli.ps1',
     'Sign-GuiReady.ps1',
     'Start-GuiReadyApp.ps1', 'Start-GuiReady.ps1',
     'Install-GuiReadyCommand.ps1', 'Resume-GuiReadyPipeline.ps1',
     '一键运行.bat', '打开命令行菜单.bat', '安装一行命令.bat'
 )
-$dirs = @('gui', 'lib', 'launcher', 'setup', 'docs', 'store')
+$dirs = @('gui', 'lib', 'launcher', 'setup', 'docs', 'store', 'scripts')
 
 # 双保险：即使哪天把不该公开的东西挪进了上面这些目录，也不会被打进发布包
 $denyDirs = @('logs', 'reports', 'backup', 'state', 'payload', 'dist', '.git',
-              'runtimes', 'databases', 'data', 'reference', 'plugins')
+              'runtimes', 'databases', 'data', 'reference')
 $denyExt  = @('.exe', '.msi', '.zip')
 # 本机数据不进包：catalog.user.json 是用户自己的实测记录，随人不同
-$denyNames = @('catalog.user.json')
+$denyNames = @('catalog.user.json', 'monorepo-polyrepo-plan.md')
 
 $stage = Join-Path $env:TEMP ('scm-pack-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 New-Item -ItemType Directory -Path $stage -Force | Out-Null
@@ -260,6 +260,6 @@ if ($KeepStage) { Write-Host ('  暂存目录保留在: ' + $stage) -ForegroundC
 else { Remove-Item -LiteralPath $stage -Recurse -Force -ErrorAction SilentlyContinue }
 Write-Host ''
 Write-Host '  上传到 Releases 时记得两个都传：ServerCoreManager.zip 必须用这个固定名字，' -ForegroundColor Yellow
-Write-Host '  因为 install.ps1 是按 releases/latest/download/ServerCoreManager.zip 取的。' -ForegroundColor Yellow
+Write-Host '  因为 install.ps1 是按 releases/download/<版本>/ServerCoreManager.zip 取的。' -ForegroundColor Yellow
 Write-Host '  同时把 ServerCoreManager.zip.sha256 一起传上去 —— install.ps1 会用它校验下载到的包。' -ForegroundColor Yellow
 Write-Host ''
