@@ -807,7 +807,7 @@ $lblTitle.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]:
 $lblTitle.Add_DoubleClick({ Toggle-ShellMax })
 $pnlTitle.Controls.Add($lblTitle)
 
-$lblTitleVer          = New-Label -Text 'v2.2' -Size 8.6 -Color Hint
+$lblTitleVer          = New-Label -Text 'v2.3' -Size 8.6 -Color Hint
 $lblTitleVer.Location = New-Object System.Drawing.Point(220, 16)
 $lblTitleVer.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Start-ShellDrag } })
 $pnlTitle.Controls.Add($lblTitleVer)
@@ -980,7 +980,6 @@ $script:GuiPageMeta = @{
     'tool'     = @{ Text = '系统工具';   Icon = 'tool'     }
     'beauty'   = @{ Text = '终端美化';   Icon = 'beauty'   }
     'dsh'      = @{ Text = 'AI 辅助';    Icon = 'dsh'      }
-    'logs'     = @{ Text = '日志中心';   Icon = 'logs'     }
     'tasks'    = @{ Text = '任务中心';   Icon = 'tasks'    }
     'audit'    = @{ Text = '结构审计';   Icon = 'audit'    }
     'hosts'    = @{ Text = '远程主机';   Icon = 'hosts'    }
@@ -993,8 +992,7 @@ $script:GuiModules = @(
     @{ Key = 'env';   Text = '环境管理'; Icon = 'env';     Pages = @('env', 'role', 'security') }
     # 程序管理：程序档案 / 系统工具 / 终端美化 / AI 辅助（美化与 AI 从「设置」挪过来 —— 它们都是"装东西"）
     @{ Key = 'prog';  Text = '程序管理'; Icon = 'app';     Pages = @('app', 'tool', 'beauty', 'dsh') }
-    # 运维面板第一批：日志 + 任务 + 审计（文件管理已移除：装过 FOD 的机器自带资源管理器）
-    @{ Key = 'ops';   Text = '运行日志'; Icon = 'logs';    Pages = @('logs') }
+    # 运维面板第一批：任务 + 审计（日志中心与 WAC 的事件查看器重复，已从导航移除）
     @{ Key = 'run';   Text = '任务与审计'; Icon = 'tasks'; Pages = @('tasks', 'audit') }
     # 运维面板第二批：WinRM 多主机（后续批次的远程终端也挂在这一组）
     @{ Key = 'remote'; Text = '远程运维'; Icon = 'hosts'; Pages = @('hosts') }
@@ -1109,7 +1107,7 @@ foreach ($__mod in $script:GuiModules) {
 }
 $pnlNavTop.Height = $__y
 
-$lblVer = New-Label -Text ('v2.2  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.25 -Color Hint
+$lblVer = New-Label -Text ('v2.3  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.25 -Color Hint
 $lblVer.Dock = 'Bottom'
 $lblVer.Height = 30
 $lblVer.TextAlign = 'MiddleLeft'
@@ -8800,7 +8798,7 @@ $lblAuQQ               = New-Label -Text 'QQ 群：1034243331' -Size 10
 $lblAuQQ.Location      = New-Object System.Drawing.Point(20, 46)
 $cardAbout.Controls.Add($lblAuQQ)
 
-$lblAuVer              = New-Label -Text ('版本：v2.2    构建 ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 10
+$lblAuVer              = New-Label -Text ('版本：v2.3    构建 ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 10
 $lblAuVer.Location     = New-Object System.Drawing.Point(20, 76)
 $cardAbout.Controls.Add($lblAuVer)
 

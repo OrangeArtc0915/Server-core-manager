@@ -93,13 +93,6 @@ namespace ScmUi
             { "database", "数据库" },
             { "tool",     "使用与工具" },
             { "beauty",   "终端美化" },
-            { "update",   "Windows 更新" },
-            { "network",  "网络配置" },
-            { "accounts", "本地账户" },
-            { "services", "服务管理" },
-            { "firewall", "防火墙" },
-            { "storage",  "存储与备份" },
-            { "systasks", "系统任务" },
             { "roletools", "角色工具" },
             { "notify",   "通知" },
             { "maint",    "证书管理" },
@@ -109,7 +102,6 @@ namespace ScmUi
             { "diag",     "网络诊断" },
             { "soft",     "软件管理" },
             { "reports",  "报告中心" },
-            { "logs",     "文件与日志" },
             { "tasks",    "一键流程" },
             { "ops",      "守护与计划" },
             { "audit",    "配置备份" },
@@ -352,19 +344,11 @@ namespace ScmUi
             new NavSpec("database", "数据库",       "database", "程序"),
             new NavSpec("tool",     "系统工具",     "tool",     "程序"),
             new NavSpec("beauty",   "终端美化",     "beauty",   "程序"),
-            new NavSpec("update",   "系统更新",     "update",   "系统管理"),
-            new NavSpec("network",  "网络配置",     "network",  "系统管理"),
             new NavSpec("diag",     "诊断工具",     "network",  "系统管理"),
-            new NavSpec("accounts", "本地账户",     "accounts", "系统管理"),
-            new NavSpec("services", "服务管理",     "services", "系统管理"),
             new NavSpec("soft",     "软件与权限",   "security", "系统管理"),
-            new NavSpec("firewall", "防火墙",       "security", "系统管理"),
-            new NavSpec("storage",  "存储与备份",   "storage",  "系统管理"),
-            new NavSpec("systasks", "系统任务",     "tasks",    "系统管理"),
             new NavSpec("roletools","角色工具",     "role",     "系统管理"),
             new NavSpec("notify",   "通知",         "notify",   "系统管理"),
             new NavSpec("maint",    "系统维护",     "tool",     "系统管理"),
-            new NavSpec("logs",     "日志中心",     "logs",     "运维"),
             new NavSpec("metrics",  "监控告警",     "monitor",  "运维"),
             new NavSpec("batch",    "批量管理",     "hosts",    "运维"),
             new NavSpec("scripts",  "脚本库",       "tool",     "运维"),
@@ -618,7 +602,7 @@ namespace ScmUi
                 Draw.Text(g, "Windows Server Core", Theme.Font(8.5f), Theme.Hint,
                           new Rectangle(152, 0, 220, _title.Height));
                 if (_title.Width > 560)
-                    Draw.Text(g, "v2.2", Theme.Font(8.5f), Theme.Hint,
+                    Draw.Text(g, "v2.3", Theme.Font(8.5f), Theme.Hint,
                               new Rectangle(_title.Width - 210, 0, 50, _title.Height),
                               ContentAlignment.MiddleRight);
             };
@@ -1012,7 +996,6 @@ namespace ScmUi
         {
             Register("monitor",  () => new OverviewPage());
             Register("env",      () => new EnvPage());
-            Register("logs",     () => new LogsPage());
             Register("tasks",    () => new TasksPage());
             Register("ops",      () => new OpsPage());
             Register("store",    () => new StorePage());
@@ -1027,13 +1010,6 @@ namespace ScmUi
             Register("security", () => new SecurityPage());
             Register("tool",     () => new ToolPage());
             Register("beauty",   () => new BeautyPage());
-            Register("update",   () => new UpdatePage());
-            Register("network",  () => new NetworkPage());
-            Register("accounts", () => new AccountsPage());
-            Register("services", () => new ServicesPage());
-            Register("firewall", () => new FirewallPage());
-            Register("storage",  () => new StoragePage());
-            Register("systasks", () => new SysTasksPage());
             Register("roletools", () => new RoleToolsPage());
             Register("notify",   () => new NotifyPage());
             Register("maint",    () => new MaintPage());
@@ -1061,7 +1037,6 @@ namespace ScmUi
             {
                 case "role": return 10;
                 case "security": return 20;
-                case "logs": return 10;
                 case "tasks": return 10;
                 case "ops": return 10;
                 case "audit": return 10;
@@ -1074,13 +1049,6 @@ namespace ScmUi
                 case "store": return 20;
                 case "env": return 20;
                 case "beauty": return 30;
-                case "update": return 60;
-                case "network": return 15;
-                case "accounts": return 15;
-                case "services": return 20;
-                case "firewall": return 30;
-                case "storage": return 20;
-                case "systasks": return 20;
                 case "roletools": return 30;
                 case "notify": return 15;
                 case "maint": return 30;

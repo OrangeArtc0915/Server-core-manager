@@ -2722,7 +2722,7 @@ namespace ScmUi
             {
                 new[] { "作者：", "mmm" },
                 new[] { "QQ 群：", "1034243331" },
-                new[] { "版本：", "v2.2　构建 " + BuildStamp() },
+                new[] { "版本：", "v2.3　构建 " + BuildStamp() },
                 new[] { "GitHub：", "https://github.com/OrangeArtc0915/Server-core-manager" },
                 new[] { "官网：", "https://orangeartc0915.github.io/Server-core-manager/" }
             };

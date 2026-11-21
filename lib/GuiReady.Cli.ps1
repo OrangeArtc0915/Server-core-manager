@@ -56,7 +56,6 @@ Server Core Manager CLI
   scm metrics [--days 7] [--report]  性能历史；--report 生成 HTML 报表
   scm alerts [list|check|history]    告警规则与立即检查
   scm backup [--share \\host\share] [--drivers] [--full-registry]
-  scm update [--install]            检查 / 安装 Windows 更新
   scm run <actionId> [--set k=v ...] 运行动作（有任务记录与审计）
   scm tools list | download <id> [--source github|gitee]
   scm certs [list] [--location My|Root|CA]
@@ -69,7 +68,7 @@ Server Core Manager CLI
 
   所有命令都支持 --json，输出 { ok, verb, data }。
 '@
-                Write-CliResult -Verb 'help' -Data @{ Version = '2.2' } -Text $text.Trim()
+                Write-CliResult -Verb 'help' -Data @{ Version = '2.3' } -Text $text.Trim()
             }
 
             'status' {
@@ -132,18 +131,6 @@ Server Core Manager CLI
                 $text = ('备份完成：{0}（{1} MB）' -f $b.File, $b.SizeMB)
                 if ($share) { $text += [Environment]::NewLine + '已复制到：' + $share }
                 Write-CliResult -Verb 'backup' -Data $b -Text $text
-            }
-
-            'update' {
-                if (Has-CliFlag 'install') {
-                    $r = @(Install-GuiReadyUpdate -Indexes @())
-                    Write-CliResult -Verb 'update' -Data @{ Installed = $r.Count; Items = $r } -Text ('已安装 ' + $r.Count + ' 个更新。')
-                } else {
-                    $p = Get-GuiReadyPendingUpdate -TimeoutMin (Get-CliInt 'timeout' 8)
-                    $text = ('待安装更新：{0} 个 ｜ 检查用时 {1} 秒' -f @($p.Items).Count, $p.Seconds)
-                    if ($p.Error) { $text = $p.Error }
-                    Write-CliResult -Verb 'update' -Data $p -Text $text
-                }
             }
 
             'run' {

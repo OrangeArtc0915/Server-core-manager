@@ -3,7 +3,7 @@
 # Script blocks take param($P) so lookups are explicit and scope-safe.
 
 function Get-GuiReadyActions {
-    return Set-GuiReadyActionRequirements -Actions @(
+    $actions = @(
         # ---------------- 一键流程 ----------------
         [pscustomobject]@{
             Id    = 'pipeline-auto'
@@ -2744,6 +2744,14 @@ function Get-GuiReadyActions {
             Script = { param($P) Invoke-GuiReadyScript -Id ([string]$P['Id']) -DryRun:([bool]$P['DryRun']) | Out-Null }
         }
     )
+
+    # 与 Windows Admin Center 重复的功能已从产品中移除：
+    # 系统更新 / 网络配置 / 本地账户 / 服务管理 / 防火墙 / 存储与备份 / 系统任务 / 文件与日志。
+    # 实现保留在下面，方便以后恢复；动作目录、界面与执行器都不会再暴露它们。
+    $removedGroups = @('Windows 更新', '网络配置', '本地账户', '服务管理', '防火墙', '存储与备份', '系统任务', '文件与日志')
+    return @(Set-GuiReadyActionRequirements -Actions $actions | Where-Object {
+        $removedGroups -notcontains [string]$_.Group -and [string]$_.Id -ne 'monitor-service'
+    })
 }
 
 function Set-GuiReadyActionRequirements {

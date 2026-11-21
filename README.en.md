@@ -116,7 +116,7 @@ In an **administrator** PowerShell:
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
 
-It downloads the specified release package (default `v2.2`; GitHub Releases first, then Gitee Releases), extracts it to `C:\Program Files\ServerCoreManager`, clears the "from the Internet" file block, and installs the `scm` command.
+It downloads the specified release package (default `v2.3`; GitHub Releases first, then Gitee Releases), extracts it to `C:\Program Files\ServerCoreManager`, clears the "from the Internet" file block, and installs the `scm` command.
 
 Afterwards, **type `scm` in any directory** to open the GUI (it self-elevates once, exactly like `sconfig`).
 
@@ -125,7 +125,7 @@ To change defaults, use environment variables (`iex` cannot forward parameters):
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # change install directory
 $env:SCM_NO_COMMAND = '1'     # skip the scm command
-$env:SCM_VERSION = 'v2.2'     # release tag used by both GitHub and Gitee
+$env:SCM_VERSION = 'v2.3'     # release tag used by both GitHub and Gitee
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
 
