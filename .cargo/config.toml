@@ -1,0 +1,13 @@
+[target.x86_64-pc-windows-msvc]
+# 静态链接 C 运行库，生成无外部依赖的单个 exe
+rustflags = ["-C", "target-feature=+crt-static"]
+
+# 使用国内稀疏索引镜像以加速依赖拉取
+[source.crates-io]
+replace-with = "rsproxy-sparse"
+
+[source.rsproxy-sparse]
+registry = "sparse+https://rsproxy.cn/index/"
+
+[net]
+git-fetch-with-cli = true

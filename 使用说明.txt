@@ -1,0 +1,627 @@
+﻿﻿﻿﻿﻿﻿Textm 2.0 使用说明
+==================
+Windows Server Core 可用的终端 / 图形双模式编辑器
+单文件运行；插件使用内嵌 Boa JS 引擎（唯一第三方库），其余文字处理、表格、压缩、
+JSON、LSP、Git 调用都自行实现或使用系统组件
+
+一、功能概览
+--------
+  · 双后端：终端 TUI 与 Win32 GUI 共用同一状态机与文本网格渲染，快捷键一致
+  · 编辑：多光标、撤销 / 重做、自动缩进、括号与引号自动配对、括号匹配高亮、
+    彩虹括号、代码折叠、书签、粘性滚动、小地图、自动换行、空白字符显示
+  · 编码：UTF-8 / UTF-8 BOM / GBK / UTF-16LE / UTF-16BE 自动识别与另存，
+    换行符 LF / CRLF / CR 可切换
+  · 查找替换：区分大小写、全词、正则（捕获组 $1..$9、$&、$$、\n）
+  · 工程搜索替换：包含 / 排除 glob、遵循 .gitignore、跨行正则、搜索历史
+  · 语法高亮：Rust、Python、JS/TS、Go、C/C++、C#、Java、JSON、HTML/XML、CSS、
+    Markdown、SQL、YAML、TOML、INI、PowerShell、批处理、Shell、Lua、PHP、
+    Makefile、Diff，并支持用户自定义语言
+  · 语言扩展点：%APPDATA%\Textm\languages\*.ini 与 snippets.ini
+  · Word（.docx）：段落文本编辑、加粗 / 斜体 / 下划线 / 字体颜色；
+    GUI 页面视图按纸张分页排布，保留表格、项目编号、页眉页脚
+  · Excel（.xlsx）：多工作表、样式 / 边框 / 填充 / 数字格式、合并单元格、冻结窗格、
+    筛选、排序、插入删除行列、90+ 函数与跨表引用，图表原样保留
+  · Git 源码管理面板：暂存 / 取消暂存、提交、差异、丢弃、历史、分支切换、Blame，
+    以及拉取 / 推送 / 获取远程 / 新建分支 / 删除分支 / 合并 / stash
+  · LSP：诊断、补全、悬停、跳转到定义、查找引用、工作区符号、重命名符号、格式化文档，
+    以及输入自动补全、签名帮助、快速修复、内联提示
+  · 插件：自有 textm.json 清单 + 可选 index.js（内嵌 JS 引擎），支持插件命令、编辑文档、
+    状态栏 / 输出面板、QuickPick / 输入框、保存 / 打开 / 修改事件；可声明主题与代码片段
+  · 调试：手写 DAP 客户端，读取 .vscode/launch.json，支持断点、启动 / 继续、单步、
+    调用栈与变量、调试输出（适配器需自行安装，如 debugpy、lldb-dap）
+  · 远程：UNC/SMB 网络文件夹作为工作区；通过系统 ssh / scp 执行远端命令、打开与回传远端文件
+  · 图片：PNG / JPEG / GIF / BMP（TUI 半块字符预览，GUI 直接绘制位图）
+  · 复制选中文本时同时写入 HTML（保留语法颜色）
+  · 设置面板、剪贴板历史、自动保存、会话恢复
+
+二、系统要求
+--------
+  · Windows 10 / Windows Server 2016 及以上（x64）
+  · 终端模式只需控制台窗口；图形模式使用系统 GDI，不需要 .NET / WebView
+  · Git 功能需要系统安装 git.exe；LSP 需要自行安装对应语言服务器
+  · 调试需要对应的调试适配器（DAP），如 python -m debugpy.adapter、lldb-dap
+  · 远程开发使用系统自带的 ssh.exe / scp.exe（Windows 10 起默认提供）
+  · 单文件 textm.exe，无需安装、无第三方运行库
+
+三、启动与界面
+--------
+  textm.exe                    终端模式（TUI）
+  textm.exe --gui              图形窗口模式
+  textm.exe 文件…              启动并打开这些文件
+  textm.exe --theme dracula 文件…   指定启动主题
+
+界面：默认 VSCode 布局——顶部是菜单栏（品牌 + 文件 / 编辑 / … + 右侧工作区名），
+第二行是打开的标签，左侧 3 列活动栏（资源管理器 / 搜索 / Git，底部齿轮打开设置）；
+侧栏与编辑器 pane 都带圆角边框，标题嵌在上边框里（编辑器标题右侧显示键位提示）。
+最底部一行是状态栏：左侧模式块 + 常用键位提示，右侧行列号、缩进、编码、换行符、
+语言，以及错误 / 警告计数。面包屑行在滚动后显示当前外层作用域首行（粘性滚动）。
+命令面板“切换界面布局”或设置页「外观 → 界面布局」可切回 sqlmux 布局：
+没有顶部栏，侧栏与编辑器两个圆角 pane，标签行在 pane 内部最后一行。
+顶部菜单、标签、活动栏和面包屑都能用鼠标点。
+界面反馈：标签、菜单、列表和侧栏行悬停时轻微提亮；光标底色缓慢呼吸；
+状态栏消息 4 秒后开始淡出，8 秒后自动让位给左侧键位提示。
+空白未命名标签会显示欢迎页：品牌、常用入口（可直接点击）与快捷键；
+命令面板 / 快速打开会用强调色标出模糊匹配到的字符。
+快捷键：F4 菜单浮层（← → 切换菜单），Ctrl+Shift+P 命令面板，F1 键位速查，
+Shift+F1 完整帮助页。
+
+四、文件与标签
+--------
+  Ctrl+N         新建文件
+  Ctrl+O         打开（输入路径）
+  Ctrl+P         快速打开工程内文件（支持模糊匹配）
+  Ctrl+S         保存
+  Ctrl+Shift+S   另存为
+  Ctrl+Alt+S     全部保存
+  Ctrl+W         关闭当前标签（有改动会确认）
+  Ctrl+Q         退出
+  Ctrl+Tab / Ctrl+PageDown   下一个标签
+  Ctrl+PageUp                上一个标签
+  Ctrl+1…9                   按序号切换标签，Ctrl+0 最后一个
+  Ctrl+R         刷新资源管理器
+  Ctrl+Shift+E   聚焦资源管理器
+
+标签管理：标签可以直接拖动排序；标签太多放不下时右侧出现「»」，点击打开标签列表。
+右键标签可在右侧 / 下方拆分、移动到另一组、关闭、重新打开或复制路径。
+
+命令面板（Ctrl+Shift+P）与快速打开（Ctrl+P）支持 VSCode 前缀：
+  > 只搜命令    @ 当前文件符号    # 工作区符号    : 转到行
+命令面板会把最近执行的命令置顶显示（标记“最近使用”）。
+
+资源管理器：双击打开 / 展开目录，F2 重命名，Delete 删除；
+命令面板提供“资源管理器：新建文件 / 新建文件夹 / 重命名 / 删除 / 刷新”。
+
+五、编辑
+--------
+  Ctrl+Z / Ctrl+Y（或 Ctrl+Shift+Z）   撤销 / 重做
+  Tab / Shift+Tab                       缩进 / 反缩进（按 tab_width 与 use_spaces）
+  Ctrl+A / Ctrl+L                       全选 / 选中当前行
+  Ctrl+D                                选中下一个相同内容
+  Ctrl+Shift+L                          选中所有相同出现（多光标同时编辑）
+  Ctrl+Shift+\                          跳转到匹配括号
+  Ctrl+J                                合并当前行与下一行
+  Ctrl+Enter / Ctrl+Shift+Enter         在下方 / 上方插入空行
+  Ctrl+Shift+K                          删除当前行
+  Alt+↑ / Alt+↓                         上移 / 下移当前行
+  Ctrl+/                                切换行注释
+  Ctrl+Alt+↑ / Ctrl+Alt+↓               上 / 下添加光标（多光标编辑）
+  F2 / Shift+F2                         切换书签 / 上一个书签
+  Ctrl+Shift+[                          折叠当前代码块
+  Ctrl+Alt+[ / Ctrl+Alt+]               全部折叠 / 全部展开
+  Ctrl+Shift+T                          重新打开最近关闭的标签页
+  Shift+Alt+I                           在选中每一行末尾添加光标
+
+  自动缩进（auto_indent）在回车时保持当前缩进；自动配对（auto_pair）在输入
+  ( [ { " ' 时成对补齐，输入右侧已有的闭合符号时直接跳过。
+  光标处括号与其配对位置使用强调底色；rainbow_brackets 开启时括号按嵌套深度着色。
+  命令面板还提供：复制当前行、排序、去重、转大写 / 转小写、缩进 / 反缩进。
+
+  Emmet：在 HTML / XML 文件中输入缩写后按 Tab 展开，例如
+    div.card>h2{标题}+p*2   → 嵌套结构，p 重复两次
+    ul>li.item*3             → 列表项
+    img                      → <img />
+  CSS 中支持 m10 / p8 / w100 / h50 / fz14 / df / jcc / c#fff 等简写。
+
+六、查找与替换
+--------
+  Ctrl+F              文件内查找
+  Ctrl+H              文件内替换
+  F3 / Shift+F3       下一个 / 上一个匹配
+  Enter               下一个匹配；替换面板中 Enter 执行替换
+  Alt+Enter           全部替换
+  Tab                 在“查找”与“替换”输入框之间切换
+  Alt+C               区分大小写
+  Alt+W               全词匹配
+  Alt+R               正则表达式
+
+  替换串支持 $1..$9 捕获组、$& 整体匹配、$$ 字面量 $、\n 换行。
+
+七、工程搜索与替换
+--------
+  Ctrl+Shift+F   侧边栏工程搜索
+  Ctrl+Shift+H   工程替换（替换结果以可撤销编辑应用到已打开文件，需手动保存）
+  ↑ / ↓          选择命中项，回车跳转
+  Alt+G          切换是否遵循工程根目录的 .gitignore
+  Alt+C / Alt+W  区分大小写 / 全词
+  ↑ / ↓          输入框为空时召回搜索历史（最新在前，最多 10 条）
+
+  命令面板可设置“包含文件 / 排除文件”的 glob：
+  `*` 不跨目录、`**` 跨目录、`?` 匹配单个字符；不含 `/` 的模式按文件名匹配。
+  搜索跳过含 NUL 字节的二进制文件；未保存的打开文件按编辑器内容参与搜索。
+  工程替换与字面量替换共用一个搜索框，正则语义同第六节。
+
+七之二、多文件夹工作区
+--------
+  搜索菜单 →“添加文件夹到工作区…”，或命令面板搜索“工作区：添加文件夹”。
+  侧边栏会把每个文件夹作为顶层根显示，可分别展开；根目录至少保留一个。
+  移除：在资源管理器中选中某个根目录，执行“移除所选工作区文件夹”。
+  工程搜索、工程替换、快速打开（Ctrl+P）会自动覆盖工作区中的所有文件夹。
+  工作区列表保存在配置文件的 folder0..folder9 中，下次启动自动恢复。
+
+七之三、任务运行器
+--------
+  Ctrl+Shift+B        选择并运行任务
+  任务菜单            运行任务… / 重新运行上次任务 / 显示任务输出 / 停止任务
+
+  任务来自工作区根目录的 `.vscode/tasks.json`（也接受根目录下的 tasks.json），
+  兼容 VSC 的常用写法：
+    {
+      "version": "2.0.0",
+      "tasks": [
+        { "label": "build", "type": "shell", "command": "cargo build", "group": "build" },
+        { "label": "test",  "command": "cargo", "args": ["test", "--", "--nocapture"] },
+        { "label": "serve", "command": "python -m http.server", "options": { "cwd": "." } }
+      ]
+    }
+  label 为任务名；command 为命令（shell 类型可写整行）；args 为参数数组；
+  options.cwd 相对于该工作区根目录。
+  运行后自动打开“任务输出”面板，实时显示 stdout/stderr，结束状态栏提示退出码；
+  面板底部跟随最新输出，Esc 关闭面板，任务继续在后台运行。
+  支持的命令名与快捷键均可在命令面板（Ctrl+Shift+P）中搜索到。
+
+八、视图与显示
+--------
+  Ctrl+B         显示 / 隐藏资源管理器
+  Alt+Z          自动换行
+  Alt+M          小地图（minimap_width 控制宽度）
+  Ctrl+Shift+8   显示 / 隐藏空白字符
+  Ctrl+Alt+Z     专注模式：临时隐藏侧边栏与小地图，再次执行恢复
+  Ctrl+Shift+P   命令面板（所有命令的入口）
+  F1             键位速查面板（右下角；按列出的键即执行，Esc 关闭）
+  Shift+F1       完整快捷键帮助页
+  F4             菜单浮层（← → 切换菜单，Enter 执行，Esc 关闭）
+  Alt+F12        定义预览（需要语言服务器）
+
+  粘性滚动（sticky_scroll）：滚动后把外层代码块首行固定在面包屑行。
+  自动保存（autosave）：停止输入 2 秒后保存已命名、非只读的纯文本标签。
+  会话恢复（restore_session）：退出时把打开的文件与光标写入 session.ini，
+  下次启动还原（未命名标签与未保存内容不进入会话）。
+  主题 14 种：tokyonight-storm（默认）、ristretto、vscode-dark、vscode-dark16、
+  vscode-light、dracula、one-dark、monokai、nord、gruvbox-dark、tokyo-night、
+  solarized-dark、solarized-light、github-light，
+  可在命令面板“选择主题…”中切换。
+  界面布局可在 VSCode 与 sqlmux 两套之间切换（默认 VSCode）：
+    VSCode：顶部菜单栏 + 顶部标签 + 左侧活动栏，状态栏在底部
+    sqlmux：没有顶部栏，侧栏与编辑器是两个圆角 pane，标签行在 pane 内部最后一行
+  切换方式：命令面板“切换界面布局”、设置页「外观 → 界面布局」、配置文件 layout，
+  或在 settings.json 写 "workbench.layout": "vscode" / "sqlmux"。
+  两套布局都保留状态栏键位提示；F1 弹出 which-key 键位速查。
+  图标优先 Nerd Font（启动时自动检测终端与字体），否则自动回退 Unicode。
+
+  鼠标（TUI 与 GUI 一致）：
+    文本区        单击定位光标，拖动选择，双击选词，右键弹出上下文菜单
+    顶部菜单      点菜单名打开下拉菜单
+    顶部标签      单击切换，拖动排序，双击 / 中键关闭，右键弹出标签菜单
+    活动栏        点图标切换 资源管理器 / 搜索 / Git，再点一次收起；点齿轮打开设置
+    面包屑        点路径打开当前文件符号大纲；点右侧语言名打开语言选择
+    键位提示      面板标题右侧 / 标签行右侧 / 状态栏左侧的提示都能点，等同按该键
+                  （例如点 “Ctrl+S 保存” 保存，点 “F1 键位” 打开键位速查）
+    状态栏信息    点 “行 1, 列 1” 转到行，点 “UTF-8 / CRLF / 语言” 打开对应选择器，
+                  点错误 / 警告计数打开问题列表
+    行号槽        点行号选中整行，点最左侧标记列切换断点
+    小地图        单击或拖动跳转到对应位置
+    标签行        单击切换，双击 / 中键关闭，右键弹出标签菜单
+    侧栏          单击选中、双击打开，滚轮滚动列表，右键弹出新建 / 重命名 / 删除菜单
+    浮层          菜单、键位速查、右键菜单、列表、确认框都支持鼠标；点浮层外关闭
+
+  分屏（命令面板 / Ex 命令）：
+    :sp / :split      上下分屏     :vs / :vsplit   左右分屏
+    :only / :close    关闭分屏     Ctrl+Alt+W      在两个 pane 之间切换
+    也可以直接点任意 pane 或它底部的标签行切换焦点；两个 pane 各自保留标签与滚动位置。
+
+  终端面板（ConPTY）：
+    Ctrl+`            打开 / 关闭底部终端；焦点在终端时再按 Ctrl+` 或 Esc 回到编辑器
+    :term             同 Ctrl+`
+    终端里 Esc 返回编辑器，其余按键（含 Ctrl+C 等）原样送给 shell。
+
+  Vim 模式（默认开启，Ctrl+, 设置或 :set novim 关闭）：
+    模式         普通 / 插入 / 可视 / 可视行 / 可视块 / 替换；状态栏左侧显示当前模式
+    进入插入     i a I A o O s S C c 等
+    移动         h j k l w W b B e E 0 ^ $ gg G { } % f F t T ; , | + - _
+    操作符       d c y > < g~ gu gU，可与动作、文本对象组合（如 ciw、dap、y$）
+    文本对象     iw aw iW aW i( a( i[ i{ i< i" i' ip
+    可视模式     v V Ctrl+V，o 交换端点，d y c > < u U ~ p
+    编辑         x X D p P r J u Ctrl+R .（重复上次修改）
+    寄存器       "a 前缀；yy / dd 默认存进无名寄存器
+    宏           qa 开始录制，q 结束，@a 播放，@@ 重复
+    标记         ma 设置，`a 跳转，'a 跳到行首
+    搜索         / ? n N * #
+    命令行       :w :wq :q :q! :e :noh :set :s :%s :'<,'>s :sort :normal :sp :vs :only :term
+                 :theme :help :files :reg；↑↓ 翻历史，Esc 取消
+    普通模式下的方向键仍然可用；Ctrl+Alt+W 切换分屏。
+
+九、设置面板与配置
+--------
+  Ctrl+,         打开全屏设置页（也可在命令面板搜索“设置…”）
+  设置页左侧是分类（编辑 / 外观 / Vim / 终端 / 窗口 / LSP / 插件），右侧是条目：
+  每行显示“名称 + 当前值 + 说明”，修改立即生效，正常退出时写回配置文件。
+  状态栏左侧「F4 菜单」旁边就是可点的「Ctrl+, 设置」按钮（窗口窄时自动缩短为
+  「菜单 / 设置」，空间不足时隐藏）。
+    ↑↓ / PgUp / PgDn   选择条目        Tab / Shift+Tab   切换分类
+    ← → / Enter / 空格 调整当前值      Esc               返回（有搜索词时先清空）
+    直接输入字母       跨分类搜索      Backspace         删除搜索词
+    鼠标               点分类、点条目切换、滚轮滚动；点设置页外区域关闭
+  覆盖的条目：缩进宽度 / 缩进方式 / 自动缩进 / 自动闭合括号 / 自动换行 / 代码折叠 /
+  自动保存 / 空白字符、主题 / 界面布局 / 小地图与宽度 / 侧栏与宽度 / GUI 字号 / 图标 /
+  Nerd Font / 彩虹括号 / 居中布局、Vim 模式 / 缩进参考线 / 保存时格式化 / 粘性滚动、
+  终端高度、恢复会话 / 关闭前确认 / 多行粘贴确认 / 显示隐藏文件 / .gitignore / Git /
+  界面语言、LSP 三项自动能力、插件功能。
+
+  settings.json / keybindings.json（VSCode 写法，可选）：
+    放在配置目录下会自动覆盖 config.ini，支持嵌套键名：
+      settings.json    {"editor.tabSize": 2, "editor.insertSpaces": true,
+                        "editor.wordWrap": "on", "editor.vim": true,
+                        "editor.indentGuides": true, "editor.formatOnSave": true,
+                        "workbench.layout": "vscode",
+                        "terminal.height": 14, "theme": "ristretto"}
+      keybindings.json [{"key": "ctrl+alt+p", "command": "Palette"},
+                        {"key": "f8", "command": "Problems"}]
+    无法识别的键会被忽略，不影响启动。
+
+  配置文件：%APPDATA%\Textm\config.ini（设置环境变量 TEXTM_CONFIG 可覆盖路径）
+  仅当文件不存在时使用默认值；格式为 `key = value`，支持 `;` / `#` 注释。
+
+  自定义键位：在配置文件中添加 `key.组合键 = 命令名` 即可覆盖或新增快捷键，
+  组合键由 ctrl / alt / shift 与主键组成，命令名取命令面板中命令的英文标识：
+    key.ctrl+alt+p = Palette
+    key.f8          = Problems
+    key.ctrl+shift+d = CompareFile
+  可用命令名包括 NewFile、OpenPath、Save、SaveAs、Undo、Redo、Find、Replace、
+  Palette、QuickOpen、ToggleWrap、Problems、Outline、ReopenClosedTab 等。
+
+  常用键值：
+    theme、layout（vscode/sqlmux 界面布局）、tab_width、use_spaces、wrap、
+    minimap、minimap_width、
+    sidebar、sidebar_width、show_whitespace、auto_indent、auto_pair、folding、
+    autosave、sticky_scroll、restore_session、
+    confirm_close、confirm_multiline_paste、icons（unicode/ascii）、nerd_font（auto/nerd/off）、
+    show_hidden、last_dir、language（zh/en）、tab_position（top/left）、
+    vim（Vim 模式，默认 true）、indent_guides（缩进参考线）、
+    format_on_save（保存前格式化）、terminal_height（终端行数）、terminal_shell（终端 shell）、
+    gui、git、font（GUI 字体名）、font_size（GUI 字号）、
+    rainbow_brackets、centered、backdrop（mica/acrylic）、backdrop_alpha、
+    lsp.<语言> = 服务器命令、
+    lsp_auto_complete、lsp_signature_help、lsp_inlay_hints（三项 LSP 自动能力，默认 true）、
+    recent0..recent9（最近文件）、search0..search9（搜索历史）、
+    folder0..folder9（多文件夹工作区）、key.<组合键>（自定义键位）、
+    plugins_disabled（禁用的插件名称，逗号分隔）、plugins_enabled（是否开启插件功能，默认 false）、
+    remote.<名称> = user@host[:端口]、remote.<名称>.root = /远端/目录、
+    debug.<类型> = 调试适配器命令、
+    workspace_include / workspace_exclude（包含 / 排除 glob）、
+    workspace_ignore（是否遵循 .gitignore，默认 true）
+
+  同目录下还可放置：
+    languages\*.ini   自定义语言（见第十四节）
+    snippets.ini      自定义代码片段（见第十四节）
+    plugins\          自有插件（见第十六节，textm.json + 可选 index.js）
+    session.ini       上次会话（退出时自动写入，删除后下次启动即为空白）
+
+十、Word 文档（.docx）
+--------
+  打开 .docx 时解析正文段落、样式、表格、项目编号、页眉页脚与分页符。
+  TUI：以段落文本形式编辑；GUI：默认打开页面视图，按纸张分页高保真排版。
+  F6                页面视图 / 文本编辑视图切换（仅 GUI）
+  Alt+B / I / U     加粗 / 斜体 / 下划线（作用于选中行或当前行）
+  命令面板“字体颜色循环”  依次切换字体颜色
+  Ctrl+S            保存为 .docx（未命名时先询问路径）
+  Ctrl+滚轮         GUI 页面视图缩放
+
+  新建：命令面板“新建 Word 文档”，保存时使用 .docx 扩展名。
+
+十一、Excel 表格（.xlsx）
+--------
+  打开 .xlsx 直接进入表格视图，支持多工作表、样式、合并、冻结与筛选。
+  方向键            移动单元格
+  Shift+方向键      扩展选区
+  F2                编辑单元格（Enter 提交，Esc 取消）
+  Enter / Tab       提交后下移 / 右移
+  Ctrl+Home / End   跳到表格起始 / 末尾
+  Ctrl+PageUp/Down  切换工作表
+  Ctrl+C / X / V    以 TSV 复制 / 剪切 / 粘贴，可与 Excel、WPS 互通
+  Ctrl+Shift+M      合并单元格
+  Ctrl+Shift+L      冻结 / 取消冻结窗格
+  Ctrl+Shift+F      筛选当前列
+  菜单“表格”        字号、字体颜色、填充颜色、数字格式、对齐、框线、排序、
+                    插入删除行列、工作表新建 / 重命名 / 删除、清除筛选
+  公式支持常用 90+ 函数与跨表引用（=SUM(A1:A9)、=Sheet2!A1 等），
+  不支持的写法按原文保存，图表与透视表原样保留。
+
+十二、图片
+--------
+  支持 PNG / JPEG / GIF / BMP。TUI 使用半块字符近似显示，GUI 直接绘制位图；
+  图片标签为只读预览，不会改写原文件。
+
+十三、Git 源码管理
+--------
+  侧边栏活动栏切到 “⎇ Git” 显示变更列表；面板内按键：
+  ↑ / ↓          选择变更
+  Space          暂存 / 取消暂存选中项
+  Enter          查看选中项差异
+  c              提交（输入提交说明）
+  b              切换分支（输入分支名）
+  l              历史
+  D              丢弃选中改动（确认后从磁盘重新加载已打开文件）
+  A / U          暂存全部 / 取消暂存全部
+  命令面板还提供：新建分支、删除分支、合并分支、拉取、推送、获取远程、
+  stash / 恢复 stash、Blame 当前文件。
+  未安装 git.exe 时状态栏显示“Git 不可用”，其余编辑功能不受影响。
+
+十四、语言服务器（LSP）
+--------
+在配置文件里为语言指定服务器命令，例如：
+
+    lsp.rust = rust-analyzer
+    lsp.python = pylsp
+    lsp.typescript = typescript-language-server --stdio
+    lsp.c = clangd
+
+打开对应文件后，Textm 会自动启动服务器并同步内容：
+  · Ctrl+Space  补全列表（回车插入 textEdit / insertText）。
+                 未配置或未安装服务器时自动退化为「文档内单词补全」，
+                 收集当前文档与已打开文档中同前缀的标识符，任何语言可用。
+  · 自动补全    服务器已连接时，输入标识符停顿约 0.3 秒自动弹出补全列表；
+                 已输入的标识符作为初始过滤词，继续输入只收窄列表；
+                 lsp_auto_complete = false 可关闭（手动 Ctrl+Space 仍可用）。
+  · 签名帮助    Ctrl+Shift+Space，或输入 ( 与 , 时自动显示：
+                 面板跟随光标行，显示当前签名、文档首行与“签名 i/n · 参数 k”，
+                 Esc 或光标离开该行自动关闭；lsp_signature_help = false 可关闭。
+  · 快速修复    Ctrl+. 打开代码操作列表（导入缺失模块、重构等），
+                 回车应用编辑（可跨文件，已打开文件走可撤销编辑）。
+  · 内联提示    服务器支持时在类型 / 参数名处显示浅色提示；
+                 lsp_inlay_hints = false 可关闭。
+  · Ctrl+Shift+I 悬停提示（Markdown 内容按行显示）
+  · Ctrl+T       工作区符号搜索（输入名称，回车跳转到定义位置）
+  · F12          跳转到定义
+  · Alt+F12      定义预览：弹出定义处附近代码，Enter 跳转，Esc 关闭
+  · 代码菜单     查找引用、重命名符号（应用到工程内所有文件）、格式化文档
+  · 问题列表     包含 LSP 诊断（错误 / 警告 / 信息）与插件问题；
+                 Tab 循环过滤“全部 / 错误 / 警告 / 信息 / 提示”，
+                 状态栏右侧显示 “ⓧ 错误数  ⚠ 警告数”，点击打开问题列表
+
+自动能力只在服务器已经连接时触发，不会因为输入一个字符就同步启动服务器；
+首次连接仍由手动命令（Ctrl+Space、Ctrl+. 等）触发。
+服务器未安装或请求失败时会安静降级，不会影响编辑。
+
+十五、语言扩展点（自定义语言与代码片段）
+--------
+配置目录：%APPDATA%\Textm
+
+1) 自定义语言：在该目录下新建 languages\*.ini，例如 languages\acme.ini：
+
+    name = AcmeScript
+    extensions = acme, acm
+    keywords = fn, let, if, else, while, return
+    types = Int, Text, Bool
+    comment = #
+    style = hash
+
+   style 可选 c_like / hash / markup / plain；保存后重启 Textm，
+   打开 .acme / .acm 文件即按自定义语言高亮，语言选择列表中也会出现。
+   自定义语言同样可以在配置里用 lsp.<name 小写> 指定语言服务器。
+
+2) 自定义代码片段：在 snippets.ini 中按小节定义，body 支持 \n \t \r 转义：
+
+    [我的 main 函数]
+    language = Rust
+    body = fn main() {\n    println!("hi");\n}
+
+   语言名使用英文（Rust / Python / JavaScript / TypeScript / Go / C / Cpp 等）。
+   通过命令面板“插入代码片段…”选择，插入时按当前行缩进对齐。
+
+十六、插件系统（Textm 自有）
+--------
+  插件功能默认关闭。打开方式：Ctrl+, 设置 → “插件功能”切成“开”。
+  关闭时：插件菜单、插件命令、插件主题与片段全部隐藏 / 停用，也不启动 JS 引擎。
+
+  插件目录（每个插件一个子目录）：
+    %APPDATA%\Textm\plugins\<名称>\textm.json
+    <工作区根>\.textm\plugins\<名称>\textm.json
+
+  textm.json 清单：
+    {
+      "name": "demo",
+      "version": "1.0.0",
+      "description": "示例插件",
+      "main": "index.js",
+      "activation": ["startup"],
+      "commands": [
+        { "id": "demo.hello", "title": "打招呼" },
+        { "id": "demo.build", "title": "构建", "program": "cargo",
+          "args": ["build"], "cwd": "${workspaceFolder}" }
+      ],
+      "themes": ["themes/dark.json"],
+      "snippets": ["snippets/rust.json"]
+    }
+
+  · 有 program 的命令是声明式命令：按任务运行器执行（cmd /C），输出进任务输出面板；
+    支持 args 与 cwd（cwd 支持 ${pluginDir} / ${workspaceFolder}）。
+  · 没有 program 的命令由 index.js 通过 textm.commands.register 注册。
+  · activation 含 "startup" 时启动即激活；否则首次执行该插件命令时激活。
+  · themes / snippets 为相对插件目录的 JSON 文件（格式见下）。
+
+  JS API（index.js，CommonJS）：
+    exports.activate = function (context) {
+      const textm = context.textm;
+      textm.commands.register('demo.hello', () => {
+        textm.window.info('来自插件的问候');
+      });
+    };
+
+    textm.commands.register(id, fn) / execute(id, ...args) / getAll()
+    textm.editor.getText() / lineCount() / getLine(n) / cursor() / selection()
+                 insert(text) / replace(start, end, text) / setText(text)
+                 open(path) / save() / goto(line, column)
+    textm.workspace.root() / folders() / readText / writeText / readBytes / writeBytes
+                    readDir / exists / stat / mkdir / remove / rename / copy
+                    findFiles(limit) / config()
+    textm.window.info / warn / error / status / output / log
+                 input(prompt, value) -> Promise
+                 pick(items, placeholder) -> Promise（选中项或 value）
+                 panel(title, text) 打开只读面板；terminal(command) 运行命令
+    textm.events.on("save" | "open" | "change", handler)
+    textm.clipboard.read() / write(text)
+    textm.env.appName / version / workspace
+    context: pluginPath、storagePath、manifest、appVersion、subscriptions
+
+  主题 JSON（Textm 自有格式，颜色均可选，bg 必填）：
+    {
+      "name": "我的深色",
+      "dark": true,
+      "bg": "#1e1e1e", "fg": "#d4d4d4",
+      "panel": "#252526", "accent": "#0e639c",
+      "selection": "#264f78", "border": "#3c3c3c",
+      "status": "#007acc", "current_line": "#2a2d2e", "gutter": "#858585",
+      "syntax": {
+        "keyword": "#569cd6", "type": "#4ec9b0", "string": "#ce9178",
+        "number": "#b5cea8", "comment": "#6a9955", "function": "#dcdcaa",
+        "property": "#9cdcfe", "tag": "#569cd6", "attribute": "#9cdcfe",
+        "constant": "#4fc1ff", "variable": "#9cdcfe", "macro": "#c586c0"
+      }
+    }
+
+  代码片段 JSON：
+    { "Hello": { "language": "Rust", "body": "fn main() {\n    println!(\"hi\");\n}" } }
+
+  管理与调试：
+    Ctrl+Shift+X   插件管理（回车启用 / 禁用，禁用名单写入 plugins_disabled）
+    插件菜单       运行插件命令… / 插件输出 / 重新加载插件 / 打开插件目录
+    命令面板       可搜索所有插件命令（包括 JS 运行时注册的命令）
+    问题列表       显示 textm.window.problems 上报的插件问题
+    插件输出       显示插件日志、异常与 JS 运行时错误（排查插件问题时先看这里）
+
+十七、调试器（DAP）
+--------
+  使用 .vscode/launch.json（也接受工作区根目录 launch.json）声明启动配置：
+
+    {
+      "version": "0.2.0",
+      "configurations": [
+        {
+          "name": "Python: 当前文件",
+          "type": "python",
+          "request": "launch",
+          "program": "${workspaceFolder}/main.py",
+          "args": ["--demo"]
+        }
+      ]
+    }
+
+  适配器命令在 config.ini 中指定，未指定时 python / debugpy 默认使用
+  `python -m debugpy.adapter`（需先 pip install debugpy）：
+
+    debug.python = python -m debugpy.adapter
+    debug.cpp    = lldb-dap
+    debug.rust   = lldb-dap
+
+  快捷键：
+    F5              选择 launch.json 配置并启动；会话已暂停时继续执行
+    Shift+F5        停止调试（发送 disconnect 并结束适配器）
+    F9              在当前行切换断点（红点显示在行号左侧）
+    F10             单步跳过
+    F11             单步进入
+    Shift+F10 / Shift+F11   单步跳出
+
+  调试菜单还提供“调试输出”“变量 / 调用栈”：
+  · 暂停时自动跳转到当前栈帧所在文件的对应行，状态栏显示“调试：已暂停：断点”。
+  · “变量 / 调用栈”显示栈帧列表（回车跳转）与当前作用域变量。
+  · “调试输出”实时显示适配器输出、stderr 与事件日志。
+  · 断点会在会话建立（initialized 事件）时通过 setBreakpoints 发送；
+    调试过程中增删断点也会立即同步。
+  · launch.json 中的 ${workspaceFolder}、${file}、${fileBasename}、
+    ${fileDirname}、${env:变量名} 会按当前工作区与文件展开。
+  · Python 配置未指定 console 时使用 internalConsole，输出进入调试输出面板。
+
+十八、远程开发
+--------
+  1) UNC / SMB 网络文件夹
+     远程菜单 →“添加网络文件夹（UNC）…”，输入 \\server\share 或 \\server\share\子目录。
+     添加后与普通工作区文件夹一样出现在资源管理器，快速打开、工程搜索、
+     工程替换、任务运行都会覆盖该目录。
+
+  2) SSH 远端命令与文件
+     在 config.ini 中声明主机（名称可自定义）：
+
+       remote.dev = mmm@192.0.2.10:22
+       remote.dev.root = /home/mmm/project
+
+     也可用远程菜单 →“添加 SSH 主机…”，按 `名称=user@host[:端口]` 输入，
+     写入配置并立即选为当前主机。
+
+     远程菜单：
+       选择远程主机…        列出所有主机，回车切换当前主机
+       在远端执行命令…      在远端默认目录执行命令，输出进入任务输出面板
+       打开远端文件…        scp 下载到本地缓存后打开，可正常编辑
+       上传当前文件…        把当前文件 scp 上传到远端（留空则使用已记录路径）
+       添加网络文件夹…      UNC/SMB 工作区
+
+     · 本地缓存位置：%APPDATA%\Textm\remote\<主机名>\<远端路径>
+     · 通过“打开远端文件”打开的文件会记录映射，之后 Ctrl+S 保存时自动 scp 回传。
+     · 使用 BatchMode=yes 与 ConnectTimeout=10，建议提前配置好 SSH 密钥，
+       避免交互式输入密码导致失败。
+     · 远端目录含空格或特殊字符时会自动加引号；ssh / scp 不存在时状态栏给出提示。
+
+十九、命令行参数
+--------
+  -h, --help             显示帮助
+  -v, --version          显示版本号
+      --gui              图形窗口模式
+      --tui              强制终端模式
+      --theme <名称>     启动主题（见第八节）
+      --no-sidebar       启动时隐藏资源管理器
+      --no-minimap       启动时关闭小地图
+      --self-test        运行自检并退出（30 项）
+      --dump <文件>      把界面渲染为文本后退出；用 `-` 输出到标准输出
+      --width <列数>     --dump 的宽度（默认 100）
+      --height <行数>    --dump 的高度（默认 30）
+
+  注意：--dump 会直接覆盖目标文件；只想查看渲染结果时请用 `--dump -`。
+
+二十、已知限制
+--------
+· Excel 不支持数组公式与跨工作簿引用；图表 / 透视表只保留不编辑。
+· Word 页面视图只在 GUI 提供；文本视图不编辑表格内文字（保存时原样保留），
+  也不支持编辑图片、脚注与批注正文（批注仅读取）。
+· 工程搜索 / 替换的正则支持跨行匹配（`.` 不匹配换行、`\n` 匹配换行、`^`/`$` 多行语义）；
+  非 UTF-16 的二进制文件（含 NUL 字节）会被跳过。
+· .gitignore 仅读取工程根目录的一份（不递归读取子目录）。
+· 有未保存改动的打开文件不写盘：工程替换以可撤销编辑应用到编辑器内容，需手动保存。
+· 自动保存仅针对已命名、无只读标记的纯文本类文件；Word / Excel 仍使用 Ctrl+S。
+· 会话恢复只记录已保存文件的路径与光标；未命名标签与未保存内容不进入会话。
+· LSP 自动补全 / 签名帮助 / 内联提示只在服务器已连接时触发，首次连接需手动命令；
+  代码操作只支持带编辑（edit）的项，纯命令（command）型操作暂不执行。
+· TUI 图片使用半块字符近似，Sixel / Kitty 图形协议尚未启用。
+· 超大文件高亮按行缓存，仍可能占用较多内存。
+· 编码识别为启发式；极端混合编码文件建议手动指定编码后另存。
+· 插件使用内嵌 Boa JS 引擎：只支持 Textm 自有 textm API 与相对路径 require，
+  不支持 Node 内置模块 / npm 依赖；异步只支持 Promise 与 setTimeout，不保证完整 ES2022。
+· 插件功能默认关闭；关闭后插件菜单、命令、主题与片段全部停用。
+· 调试器实现 DAP 常用子集：断点、继续、单步、调用栈、变量；不支持条件断点、
+  数据断点、反向调试；适配器需要用户自行安装。
+· 远端文件以下载到本地缓存、保存时回传的方式编辑，不是完整的远端文件系统；
+  SSH 使用 BatchMode，需要提前配置密钥。
+
+二十一、交付文件
+--------
+  textm.exe        单文件可执行程序（x64，无外部依赖）
+  使用说明.txt     本文件
+  docs/技术文档.md 技术栈与实现方案（终端渲染、图片、富文本、表格、Git、LSP）

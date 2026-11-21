@@ -1,0 +1,20 @@
+[package]
+name = "textm"
+version = "2.0.0"
+edition = "2021"
+description = "Textm 2 - Windows Server Core 零依赖终端/图形编辑器"
+
+# 零第三方依赖：只用 std 与手写 Win32 FFI。
+[dependencies]
+boa_engine = { version = "0.22.0", default-features = false }
+
+[[bin]]
+name = "textm"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
