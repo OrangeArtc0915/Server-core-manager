@@ -40,6 +40,17 @@ function Get-GuiReadyPluginCatalog {
             GiteePage  = $gt + '/releases/tag/scm-top-v0.1.0'
         }
         [pscustomobject]@{
+            Id         = 'textm'
+            Title      = 'Textm'
+            Kind       = '文本 / 代码编辑'
+            Branch     = 'tool/textm'
+            Desc       = '终端 / 图形双模式编辑器（Rust，单文件）；发行包内含 textm.exe、使用说明与技术文档。'
+            GitHubZip  = $gh + '/releases/download/textm-v2.0.0/textm-v2.0.0-win-x64.zip'
+            GiteeZip   = $gt + '/releases/download/textm-v2.0.0/textm-v2.0.0-win-x64.zip'
+            BranchPage = $gh + '/releases/tag/textm-v2.0.0'
+            GiteePage  = $gt + '/releases/tag/textm-v2.0.0'
+        }
+        [pscustomobject]@{
             Id         = 'craftdock'
             Title      = 'CraftDock'
             Kind       = '终端服务器管理'

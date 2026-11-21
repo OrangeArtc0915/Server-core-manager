@@ -2153,14 +2153,14 @@ function Get-GuiReadyActions {
         # ---------------- SCM附属（TUI_TOOL） ----------------
         [pscustomobject]@{
             Id = 'plugin-download-github'; Group = 'SCM附属'; Name = '下载附属工具发行包（GitHub 线路）'
-            Desc = '从 GitHub Releases 下载对应工具的发行包 zip（scterm.exe / scm-top 脚本 / craftdock.exe），校验 zip 魔数后解压到 payload\plugins\<工具>；已安装时整体替换，失败保留旧版本。不下载源码。'
+            Desc = '从 GitHub Releases 下载对应工具的发行包 zip（scterm.exe / scm-top 脚本 / textm.exe / craftdock.exe），校验 zip 魔数后解压到 payload\plugins\<工具>；已安装时整体替换，失败保留旧版本。不下载源码。'
             Params = @(
-                @{ Name = 'Id'; Label = '工具'; Type = 'Combo'; Default = 1; Options = @('scterm（终端）', 'scm-top（TUI 监控）', 'CraftDock（终端服务器管理）') }
+                @{ Name = 'Id'; Label = '工具'; Type = 'Combo'; Default = 1; Options = @('scterm（终端）', 'scm-top（TUI 监控）', 'Textm（文本 / 代码编辑）', 'CraftDock（终端服务器管理）') }
             )
             DryRun = $true
             Script = {
                 param($P)
-                $ids = @('scterm', 'tuimonitor', 'craftdock')
+                $ids = @('scterm', 'tuimonitor', 'textm', 'craftdock')
                 $v = [string]$P['Id']
                 $n = 0
                 $id = $(if ([int]::TryParse($v, [ref]$n) -and $n -ge 1 -and $n -le $ids.Count) { $ids[$n - 1] } else { $v })
@@ -2170,14 +2170,14 @@ function Get-GuiReadyActions {
         }
         [pscustomobject]@{
             Id = 'plugin-download-gitee'; Group = 'SCM附属'; Name = '下载附属工具发行包（Gitee 线路）'
-            Desc = '从 Gitee Releases 下载对应工具的发行包 zip（scterm.exe / scm-top 脚本 / craftdock.exe），校验后解压到 payload\plugins\<工具>。Gitee 仓库不放源码，两条线路下载的都是发行包。'
+            Desc = '从 Gitee Releases 下载对应工具的发行包 zip（scterm.exe / scm-top 脚本 / textm.exe / craftdock.exe），校验后解压到 payload\plugins\<工具>。Gitee 仓库不放源码，两条线路下载的都是发行包。'
             Params = @(
-                @{ Name = 'Id'; Label = '工具'; Type = 'Combo'; Default = 1; Options = @('scterm（终端）', 'scm-top（TUI 监控）', 'CraftDock（终端服务器管理）') }
+                @{ Name = 'Id'; Label = '工具'; Type = 'Combo'; Default = 1; Options = @('scterm（终端）', 'scm-top（TUI 监控）', 'Textm（文本 / 代码编辑）', 'CraftDock（终端服务器管理）') }
             )
             DryRun = $true
             Script = {
                 param($P)
-                $ids = @('scterm', 'tuimonitor', 'craftdock')
+                $ids = @('scterm', 'tuimonitor', 'textm', 'craftdock')
                 $v = [string]$P['Id']
                 $n = 0
                 $id = $(if ([int]::TryParse($v, [ref]$n) -and $n -ge 1 -and $n -le $ids.Count) { $ids[$n - 1] } else { $v })

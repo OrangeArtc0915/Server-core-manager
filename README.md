@@ -81,7 +81,7 @@ Add-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 | **角色与功能** | 图形化封装 `Install-WindowsFeature` / `Uninstall-WindowsFeature`：能力胶囊 + 过滤（全部 / 已装 / 未装 / 仅角色）+ 列表逐项安装 / 移除 + 批量队列。装完是否需要重启会写进日志；「包含管理工具」默认关闭 |
 | **安全基线** | 10 项**本机可验证**的安全基线（防火墙 / Defender / UAC / SMBv1 / 来宾账户 / 管理员组 / 网络共享 / RDP 与 NLA / 密码与锁定策略 / 24h 登录失败），每项带**原始证据**；可修项带「修复」，只修安全且可逆的 |
 | **程序管理** | 添加程序、启动、设置启动参数、后台常驻、启动诊断、查看兼容档案、移除；会读 PE 头自动带入实测推荐参数 |
-| **SCM附属** | TUI_TOOL 里的三套附属工具（scterm / scm-top / CraftDock）：查看本地状态，**GitHub / Gitee 两条线路都下载编译好的发行包**，安装到 `payload\plugins\<工具>` |
+| **SCM附属** | TUI_TOOL 里的四套附属工具（scterm / scm-top / Textm / CraftDock）：查看本地状态，**GitHub / Gitee 两条线路都下载编译好的发行包**，安装到 `payload\plugins\<工具>` |
 | **兼容档案** | 程序兼容档案：程序在 Server Core 上能不能跑、要补什么运行时、推荐哪些启动参数 |
 | **运行库** | Node / Python / Go / Java / PHP / Bun 各两个版本：官方 zip 解压到 `runtimes\<语言>\<版本>`，`current` 用 junction 指路，机器 PATH 只挂 current —— 切版本不用改脚本；国内镜像优先 |
 | **数据库** | PostgreSQL 16.4 / 17.0 与 MySQL 8.4 / 8.0：解压官方 zip、初始化实例、注册服务、**建库 / 备份 / 还原**；管理员密码用 DPAPI 加密存放 |
@@ -127,12 +127,13 @@ scm scripts list | run cleanup-temp
 
 ### 附属工具（SCM附属）
 
-`TUI_TOOL/` 里的三套工具各自占一个 GitHub 分支（源码），Gitee 不放源码。页面里两条线路下载的都是编译好的发行包，解压到 `payload\plugins\<工具>`：
+`TUI_TOOL/` 里的四套工具各自占一个 GitHub 分支（源码），Gitee 不放源码。页面里两条线路下载的都是编译好的发行包，解压到 `payload\plugins\<工具>`：
 
 | 工具 | 内容 | GitHub（发行包） | Gitee（发行包） |
 |---|---|---|---|
 | scterm | Rust 单文件终端多路复用 | [scterm-v0.1.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/scterm-v0.1.0) | [scterm-v0.1.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/scterm-v0.1.0) |
 | scm-top | 零依赖 TUI 监控（PowerShell） | [scm-top-v0.1.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/scm-top-v0.1.0) | [scm-top-v0.1.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/scm-top-v0.1.0) |
+| Textm | 终端 / 图形双模式编辑器（Rust） | [textm-v2.0.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/textm-v2.0.0) | [textm-v2.0.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/textm-v2.0.0) |
 | CraftDock | TypeScript 终端服务器管理 | [craftdock-v1.0.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/craftdock-v1.0.0) | [craftdock-v1.0.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/craftdock-v1.0.0) |
 
 > 下载包都会校验 zip 魔数；两个仓库的发行版旁都带 `.sha256`。已安装时整体替换，失败保留旧版本。

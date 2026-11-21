@@ -1,7 +1,7 @@
 ﻿# GuiReady 附属工具 runner：清单 / 本地状态 / 下载安装。
 # 与其它 runner 同一套封套：-Mode <m> -OutFile <json> [-ArgsFile <json>]
 #
-# GitHub 线路下载源码分支 zip；Gitee 线路下载 Release 里的编译产物。
+# GitHub / Gitee 两条线路都下载 Release 里的编译产物（不下载源码）。
 
 param(
     [Parameter(Mandatory = $true)][string]$Mode,
