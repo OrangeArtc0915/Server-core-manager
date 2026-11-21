@@ -618,7 +618,7 @@ namespace ScmUi
                 Draw.Text(g, "Windows Server Core", Theme.Font(8.5f), Theme.Hint,
                           new Rectangle(152, 0, 220, _title.Height));
                 if (_title.Width > 560)
-                    Draw.Text(g, "v2.1", Theme.Font(8.5f), Theme.Hint,
+                    Draw.Text(g, "v2.2", Theme.Font(8.5f), Theme.Hint,
                               new Rectangle(_title.Width - 210, 0, 50, _title.Height),
                               ContentAlignment.MiddleRight);
             };
