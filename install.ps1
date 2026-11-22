@@ -26,7 +26,7 @@
   因为 iex 没法传参数，需要改默认值时用环境变量：
       $env:SCM_DEST       = 'D:\SCM'    指定安装目录（默认 C:\Program Files\ServerCoreManager）
       $env:SCM_NO_COMMAND = '1'         不安装 scm 一行命令
-      $env:SCM_VERSION    = 'v2.3'      指定发布版本（两个仓库用同一个 tag）
+      $env:SCM_VERSION    = 'v2.4'      指定发布版本（两个仓库用同一个 tag）
       $env:SCM_MIRROR_GITHUB = 'http://内网镜像'   把 https://github.com 换成你的镜像/内网源
       $env:SCM_MIRROR_GITEE  = 'https://gitee.com/你的账号/你的仓库'  换一个 Gitee 基址镜像
       $env:SCM_MIRROR_TUNA   = 'https://mirrors.tuna.tsinghua.edu.cn'  清华镜像基址（工具内部装 PowerShell 7 用）
@@ -60,7 +60,7 @@ $AssetName = 'ServerCoreManager.zip'
 # 发版时要把本文件一起同步推到 Gitee，两边保持同一份内容。
 $GiteeOwner = 'orangearc655743'
 $GiteeRepo  = 'server-core-manager'
-$ScmVer     = 'v2.3'
+$ScmVer     = 'v2.4'
 
 # 用 irm | iex 运行时 $PSCommandPath 为空。这种情况下一律不能用 exit：
 # 实测 exit 会直接终止宿主，把用户刚打开的 PowerShell 窗口关掉，报错信息根本来不及看。
@@ -98,6 +98,23 @@ if (-not $isAdmin) {
 try {
     [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 } catch { }
+
+# ---------------------------------------------------------------- 2008 R2 前置
+# 2008 R2 需要 PowerShell 5.1 + .NET 4.5.2 以上；缺前置时本脚本先不动任何文件。
+$osBuild = 0
+try { $osBuild = [int](Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuildNumber -ErrorAction Stop).CurrentBuildNumber } catch { }
+if ($osBuild -gt 0 -and $osBuild -le 7601) {
+    $psMajor = $PSVersionTable.PSVersion.Major
+    $netRelease = 0
+    try { $netRelease = [int](Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' -Name Release -ErrorAction Stop).Release } catch { }
+    if ($psMajor -lt 5 -or $netRelease -lt 379893) {
+        Write-Warn '检测到 Windows Server 2008 R2：还需要 PowerShell 5.1 与 .NET 4.5.2 以上。'
+        if ($psMajor -lt 5) { Write-Warn ('  当前 PowerShell：' + $PSVersionTable.PSVersion.ToString()) }
+        if ($netRelease -lt 379893) { Write-Warn ('  当前 .NET Framework Release：' + $netRelease) }
+        Write-Step '请先以管理员身份运行安装包里的 Setup-LegacyPrereq.cmd，装完重启，再执行本脚本。'
+        if ($RunAsFile) { exit 1 } else { return }
+    }
+}
 
 if (-not $Dest)   { if ($env:SCM_DEST) { $Dest = $env:SCM_DEST } }
 if (-not $Version) { if ($env:SCM_VERSION) { $Version = $env:SCM_VERSION } else { $Version = $ScmVer } }

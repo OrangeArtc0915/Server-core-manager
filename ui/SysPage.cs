@@ -125,6 +125,17 @@ namespace ScmUi
             return b;
         }
 
+        // 永久移除一个按钮：只是 Visible=false 会被视图布局再打开，必须从列表里摘掉
+        protected void RemoveBtn(string view, UiButton b)
+        {
+            if (b == null) return;
+            List<UiButton> list;
+            if (ViewButtons.TryGetValue(view, out list)) list.Remove(b);
+            AllButtons.Remove(b);
+            Bar.Controls.Remove(b);
+            b.Dispose();
+        }
+
         // 页内视图切换（磁盘/卷/卷影、Hyper-V/IIS/打印/共享）
         protected void AddTab(string view, string text, int width = 92)
         {

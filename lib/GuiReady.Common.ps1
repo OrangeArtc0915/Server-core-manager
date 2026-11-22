@@ -855,3 +855,49 @@ function Stop-GuiReadyPersistentProcess {
     }
     Write-Log ('已停止并注销计划任务: ' + $Name) 'OK'
 }
+
+function Test-GuiReadyLegacyApi {
+    # 2008 R2 没有 NetAdapter / NetTCPIP / NetSecurity / Storage / ScheduledTasks / LocalAccounts。
+    # 默认按 cmdlet 是否存在判断；测试时可设 SCM_FORCE_LEGACY_API=1 强制走兼容路径。
+    param([Parameter(Mandatory = $true)][string]$Cmdlet)
+    if ($env:SCM_FORCE_LEGACY_API -eq '1') { return $true }
+    return (-not [bool](Get-Command $Cmdlet -ErrorAction SilentlyContinue))
+}
+
+function Get-GuiReadyTcpListeners {
+    # 2008 R2 没有 NetTCPConnection，用 netstat -ano 解析出同样的字段
+    if (-not (Test-GuiReadyLegacyApi 'Get-NetTCPConnection')) {
+        return @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)
+    }
+    $rows = @()
+    foreach ($line in @(netstat -ano -p tcp 2>$null)) {
+        $s = [string]$line
+        if ($s -match '^\s*TCP\s+(\S+):(\d+)\s+\S+\s+\S+\s+(\d+)\s*$') {
+            $rows += [pscustomobject]@{
+                LocalAddress  = $Matches[1]
+                LocalPort     = [int]$Matches[2]
+                State         = 'Listen'
+                OwningProcess = [int]$Matches[3]
+            }
+        }
+    }
+    return $rows
+}
+
+function Get-GuiReadyUdpEndpoints {
+    if (-not (Test-GuiReadyLegacyApi 'Get-NetUDPEndpoint')) {
+        return @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue)
+    }
+    $rows = @()
+    foreach ($line in @(netstat -ano -p udp 2>$null)) {
+        $s = [string]$line
+        if ($s -match '^\s*UDP\s+(\S+):(\d+)\s+\S+\s+(\d+)\s*$') {
+            $rows += [pscustomobject]@{
+                LocalAddress  = $Matches[1]
+                LocalPort     = [int]$Matches[2]
+                OwningProcess = [int]$Matches[3]
+            }
+        }
+    }
+    return $rows
+}

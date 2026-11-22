@@ -48,6 +48,7 @@ $files = @(
     'Sign-GuiReady.ps1',
     'Start-GuiReadyApp.ps1', 'Start-GuiReady.ps1',
     'Install-GuiReadyCommand.ps1', 'Resume-GuiReadyPipeline.ps1',
+    'Setup-LegacyPrereq.ps1', 'Setup-LegacyPrereq.cmd',
     '一键运行.bat', '打开命令行菜单.bat', '安装一行命令.bat'
 )
 $dirs = @('gui', 'lib', 'launcher', 'setup', 'docs', 'store', 'scripts')

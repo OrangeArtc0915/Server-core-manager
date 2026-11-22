@@ -700,15 +700,23 @@ namespace ScmUi
             AddTab("disk", "磁盘", 84);
             AddTab("vol", "卷", 84);
             AddTab("vss", "卷影副本", 100);
-            AddBtn("disk", "初始化磁盘", ButtonKind.Primary, 100, InitDisk);
+            var initDisk = AddBtn("disk", "初始化磁盘", ButtonKind.Primary, 100, InitDisk);
             AddBtn("disk", "清理临时文件", ButtonKind.Normal, 110, Cleanup);
             AddBtn("disk", "刷新", ButtonKind.Ghost, 72, () => Load());
-            AddBtn("vol", "扩展卷", ButtonKind.Primary, 84, ExtendVolume);
-            AddBtn("vol", "格式化", ButtonKind.Danger, 84, FormatVolume);
+            var extendVol = AddBtn("vol", "扩展卷", ButtonKind.Primary, 84, ExtendVolume);
+            var formatVol = AddBtn("vol", "格式化", ButtonKind.Danger, 84, FormatVolume);
             AddBtn("vol", "刷新", ButtonKind.Ghost, 72, () => Load());
             AddBtn("vss", "创建快照", ButtonKind.Primary, 96, CreateSnapshot);
             AddBtn("vss", "删除快照", ButtonKind.Danger, 96, RemoveSnapshot);
             AddBtn("vss", "刷新", ButtonKind.Ghost, 72, () => Load());
+            // 2008 R2 没有 Storage 模块：这三个写操作直接不展示
+            if (AppSettings.IsOld)
+            {
+                RemoveBtn("disk", initDisk);
+                RemoveBtn("vol", extendVol);
+                RemoveBtn("vol", formatVol);
+                Subtitle = "磁盘 / 卷 / 卷影副本的只读视图（2008 R2 缺 Storage 模块，写操作不可用）。";
+            }
             SetView("disk");
             RestyleTabs();
         }

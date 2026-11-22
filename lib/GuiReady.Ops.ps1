@@ -649,7 +649,7 @@ function Test-GuiReadyTcpPort {
 function Get-GuiReadyPortOwner {
     param([int]$Port)
     try {
-        $c = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction Stop | Select-Object -First 1
+        $c = @(Get-GuiReadyTcpListeners | Where-Object { [int]$_.LocalPort -eq $Port }) | Select-Object -First 1
         if ($c) {
             $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
             if ($p) { return [string]$p.ProcessName }

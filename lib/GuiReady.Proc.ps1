@@ -14,7 +14,7 @@ function Get-GuiReadyProcessList {
     } catch { }
     $ports = @{}
     try {
-        foreach ($c in @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)) {
+        foreach ($c in @(Get-GuiReadyTcpListeners)) {
             $pid2 = [int]$c.OwningProcess
             if (-not $ports.ContainsKey($pid2)) { $ports[$pid2] = @() }
             $ports[$pid2] += [int]$c.LocalPort
@@ -80,7 +80,11 @@ function Get-GuiReadyProcessDetail {
     $p = Get-CimInstance Win32_Process -Filter ("ProcessId=" + $Id) -ErrorAction Stop
     $os = Get-Process -Id $Id -ErrorAction SilentlyContinue
     $svc = @(Get-CimInstance Win32_Service -Filter ("ProcessId=" + $Id) -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.Name })
-    $ports = @(Get-NetTCPConnection -OwningProcess $Id -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.LocalAddress + ':' + [string]$_.LocalPort })
+    if (Test-GuiReadyLegacyApi 'Get-NetTCPConnection') {
+        $ports = @(Get-GuiReadyTcpListeners | Where-Object { [int]$_.OwningProcess -eq $Id } | ForEach-Object { [string]$_.LocalAddress + ':' + [string]$_.LocalPort })
+    } else {
+        $ports = @(Get-NetTCPConnection -OwningProcess $Id -ErrorAction SilentlyContinue | ForEach-Object { [string]$_.LocalAddress + ':' + [string]$_.LocalPort })
+    }
     return [pscustomobject]@{
         Id = $Id; Name = [string]$p.Name; ParentId = [int]$p.ParentProcessId
         CommandLine = [string]$p.CommandLine; ExecutablePath = [string]$p.ExecutablePath

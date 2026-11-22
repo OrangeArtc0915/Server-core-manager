@@ -116,7 +116,7 @@ In an **administrator** PowerShell:
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
 
-It downloads the specified release package (default `v2.3`; GitHub Releases first, then Gitee Releases), extracts it to `C:\Program Files\ServerCoreManager`, clears the "from the Internet" file block, and installs the `scm` command.
+It downloads the specified release package (default `v2.4`; GitHub Releases first, then Gitee Releases), extracts it to `C:\Program Files\ServerCoreManager`, clears the "from the Internet" file block, and installs the `scm` command.
 
 Afterwards, **type `scm` in any directory** to open the GUI (it self-elevates once, exactly like `sconfig`).
 
@@ -125,7 +125,7 @@ To change defaults, use environment variables (`iex` cannot forward parameters):
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # change install directory
 $env:SCM_NO_COMMAND = '1'     # skip the scm command
-$env:SCM_VERSION = 'v2.3'     # release tag used by both GitHub and Gitee
+$env:SCM_VERSION = 'v2.4'     # release tag used by both GitHub and Gitee
 irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
 ```
 
@@ -210,7 +210,7 @@ The tool ships with `-SelfTest` and `-LayoutDump`: the former verifies page/card
 
 | Item | Requirement |
 |---|---|
-| OS | Windows Server 2016 / 2019 / 2022 / 2025 **Core** (tested on 2022 Core build 20348.2700) |
+| OS | Target: **Windows Server 2008 R2 SP1 and later** **Core** (2008 R2 / 2012 / 2012 R2 / 2016 / 2019 / 2022 / 2025). Only **2022 Core (build 20348.2700)** has been fully tested; **versions below 2019 are untested on real hardware** |
 | PowerShell | 5.1 or later (the bundled one is fine; PowerShell 7 not required) |
 | Privileges | Administrator (provisioning, WAC, LSA writes all require it) |
 | Disk | ~5 GB free on C: recommended (FOD package + components) |

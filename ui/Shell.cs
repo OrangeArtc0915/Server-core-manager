@@ -93,6 +93,14 @@ namespace ScmUi
             { "database", "数据库" },
             { "tool",     "使用与工具" },
             { "beauty",   "终端美化" },
+            { "update",   "Windows 更新" },
+            { "network",  "网络配置" },
+            { "accounts", "本地账户" },
+            { "services", "服务管理" },
+            { "firewall", "防火墙" },
+            { "storage",  "存储与备份" },
+            { "systasks", "系统任务" },
+            { "logs",     "文件与日志" },
             { "roletools", "角色工具" },
             { "notify",   "通知" },
             { "maint",    "证书管理" },
@@ -344,11 +352,19 @@ namespace ScmUi
             new NavSpec("database", "数据库",       "database", "程序"),
             new NavSpec("tool",     "系统工具",     "tool",     "程序"),
             new NavSpec("beauty",   "终端美化",     "beauty",   "程序"),
+            new NavSpec("update",   "系统更新",     "update",   "系统管理"),
+            new NavSpec("network",  "网络配置",     "network",  "系统管理"),
             new NavSpec("diag",     "诊断工具",     "network",  "系统管理"),
+            new NavSpec("accounts", "本地账户",     "accounts", "系统管理"),
+            new NavSpec("services", "服务管理",     "services", "系统管理"),
             new NavSpec("soft",     "软件与权限",   "security", "系统管理"),
+            new NavSpec("firewall", "防火墙",       "security", "系统管理"),
+            new NavSpec("storage",  "存储与备份",   "storage",  "系统管理"),
+            new NavSpec("systasks", "系统任务",     "tasks",    "系统管理"),
             new NavSpec("roletools","角色工具",     "role",     "系统管理"),
             new NavSpec("notify",   "通知",         "notify",   "系统管理"),
             new NavSpec("maint",    "系统维护",     "tool",     "系统管理"),
+            new NavSpec("logs",     "日志中心",     "logs",     "运维"),
             new NavSpec("metrics",  "监控告警",     "monitor",  "运维"),
             new NavSpec("batch",    "批量管理",     "hosts",    "运维"),
             new NavSpec("scripts",  "脚本库",       "tool",     "运维"),
@@ -358,6 +374,7 @@ namespace ScmUi
             new NavSpec("audit",    "操作审计",     "audit",    "运维"),
             new NavSpec("hosts",    "远程主机",     "hosts",    "运维"),
             new NavSpec("more",     "全部功能",     "more",     "系统"),
+            new NavSpec("settings", "设置",         "tool",     "系统"),
             new NavSpec("about",    "关于",         "about",    "系统")
         };
 
@@ -422,6 +439,9 @@ namespace ScmUi
             BuildLog();
             RegisterPages();
 
+            // 启动时的自动更新检查：先补上次失败的提示，再按设置决定要不要联网
+            Shown += (s, e) => SelfUpdate.OnStartup(this);
+
             Paint += (s, e) =>
             {
                 e.Graphics.Clear(Theme.Frame);
@@ -470,7 +490,8 @@ namespace ScmUi
 
                 // 关窗 = 回到命令行：界面关掉之后如果没有 shell，Server Core 会话看起来就像"死"了。
                 // 三种关法（X / Alt+F4 / Esc）走同一处，系统关机 / 注销时不弹。
-                if (!e.Cancel && e.CloseReason != CloseReason.WindowsShutDown &&
+                if (!e.Cancel && !SelfUpdate.PendingRestart &&
+                    e.CloseReason != CloseReason.WindowsShutDown &&
                     e.CloseReason != CloseReason.TaskManagerClosing)
                 {
                     ExitShell.Open();
@@ -544,7 +565,10 @@ namespace ScmUi
         {
             var items = new List<KeyValuePair<string, string>>();
             foreach (var spec in NavSpecs)
+            {
+                if (!AppSettings.IsPageVisible(spec.Key)) continue;
                 items.Add(new KeyValuePair<string, string>(spec.Key, spec.Group + " / " + spec.Text));
+            }
             items.Add(new KeyValuePair<string, string>("more", "系统 / 全部功能（动作台）"));
             using (var dlg = new PaletteDialog(items))
             {
@@ -602,7 +626,7 @@ namespace ScmUi
                 Draw.Text(g, "Windows Server Core", Theme.Font(8.5f), Theme.Hint,
                           new Rectangle(152, 0, 220, _title.Height));
                 if (_title.Width > 560)
-                    Draw.Text(g, "v2.3", Theme.Font(8.5f), Theme.Hint,
+                    Draw.Text(g, "v2.4", Theme.Font(8.5f), Theme.Hint,
                               new Rectangle(_title.Width - 210, 0, 50, _title.Height),
                               ContentAlignment.MiddleRight);
             };
@@ -645,6 +669,7 @@ namespace ScmUi
 
             foreach (var spec in NavSpecs)
             {
+                if (!AppSettings.IsPageVisible(spec.Key)) continue;
                 if (spec.Group != lastGroup)
                 {
                     lastGroup = spec.Group;
@@ -672,6 +697,29 @@ namespace ScmUi
                 _navItems.Add(item);
                 _nav.Controls.Add(item);
                 y += 38;
+            }
+        }
+
+        // 设置页改完版本策略后调用：清掉侧栏重画一遍，当前页被隐藏就回总览。
+        public void RebuildNav()
+        {
+            for (int i = _nav.Controls.Count - 1; i >= 0; i--)
+            {
+                var c = _nav.Controls[i];
+                _nav.Controls.RemoveAt(i);
+                c.Dispose();
+            }
+            _navItems.Clear();
+            BuildNav();
+            _nav.Invalidate();
+
+            if (!string.IsNullOrEmpty(_currentKey) && !AppSettings.IsPageVisible(_currentKey))
+            {
+                ShowPage("monitor", false);
+            }
+            else
+            {
+                foreach (var n in _navItems) { n.Active = (n.PageKey == _currentKey); n.Invalidate(); }
             }
         }
 
@@ -1010,6 +1058,14 @@ namespace ScmUi
             Register("security", () => new SecurityPage());
             Register("tool",     () => new ToolPage());
             Register("beauty",   () => new BeautyPage());
+            Register("update",   () => new UpdatePage());
+            Register("network",  () => new NetworkPage());
+            Register("accounts", () => new AccountsPage());
+            Register("services", () => new ServicesPage());
+            Register("firewall", () => new FirewallPage());
+            Register("storage",  () => new StoragePage());
+            Register("systasks", () => new SysTasksPage());
+            Register("logs",     () => new LogsPage());
             Register("roletools", () => new RoleToolsPage());
             Register("notify",   () => new NotifyPage());
             Register("maint",    () => new MaintPage());
@@ -1020,6 +1076,7 @@ namespace ScmUi
             Register("soft",     () => new SoftwarePage());
             Register("reports",  () => new ReportsPage());
             Register("more",     () => new MorePage());
+            Register("settings", () => new SettingsPage());
             Register("about",    () => new AboutPage());
         }
 
@@ -1037,6 +1094,7 @@ namespace ScmUi
             {
                 case "role": return 10;
                 case "security": return 20;
+                case "logs": return 10;
                 case "tasks": return 10;
                 case "ops": return 10;
                 case "audit": return 10;
@@ -1049,6 +1107,13 @@ namespace ScmUi
                 case "store": return 20;
                 case "env": return 20;
                 case "beauty": return 30;
+                case "update": return 60;
+                case "network": return 15;
+                case "accounts": return 15;
+                case "services": return 20;
+                case "firewall": return 30;
+                case "storage": return 20;
+                case "systasks": return 20;
                 case "roletools": return 30;
                 case "notify": return 15;
                 case "maint": return 30;
@@ -1168,6 +1233,28 @@ namespace ScmUi
                 Application.SetCompatibleTextRenderingDefault(false);
                 Application.ThreadException += (s, e) => Dump(log, e.Exception);
                 AppDomain.CurrentDomain.UnhandledException += (s, e) => Dump(log, e.ExceptionObject as Exception);
+
+                // 版本策略：首次启动问一次 2019+ / 2019-，之后读 state\ui-settings.json
+                AppSettings.Load();
+                if (!AppSettings.FirstRunDone)
+                {
+                    string pick = "";
+                    using (var dlg = new FirstRunDialog())
+                    {
+                        dlg.ShowDialog();
+                        pick = dlg.Result;
+                    }
+                    // 关窗视为采用高亮默认项：按探测结果走
+                    if (!string.IsNullOrEmpty(pick)) AppSettings.Tier = pick;
+                    else AppSettings.Tier = AppSettings.DetectedBuild >= AppSettings.ModernBuild
+                                                ? AppSettings.Modern
+                                                : (AppSettings.DetectedBuild > 0 && AppSettings.DetectedBuild <= AppSettings.OldBuild
+                                                    ? AppSettings.Old : AppSettings.Legacy);
+                    AppSettings.HideWacDuplicates = AppSettings.IsModern;
+                    AppSettings.FirstRunDone = true;
+                    AppSettings.Save();
+                }
+
                 Application.Run(new Shell(args != null && args.Length > 0 ? args[0] : "monitor"));
             }
             catch (Exception ex)

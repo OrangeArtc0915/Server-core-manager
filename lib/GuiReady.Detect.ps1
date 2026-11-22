@@ -192,7 +192,7 @@ function Get-GuiReadyRdp {
 
     $o.Listening3389 = $false
     try {
-        $conn = Get-NetTCPConnection -LocalPort 3389 -State Listen -ErrorAction SilentlyContinue
+        $conn = @(Get-GuiReadyTcpListeners | Where-Object { [int]$_.LocalPort -eq 3389 }) | Select-Object -First 1
         if ($conn) { $o.Listening3389 = $true }
     } catch { }
 

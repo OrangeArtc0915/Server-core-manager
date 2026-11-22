@@ -2589,6 +2589,7 @@ namespace ScmUi
         private readonly AboutCard _card;
         private readonly UiButton _site;
         private readonly UiButton _update;
+        private readonly UiButton _checkUpdate;
         private readonly UiButton _openLogs;
         private readonly UiButton _openReports;
 
@@ -2617,6 +2618,10 @@ namespace ScmUi
             };
             _card.Controls.Add(_site);
             _card.Controls.Add(_update);
+
+            _checkUpdate = new UiButton("检查更新", ButtonKind.Normal, 112, 34) { Location = new Point(0, 0) };
+            _checkUpdate.Click += (s, e) => SelfUpdate.CheckManual(this);
+            _card.Controls.Add(_checkUpdate);
 
             _openLogs = new UiButton("打开日志目录", ButtonKind.Normal, 116, 34) { Location = new Point(0, 0) };
             _openLogs.Click += (s, e) => OpenFolder("logs");
@@ -2676,7 +2681,7 @@ namespace ScmUi
             // 四个按钮排在「作者/QQ/版本/GitHub/官网」和底部说明的下面，统一换行布局。
             // 以前是右下角固定 + 左下角固定，卡片一窄就互相压住，底部说明还会被按钮盖掉。
             int pad = 16;
-            var btns = new List<UiButton> { _openLogs, _openReports, _site, _update };
+            var btns = new List<UiButton> { _openLogs, _openReports, _site, _update, _checkUpdate };
             int bh = LayoutButtonRow(btns, _card.Width - pad * 2, 0);
             const int top = 226;
 
@@ -2722,7 +2727,7 @@ namespace ScmUi
             {
                 new[] { "作者：", "mmm" },
                 new[] { "QQ 群：", "1034243331" },
-                new[] { "版本：", "v2.3　构建 " + BuildStamp() },
+                new[] { "版本：", "v2.4　构建 " + BuildStamp() },
                 new[] { "GitHub：", "https://github.com/OrangeArtc0915/Server-core-manager" },
                 new[] { "官网：", "https://orangeartc0915.github.io/Server-core-manager/" }
             };

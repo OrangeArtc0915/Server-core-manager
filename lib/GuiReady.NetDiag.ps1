@@ -24,7 +24,7 @@ function Get-GuiReadyListeningPorts {
     try {
         $procs = @{}
         foreach ($p in @(Get-Process -ErrorAction SilentlyContinue)) { $procs[$p.Id] = $p.ProcessName }
-        foreach ($c in @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)) {
+        foreach ($c in @(Get-GuiReadyTcpListeners)) {
             $rows += [pscustomobject]@{
                 Protocol = 'TCP'; Address = [string]$c.LocalAddress; Port = [int]$c.LocalPort
                 PID = [int]$c.OwningProcess
@@ -33,7 +33,7 @@ function Get-GuiReadyListeningPorts {
         }
     } catch { }
     try {
-        foreach ($u in @(Get-NetUDPEndpoint -ErrorAction SilentlyContinue)) {
+        foreach ($u in @(Get-GuiReadyUdpEndpoints)) {
             $rows += [pscustomobject]@{
                 Protocol = 'UDP'; Address = [string]$u.LocalAddress; Port = [int]$u.LocalPort
                 PID = [int]$u.OwningProcess; Process = ''
@@ -49,7 +49,7 @@ function Test-GuiReadyPortScan {
     if ($list.Count -eq 0) { throw '端口列表为空或格式不对（示例 80,443,1000-1010）。' }
     $owners = @{}
     try {
-        foreach ($c in @(Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue)) {
+        foreach ($c in @(Get-GuiReadyTcpListeners)) {
             $owners[[int]$c.LocalPort] = [int]$c.OwningProcess
         }
     } catch { }

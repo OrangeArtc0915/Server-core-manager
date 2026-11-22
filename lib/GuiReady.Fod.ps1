@@ -209,7 +209,7 @@ function Install-GuiReadyFod {
 }
 
 function Install-GuiReadyDesktopDlls {
-    # 补齐 Server Core 缺失的桌面体验 DLL。
+    # 补齐 Server Core 缺失的桌面体验 DLL（64 位进 System32，32 位进 SysWOW64）。
     #
     # 背景（真机实测 Server 2025 / 26100）：装了 App Compatibility FOD 之后，
     # twinui.dll / themeui.dll / themeservice.dll 仍然可能不在 System32 —— FOD 只覆盖
@@ -219,82 +219,109 @@ function Install-GuiReadyDesktopDlls {
     # 版本必须与当前系统主版本一致，否则拒绝复制（避免把 19041 的文件塞进 26100）。
     param([switch]$WhatIf, [switch]$Force)
 
-    $names   = @('twinui.dll', 'themeui.dll', 'themeservice.dll', 'DispBroker.dll')
     $osBuild = [Environment]::OSVersion.Version.Build
-    $dstDir  = Join-Path $env:SystemRoot 'System32'
-    # 多版本目录：Server 2019 / 2022 / 2025 的 DLL 版本不同，必须用同 build 的文件。
-    # 约定：setup\dll\<build>\amd64 放该版本专用；setup\dll\amd64 是默认（26100）。
-    # 已内置：17763（2019）、20348（2022）、26100（2025，默认目录）。
-    # 提取方法：7z x <ISO> -o<tmp> 'sources\install.wim' → 7z x install.wim
-    #   '4\Windows\System32\twinui.dll' ...（索引 4 = Datacenter 桌面体验）。
-    $cands = @(
-        (Join-Path $script:GuiReadyRoot ('setup\dll\' + $osBuild + '\amd64')),
-        (Join-Path $script:GuiReadyRoot 'setup\dll\amd64')
+
+    # 多版本 / 多架构目录：
+    #   setup\dll\<build>\amd64  → System32
+    #   setup\dll\<build>\x86    → SysWOW64
+    #   setup\dll\amd64          → 64 位默认（26100），仅在缺 <build>\amd64 时兜底
+    # 已内置 17763（2019，含 32 位）、20348（2022）、26100（2025，默认目录）。
+    # 提取方法：7z e <ISO>\sources\install.wim -o<tmp> '2\Windows\System32\twinui.dll'
+    #   （索引 2 = Standard 桌面体验，4 = Datacenter 桌面体验，两者文件相同；
+    #     32 位把路径里的 System32 换成 SysWOW64，themeservice.dll 没有 32 位版本）。
+    $targets = @(
+        [pscustomobject]@{
+            Arch  = 'amd64'
+            Dir   = 'System32'
+            Names = @('twinui.dll', 'themeui.dll', 'themeservice.dll', 'DispBroker.dll')
+            Candidates = @(
+                (Join-Path $script:GuiReadyRoot ('setup\dll\' + $osBuild + '\amd64')),
+                (Join-Path $script:GuiReadyRoot 'setup\dll\amd64')
+            )
+        }
+        [pscustomobject]@{
+            Arch  = 'x86'
+            Dir   = 'SysWOW64'
+            Names = @('twinui.dll', 'themeui.dll', 'DispBroker.dll')
+            Candidates = @(
+                (Join-Path $script:GuiReadyRoot ('setup\dll\' + $osBuild + '\x86')),
+                (Join-Path $script:GuiReadyRoot 'setup\dll\x86')
+            )
+        }
     )
-    $srcDir = ''
-    foreach ($c in $cands) {
-        if (Test-Path -LiteralPath $c) { $srcDir = $c; break }
-    }
-    if (-not $srcDir) {
-        Write-Log ('找不到 DLL 源目录（试过 setup\dll\' + $osBuild + '\amd64 与 setup\dll\amd64）。') 'ERROR'
-        return $false
-    }
-    $ok = $true
-    $copied = 0
-    $backup = Join-Path $script:BackupDir ('dll-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
 
     Write-Head '补齐桌面体验 DLL'
-    Write-Log ('源目录: ' + $srcDir) 'INFO'
     Write-Log ('系统版本: build ' + $osBuild) 'INFO'
 
-    foreach ($n in $names) {
-        $src = Join-Path $srcDir $n
-        if (-not (Test-Path -LiteralPath $src)) {
-            Write-Log ('源文件不存在，跳过: ' + $n) 'WARN'
-            continue
-        }
-        $sv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($src)
-        if ([int]$sv.FileBuildPart -ne [int]$osBuild) {
-            Write-Log ('版本不匹配，拒绝复制 {0}: 文件 build={1}，系统 build={2}' -f $n, $sv.FileBuildPart, $osBuild) 'ERROR'
-            Write-Log ('  请把 build {0} 的同版本 DLL 放到: setup\dll\{0}\amd64' -f $osBuild) 'INFO'
-            $ok = $false
-            continue
-        }
+    $ok = $true
+    $copied = 0
+    $backupRoot = Join-Path $script:BackupDir ('dll-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+    $foundAny = $false
 
-        $dst = Join-Path $dstDir $n
-        if (Test-Path -LiteralPath $dst) {
-            $dv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dst)
-            # 版本一致就跳过 —— 即使 -Force 也不覆盖：
-            # DispBroker.dll 这类文件可能正被系统（DWM/桌面组件）加载，覆盖会 Access denied，
-            # 而且同版本覆盖没有任何意义。
-            if ($dv.FileVersion -eq $sv.FileVersion) {
-                Write-Log ('已存在且版本一致: ' + $n) 'OK'
+    foreach ($t in $targets) {
+        $srcDir = ''
+        foreach ($c in $t.Candidates) {
+            if (Test-Path -LiteralPath $c) { $srcDir = $c; break }
+        }
+        if (-not $srcDir) {
+            Write-Log ('{0}: 没有内置该版本的 32/64 位 DLL，跳过（setup\dll\{1}\{2} 不存在）' -f $t.Arch, $osBuild, $t.Arch) 'INFO'
+            continue
+        }
+        $foundAny = $true
+        $dstDir = Join-Path $env:SystemRoot $t.Dir
+        $backup = Join-Path $backupRoot $t.Arch
+        Write-Log ('{0}: {1}  →  {2}' -f $t.Arch, $srcDir, $dstDir) 'INFO'
+
+        foreach ($n in $t.Names) {
+            $src = Join-Path $srcDir $n
+            if (-not (Test-Path -LiteralPath $src)) {
+                Write-Log ('{0}: 源文件不存在，跳过: {1}' -f $t.Arch, $n) 'WARN'
                 continue
             }
-            if ($WhatIf) {
-                Write-Log ('将备份并覆盖: {0}（当前 {1} -> {2}）' -f $n, $dv.FileVersion, $sv.FileVersion) 'DRY'
+            $sv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($src)
+            if ([int]$sv.FileBuildPart -ne [int]$osBuild) {
+                Write-Log ('{0}: 版本不匹配，拒绝复制 {1}: 文件 build={2}，系统 build={3}' -f $t.Arch, $n, $sv.FileBuildPart, $osBuild) 'ERROR'
+                Write-Log ('  请把 build {0} 的同版本 DLL 放到: setup\dll\{0}\{1}' -f $osBuild, $t.Arch) 'INFO'
+                $ok = $false
                 continue
             }
-            if (-not (Test-Path -LiteralPath $backup)) { New-Item -ItemType Directory -Path $backup -Force | Out-Null }
-            try { Copy-Item -LiteralPath $dst -Destination (Join-Path $backup $n) -Force -ErrorAction Stop } catch { }
-        } elseif ($WhatIf) {
-            Write-Log ('将新增: {0} {1}' -f $n, $sv.FileVersion) 'DRY'
-            continue
-        }
 
-        try {
-            Copy-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop
-            Write-Log ('已补齐: {0}  {1}' -f $n, $sv.FileVersion) 'OK'
-            $copied++
-        } catch {
-            Write-Log ('复制失败 {0}: {1}（若文件正被系统占用，请重启后再运行本动作）' -f $n, $_.Exception.Message) 'ERROR'
-            $ok = $false
+            $dst = Join-Path $dstDir $n
+            if (Test-Path -LiteralPath $dst) {
+                $dv = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($dst)
+                # 版本一致就跳过 —— 即使 -Force 也不覆盖：
+                # DispBroker.dll 这类文件可能正被系统（DWM/桌面组件）加载，覆盖会 Access denied，
+                # 而且同版本覆盖没有任何意义。
+                if ($dv.FileVersion -eq $sv.FileVersion) {
+                    Write-Log ('{0}: 已存在且版本一致: {1}' -f $t.Arch, $n) 'OK'
+                    continue
+                }
+                if ($WhatIf) {
+                    Write-Log ('{0}: 将备份并覆盖 {1}（当前 {2} -> {3}）' -f $t.Arch, $n, $dv.FileVersion, $sv.FileVersion) 'DRY'
+                    continue
+                }
+                if (-not (Test-Path -LiteralPath $backup)) { New-Item -ItemType Directory -Path $backup -Force | Out-Null }
+                try { Copy-Item -LiteralPath $dst -Destination (Join-Path $backup $n) -Force -ErrorAction Stop } catch { }
+            } elseif ($WhatIf) {
+                Write-Log ('{0}: 将新增 {1} {2}' -f $t.Arch, $n, $sv.FileVersion) 'DRY'
+                continue
+            }
+
+            try {
+                Copy-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop
+                Write-Log ('{0}: 已补齐 {1}  {2}' -f $t.Arch, $n, $sv.FileVersion) 'OK'
+                $copied++
+            } catch {
+                Write-Log ('{0}: 复制失败 {1}: {2}（若文件正被系统占用，请重启后再运行本动作）' -f $t.Arch, $n, $_.Exception.Message) 'ERROR'
+                $ok = $false
+            }
         }
     }
 
+    if (-not $foundAny) { return $false }
     if ($WhatIf) { return $ok }
     if ($copied -gt 0) {
-        Write-Log ('补齐完成：{0} 个文件。主题/XAML 相关组件需要重启或注销后生效。' -f $copied) 'INFO'
+        Write-Log ('补齐完成：{0} 个文件（含 32 位）。主题/XAML 相关组件需要重启或注销后生效。' -f $copied) 'INFO'
     }
     return $ok
 }

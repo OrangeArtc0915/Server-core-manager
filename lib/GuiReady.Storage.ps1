@@ -4,6 +4,7 @@
 # 只做「扩展卷」这种不丢数据的操作时也先回读容量再动手。
 
 function Get-GuiReadyStorageStatus {
+    if (Test-GuiReadyLegacyApi 'Get-Disk') { return (Get-GuiReadyLegacyStorageStatus) }
     $disks = @()
     $volumes = @()
     try {
@@ -64,6 +65,9 @@ function Set-GuiReadyVolumeAction {
           [string]$Label = '',
           [switch]$DryRun)
     Assert-Administrator | Out-Null
+    if (Test-GuiReadyLegacyApi 'Get-Volume') {
+        throw 'Windows Server 2008 R2 没有 Storage 模块：存储页只能只读查看，不支持扩展 / 格式化 / 初始化。'
+    }
 
     switch ($Action) {
         'extend' {
@@ -250,4 +254,66 @@ function Install-GuiReadyWbFeature {
     if ($DryRun) { Write-Log '[预览] 将安装 Windows-Server-Backup 功能' 'DRY'; return }
     $r = Install-WindowsFeature -Name 'Windows-Server-Backup' -ErrorAction Stop
     Write-Log ('Windows-Server-Backup 安装结果：Success={0} 需要重启={1}' -f $r.Success, $r.RestartNeeded) 'OK'
+}
+
+# ---------------------------------------------------------------- 2008 R2 兼容路径
+# 2008 R2 没有 Storage 模块，用 WMI 做只读展示：磁盘 / 卷 / 容量。
+# 写操作（扩展 / 格式化 / 初始化）在 Set-GuiReadyVolumeAction 里直接拒绝。
+
+function Get-GuiReadyLegacyStorageStatus {
+    $disks = @()
+    $volumes = @()
+
+    try {
+        foreach ($d in @(Get-WmiObject Win32_DiskDrive -ErrorAction Stop | Sort-Object Index)) {
+            $sizeGB = 0
+            try { $sizeGB = [Math]::Round([double]$d.Size / 1GB, 1) } catch { }
+            $disks += [pscustomobject]@{
+                Number            = [int]$d.Index
+                FriendlyName      = [string]$d.Model
+                SizeGB            = $sizeGB
+                PartitionStyle    = ''
+                OperationalStatus = [string]$d.Status
+                HealthStatus      = $(if ([string]$d.Status -eq 'OK') { 'Healthy' } else { [string]$d.Status })
+                BusType           = [string]$d.InterfaceType
+                IsBoot            = $false
+                IsSystem          = $false
+            }
+        }
+    } catch {
+        Write-Log ('读取磁盘失败：' + $_.Exception.Message) 'WARN'
+    }
+
+    try {
+        foreach ($v in @(Get-WmiObject Win32_LogicalDisk -Filter 'DriveType=2 or DriveType=3' -ErrorAction Stop | Sort-Object DeviceID)) {
+            $sizeGB = 0; $freeGB = 0
+            try { $sizeGB = [Math]::Round([double]$v.Size / 1GB, 1) } catch { }
+            try { $freeGB = [Math]::Round([double]$v.FreeSpace / 1GB, 1) } catch { }
+            $pct = if ($sizeGB -gt 0) { [Math]::Round($freeGB * 100 / $sizeGB) } else { 0 }
+            $volumes += [pscustomobject]@{
+                DriveLetter = ([string]$v.DeviceID).TrimEnd(':')
+                Label       = [string]$v.VolumeName
+                FileSystem  = [string]$v.FileSystem
+                DriveType   = $(if ([int]$v.DriveType -eq 3) { 'Fixed' } else { 'Removable' })
+                SizeGB      = $sizeGB
+                FreeGB      = $freeGB
+                FreePercent = $pct
+                Health      = ''
+            }
+        }
+    } catch {
+        Write-Log ('读取卷失败：' + $_.Exception.Message) 'WARN'
+    }
+
+    $snapCount = 0
+    try { $snapCount = @(Get-WmiObject Win32_ShadowCopy -ErrorAction Stop).Count } catch { }
+
+    return [pscustomobject]@{
+        Disks           = $disks
+        Volumes         = $volumes
+        Snapshots       = $snapCount
+        Computer        = $env:COMPUTERNAME
+        ReadOnly        = $true
+        ReadOnlyReason  = 'Windows Server 2008 R2 缺少 Storage 模块，存储页只读'
+    }
 }

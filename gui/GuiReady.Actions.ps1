@@ -2745,13 +2745,57 @@ function Get-GuiReadyActions {
         }
     )
 
-    # 与 Windows Admin Center 重复的功能已从产品中移除：
-    # 系统更新 / 网络配置 / 本地账户 / 服务管理 / 防火墙 / 存储与备份 / 系统任务 / 文件与日志。
-    # 实现保留在下面，方便以后恢复；动作目录、界面与执行器都不会再暴露它们。
-    $removedGroups = @('Windows 更新', '网络配置', '本地账户', '服务管理', '防火墙', '存储与备份', '系统任务', '文件与日志')
+    # 版本策略：与界面共用 state\ui-settings.json。
+    #   2019+：隐藏与 Windows Admin Center 重复的 8 组动作（界面里也隐藏对应页面）。
+    #   2019-：隐藏依赖 App Compatibility FOD / 补全 DLL / WAC 的动作 —— 实测在 2016 及更早版本不可用。
+    $policy = Get-GuiReadyUiPolicy
+    $wacGroups = @('Windows 更新', '网络配置', '本地账户', '服务管理', '防火墙', '存储与备份', '系统任务', '文件与日志')
+    $legacyGroups = @('一键流程', '探测与诊断', '程序档案', '补给', 'Windows Admin Center')
+    # 2008 R2 没有 Storage 模块：扩展 / 格式化 / 初始化这三个写操作不展示
+    $oldStorageIds = @('storage-extend', 'storage-format', 'storage-init')
+
     return @(Set-GuiReadyActionRequirements -Actions $actions | Where-Object {
-        $removedGroups -notcontains [string]$_.Group -and [string]$_.Id -ne 'monitor-service'
+        $group = [string]$_.Group
+        if ($policy.HideWac -and ($wacGroups -contains $group)) { return $false }
+        if ($policy.HideWac -and [string]$_.Id -eq 'monitor-service') { return $false }
+        if ($policy.HideUnsupported -and ($legacyGroups -contains $group)) { return $false }
+        if ($policy.IsOld -and ($oldStorageIds -contains [string]$_.Id)) { return $false }
+        return $true
     })
+}
+
+function Get-GuiReadyUiPolicy {
+    # 读 state\ui-settings.json；没有这个文件时按「自动识别 + 两个隐藏都开」处理，
+    # 与原生界面首次启动后的默认值保持一致（命令行 / 无界面场景也能得到同样的目录）。
+    $root = [string]$script:GuiReadyRoot
+    if (-not $root) { $root = Split-Path -Parent $PSScriptRoot }
+    $file = Join-Path $root 'state\ui-settings.json'
+    $tier = 'auto'
+    $hideWac = $true
+    $hideUnsupported = $true
+
+    if (Test-Path -LiteralPath $file) {
+        try {
+            $j = Get-Content -LiteralPath $file -Raw -Encoding UTF8 | ConvertFrom-Json
+            if ($j.VersionTier) { $tier = [string]$j.VersionTier }
+            if ($null -ne $j.HideWacDuplicates) { $hideWac = [bool]$j.HideWacDuplicates }
+            if ($null -ne $j.HideUnsupported) { $hideUnsupported = [bool]$j.HideUnsupported }
+        } catch { }
+    }
+
+    $build = 0
+    try { $build = [int](Get-ItemProperty -LiteralPath 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuildNumber -ErrorAction Stop).CurrentBuildNumber } catch { $build = [Environment]::OSVersion.Version.Build }
+    $modern = ($tier -eq 'modern') -or ($tier -ne 'legacy' -and $tier -ne 'old' -and $build -ge 17763)
+    $isOld = ($tier -eq 'old') -or (($tier -eq 'auto') -and $build -gt 0 -and $build -le 7601)
+
+    [pscustomobject]@{
+        Tier            = $tier
+        Build           = $build
+        Modern          = $modern
+        IsOld           = $isOld
+        HideWac         = ($hideWac -and $modern)
+        HideUnsupported = ($hideUnsupported -and (-not $modern))
+    }
 }
 
 function Set-GuiReadyActionRequirements {
