@@ -65,7 +65,11 @@ function Get-GuiReadyUpdateTags {
         # Gitee 先走公开接口；接口不可用时退回发行页 HTML
         try {
             $json = (Invoke-GuiReadyWeb ('https://gitee.com/api/v5/repos/' + $repo + '/releases?per_page=100') 'application/json').Content
-            foreach ($r in @($json | ConvertFrom-Json)) { if ($r.tag_name) { $tags += [string]$r.tag_name } }
+            # PS 5.1 的 ConvertFrom-Json 把顶层数组当成一个对象输出，直接 foreach 会拿到「整个数组」
+            # （$tags 被拼成一整串，tag 过滤就永远不命中）。这里先摊平。
+            $parsed = $json | ConvertFrom-Json
+            if ($parsed -isnot [array]) { $parsed = @($parsed) }
+            foreach ($r in $parsed) { if ($r.tag_name) { $tags += [string]$r.tag_name } }
         } catch { $err = $_.Exception.Message }
         if ($tags.Count -eq 0) {
             try {
