@@ -1,13 +1,26 @@
+<div align="center">
+
 # Server Core Manager
 
 **让带图形界面的程序，在 Windows Server Core 上真正跑起来。**
 
+<a href="https://server-core-mananger.github.io/"><img src="https://img.shields.io/badge/%E5%AE%98%E7%BD%91-server--core--mananger.github.io-2ea043?style=flat-square" alt="官网"></a>
+<a href="https://github.com/Server-Core-Mananger/Server-core-manager/releases"><img src="https://img.shields.io/github/v/release/Server-Core-Mananger/Server-core-manager?label=release&style=flat-square&color=2ea043" alt="release"></a>
+<img src="https://img.shields.io/badge/platform-Windows%20Server%202008%20R2%2B-0078d4?style=flat-square" alt="platform">
+<a href="https://github.com/Server-Core-Mananger/Server-core-manager/blob/main/LICENSE"><img src="https://img.shields.io/github/license/Server-Core-Mananger/Server-core-manager?style=flat-square" alt="license"></a>
+<a href="https://github.com/Server-Core-Mananger/Server-core-manager/stargazers"><img src="https://img.shields.io/github/stars/Server-Core-Mananger/Server-core-manager?style=flat-square&color=e3b341" alt="stars"></a>
+<a href="https://github.com/Server-Core-Mananger/Server-core-manager/releases"><img src="https://img.shields.io/github/downloads/Server-Core-Mananger/Server-core-manager/total?label=downloads&style=flat-square" alt="downloads"></a>
+
+[官网](https://server-core-mananger.github.io/) · [安装文档](https://server-core-mananger.github.io/wiki/scm/install/) · [发布说明](https://server-core-mananger.github.io/posts/v2-5-release/) · [问题反馈](https://github.com/Server-Core-Mananger/Server-core-manager/issues)
+
+</div>
+
 Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`，很多带界面的程序（QQ、各类 Electron 应用、WPF 工具、.NET 桌面程序、MMC 管理单元）装上去不是报错就是白屏。这个工具把「补全图形环境 → 添加程序 → 启动并排障」这条链路做成了一键操作，并且带一个自己的图形界面 —— 不用整天对着终端敲命令。
 
-> 作者：**mmm** ｜ QQ 群：**1034243331** ｜ GitHub：<https://github.com/Server-Core-Mananger/Server-core-manager> ｜ 项目主页：<https://server-core-mananger.github.io/>
+> 作者：**mmm** ｜ QQ 群：**1034243331** ｜ 同组织项目：[scterm](https://github.com/Server-Core-Mananger/scterm) · [Textm](https://github.com/Server-Core-Mananger/Textm) · [TuiMonitor](https://github.com/Server-Core-Mananger/TuiMonitor) · [craftdock](https://github.com/Server-Core-Mananger/craftdock)
 
-```
-支持的安装方式：① 命令行一行安装   ② 压缩包
+```text
+安装方式一：命令行一行安装      安装方式二：下载 ServerCoreManager.zip 解压即用
 ```
 
 ---
