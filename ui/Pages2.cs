@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Drawing;
 using System.Windows.Forms;
@@ -2653,7 +2653,7 @@ namespace ScmUi
 
         private void OpenHome()
         {
-            const string url = "https://orangeartc0915.github.io/Server-core-manager/";
+            const string url = "https://server-core-mananger.github.io/";
             try
             {
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
@@ -2728,8 +2728,8 @@ namespace ScmUi
                 new[] { "作者：", "mmm" },
                 new[] { "QQ 群：", "1034243331" },
                 new[] { "版本：", "v2.4　构建 " + BuildStamp() },
-                new[] { "GitHub：", "https://github.com/OrangeArtc0915/Server-core-manager" },
-                new[] { "官网：", "https://orangeartc0915.github.io/Server-core-manager/" }
+                new[] { "GitHub：", "https://github.com/Server-Core-Mananger/Server-core-manager" },
+                new[] { "官网：", "https://server-core-mananger.github.io/" }
             };
             foreach (var row in rows)
             {
@@ -2755,8 +2755,8 @@ namespace ScmUi
                           new Rectangle(22, 200, Math.Max(60, r.Width - 44), 20));
         }
 
-        private const string GithubUrl = "https://github.com/OrangeArtc0915/Server-core-manager";
-        private const string SiteUrl = "https://orangeartc0915.github.io/Server-core-manager/";
+        private const string GithubUrl = "https://github.com/Server-Core-Mananger/Server-core-manager";
+        private const string SiteUrl = "https://server-core-mananger.github.io/";
 
         // GitHub 是第 4 行（y = 76 + 3 * 24），官网是第 5 行
         private static Rectangle GithubHit(int width)

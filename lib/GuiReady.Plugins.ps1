@@ -1,4 +1,4 @@
-﻿# GuiReady 附属工具（TUI_TOOL）：清单、本地状态、GitHub / Gitee 双线路下载。
+# GuiReady 附属工具（TUI_TOOL）：清单、本地状态、GitHub / Gitee 双线路下载。
 #
 # 约定：
 #   - 每个工具的源码放在主仓库的独立分支 tool/<id>，main 分支不带这些源码；
@@ -13,7 +13,7 @@ function Get-GuiReadyPluginRoot {
 }
 
 function Get-GuiReadyPluginCatalog {
-    $gh = 'https://github.com/OrangeArtc0915/Server-core-manager'
+    $gh = 'https://github.com/Server-Core-Mananger/Server-core-manager'
     $gt = 'https://gitee.com/orangearc655743/server-core-manager'
     # GitHub / Gitee 两条线路都下载发行包（编译好的 zip），不下载源码。
     return @(

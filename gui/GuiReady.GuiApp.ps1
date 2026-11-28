@@ -1,4 +1,4 @@
-﻿# GuiReady GUI: 环境补全 + 软件管理，界面重做。
+# GuiReady GUI: 环境补全 + 软件管理，界面重做。
 # 主页面：环境 / 软件 / 工具 / 更多 / 关于；完整能力收在「更多」里，不干扰主流程。
 # 每个动作在独立子进程执行，界面不卡；日志按级别着色。
 
@@ -8807,14 +8807,14 @@ $lblAuGitTag.Location  = New-Object System.Drawing.Point(20, 106)
 $cardAbout.Controls.Add($lblAuGitTag)
 
 $lnkAuGit              = New-Object System.Windows.Forms.LinkLabel
-$lnkAuGit.Text         = 'https://github.com/OrangeArtc0915/Server-core-manager'
+$lnkAuGit.Text         = 'https://github.com/Server-Core-Mananger/Server-core-manager'
 $lnkAuGit.Font         = New-Font -Size 10
 $lnkAuGit.AutoSize     = $true
 $lnkAuGit.LinkColor    = $Pal.Accent2
 $lnkAuGit.ActiveLinkColor = $Pal.Accent1
 $lnkAuGit.LinkBehavior = 'HoverUnderline'
 $lnkAuGit.Location     = New-Object System.Drawing.Point(90, 106)
-$lnkAuGit.Add_LinkClicked({ Open-GuiUrl 'https://github.com/OrangeArtc0915/Server-core-manager' })
+$lnkAuGit.Add_LinkClicked({ Open-GuiUrl 'https://github.com/Server-Core-Mananger/Server-core-manager' })
 $cardAbout.Controls.Add($lnkAuGit)
 
 $lblAuSiteTag          = New-Label -Text '项目主页：' -Size 10 -Color Hint
@@ -8823,7 +8823,7 @@ $lblAuSiteTag.Width    = 64
 $cardAbout.Controls.Add($lblAuSiteTag)
 
 $lnkAuSite             = New-Object System.Windows.Forms.LinkLabel
-$lnkAuSite.Text        = 'https://orangeartc0915.github.io/Server-core-manager/'
+$lnkAuSite.Text        = 'https://server-core-mananger.github.io/'
 $lnkAuSite.Font        = New-Font -Size 10
 $lnkAuSite.AutoSize    = $true
 $lnkAuSite.LinkColor   = $Pal.Accent2
@@ -8832,7 +8832,7 @@ $lnkAuSite.LinkBehavior = 'HoverUnderline'
 # 108 而不是 90：左边「项目主页：」这个 Label 实际宽 79（AutoSize），90 会压住 9px
 #（UI 审计抓到的重叠；标签是 AutoSize 的，改它的 Width 没用）
 $lnkAuSite.Location    = New-Object System.Drawing.Point(108, 136)
-$lnkAuSite.Add_LinkClicked({ Open-GuiUrl 'https://orangeartc0915.github.io/Server-core-manager/' })
+$lnkAuSite.Add_LinkClicked({ Open-GuiUrl 'https://server-core-mananger.github.io/' })
 $cardAbout.Controls.Add($lnkAuSite)
 
 $lblAuTips             = New-Label -Text '用着有问题、或者想要哪个功能：到 QQ 群里说一声。工具里所有“实测”结论都来自真机验证。' -Size 9.5 -Color SubText
@@ -8841,12 +8841,12 @@ $cardAbout.Controls.Add($lblAuTips)
 
 $btnAuGit              = New-FlatButton -Text '打开 GitHub' -Width 130 -Height 34
 $btnAuGit.Location     = New-Object System.Drawing.Point(20, 196)
-$btnAuGit.Add_Click({ Open-GuiUrl 'https://github.com/OrangeArtc0915/Server-core-manager' })
+$btnAuGit.Add_Click({ Open-GuiUrl 'https://github.com/Server-Core-Mananger/Server-core-manager' })
 $cardAbout.Controls.Add($btnAuGit)
 
 $btnAuSite             = New-FlatButton -Text '打开项目主页' -Width 130 -Height 34
 $btnAuSite.Location    = New-Object System.Drawing.Point(160, 196)
-$btnAuSite.Add_Click({ Open-GuiUrl 'https://orangeartc0915.github.io/Server-core-manager/' })
+$btnAuSite.Add_Click({ Open-GuiUrl 'https://server-core-mananger.github.io/' })
 $cardAbout.Controls.Add($btnAuSite)
 
 $btnAuLog              = New-FlatButton -Text '打开日志目录' -Width 130 -Height 34

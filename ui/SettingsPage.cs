@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -131,7 +131,7 @@ namespace ScmUi
             {
                 string url = AppSettings.UpdateSource == "gitee"
                     ? "https://gitee.com/orangearc655743/server-core-manager/releases"
-                    : "https://github.com/OrangeArtc0915/Server-core-manager/releases";
+                    : "https://github.com/Server-Core-Mananger/Server-core-manager/releases";
                 try { Process.Start(new ProcessStartInfo { FileName = url, UseShellExecute = true }); } catch { }
             };
 

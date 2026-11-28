@@ -18,7 +18,7 @@
       # 国内推荐走 Gitee
       irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
       # GitHub 可达时走 GitHub
-      irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
+      irm https://raw.githubusercontent.com/Server-Core-Mananger/Server-core-manager/main/install.ps1 | iex
 
   两条线路装的是同一个发布包，本脚本内容也完全一致（发版时同步推送）。
   下载顺序：GitHub Releases → Gitee Releases，前一条不通就自动换下一条。
@@ -38,7 +38,7 @@
   日志与断点状态（logs\ / reports\ / state\）。
 
   作者：mmm     QQ群：1034243331
-  GitHub：https://github.com/OrangeArtc0915/Server-core-manager
+  GitHub：https://github.com/Server-Core-Mananger/Server-core-manager
 #>
 [CmdletBinding()]
 param(
@@ -51,7 +51,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $ProgressPreference    = 'SilentlyContinue'
 
-$Owner     = 'OrangeArtc0915'
+$Owner     = 'Server-Core-Mananger'
 $Repo      = 'Server-core-manager'
 $AssetName = 'ServerCoreManager.zip'
 
@@ -424,6 +424,6 @@ Write-Host '    想美化命令行（Nerd Font + Oh My Posh + Fastfetch）：' -
 Write-Host '      「更多 → 终端美化 → 一键美化终端」，装好后输入 scm-term 打开' -ForegroundColor DarkGray
 Write-Host ''
 Write-Host '    作者 mmm    QQ群 1034243331' -ForegroundColor Gray
-Write-Host '    https://github.com/OrangeArtc0915/Server-core-manager' -ForegroundColor Gray
+Write-Host '    https://github.com/Server-Core-Mananger/Server-core-manager' -ForegroundColor Gray
 Write-Host ('    ' + $GiteeBase) -ForegroundColor Gray
 Write-Host ''

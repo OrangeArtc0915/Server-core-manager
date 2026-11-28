@@ -113,7 +113,7 @@ When you add a program, the tool reads its PE header to classify it as .NET / El
 In an **administrator** PowerShell:
 
 ```powershell
-irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Server-Core-Mananger/Server-core-manager/main/install.ps1 | iex
 ```
 
 It downloads the specified release package (default `v2.4`; GitHub Releases first, then Gitee Releases), extracts it to `C:\Program Files\ServerCoreManager`, clears the "from the Internet" file block, and installs the `scm` command.
@@ -126,7 +126,7 @@ To change defaults, use environment variables (`iex` cannot forward parameters):
 $env:SCM_DEST = 'D:\SCM'      # change install directory
 $env:SCM_NO_COMMAND = '1'     # skip the scm command
 $env:SCM_VERSION = 'v2.4'     # release tag used by both GitHub and Gitee
-irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Server-Core-Mananger/Server-core-manager/main/install.ps1 | iex
 ```
 
 Or save [install.ps1](install.ps1) as a file and load it as UTF-8 so it accepts parameters directly (do not run `.\install.ps1` directly: Windows PowerShell 5.1 reads BOM-less files as ANSI, and the Chinese text can break parsing):
@@ -141,7 +141,7 @@ Or save [install.ps1](install.ps1) as a file and load it as UTF-8 so it accepts 
 
 ## Install (2) zip package
 
-1. Download `ServerCoreManager.zip` from [Releases](https://github.com/OrangeArtc0915/Server-core-manager/releases)
+1. Download `ServerCoreManager.zip` from [Releases](https://github.com/Server-Core-Mananger/Server-core-manager/releases)
 2. Extract anywhere, e.g. `D:\ServerCoreManager`
 3. Right-click **Run as administrator** on `一键运行.bat` ("Run" — the file name is Chinese)
 

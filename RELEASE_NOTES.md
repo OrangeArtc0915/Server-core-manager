@@ -60,7 +60,7 @@ irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 |
 **GitHub**
 
 ```powershell
-irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Server-Core-Mananger/Server-core-manager/main/install.ps1 | iex
 ```
 
 重复执行安装等于升级，不会动已有的程序列表、日志与断点状态。
@@ -80,4 +80,4 @@ irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/in
 
 ## 源码
 
-<https://github.com/OrangeArtc0915/Server-core-manager>
+<https://github.com/Server-Core-Mananger/Server-core-manager>

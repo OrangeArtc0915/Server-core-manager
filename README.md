@@ -4,7 +4,7 @@
 
 Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`，很多带界面的程序（QQ、各类 Electron 应用、WPF 工具、.NET 桌面程序、MMC 管理单元）装上去不是报错就是白屏。这个工具把「补全图形环境 → 添加程序 → 启动并排障」这条链路做成了一键操作，并且带一个自己的图形界面 —— 不用整天对着终端敲命令。
 
-> 作者：**mmm** ｜ QQ 群：**1034243331** ｜ GitHub：<https://github.com/OrangeArtc0915/Server-core-manager> ｜ 项目主页：<https://orangeartc0915.github.io/Server-core-manager/>
+> 作者：**mmm** ｜ QQ 群：**1034243331** ｜ GitHub：<https://github.com/Server-Core-Mananger/Server-core-manager> ｜ 项目主页：<https://server-core-mananger.github.io/>
 
 ```
 支持的安装方式：① 命令行一行安装   ② 压缩包
@@ -142,10 +142,10 @@ scm scripts list | run cleanup-temp
 
 | 工具 | 内容 | GitHub（发行包） | Gitee（发行包） |
 |---|---|---|---|
-| scterm | Rust 单文件终端多路复用 | [scterm-v0.1.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/scterm-v0.1.0) | [scterm-v0.1.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/scterm-v0.1.0) |
-| scm-top | 零依赖 TUI 监控（PowerShell） | [scm-top-v0.1.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/scm-top-v0.1.0) | [scm-top-v0.1.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/scm-top-v0.1.0) |
-| Textm | 终端 / 图形双模式编辑器（Rust） | [textm-v2.0.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/textm-v2.0.0) | [textm-v2.0.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/textm-v2.0.0) |
-| CraftDock | TypeScript 终端服务器管理 | [craftdock-v1.0.0](https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/craftdock-v1.0.0) | [craftdock-v1.0.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/craftdock-v1.0.0) |
+| scterm | Rust 单文件终端多路复用 | [scterm-v0.1.0](https://github.com/Server-Core-Mananger/Server-core-manager/releases/tag/scterm-v0.1.0) | [scterm-v0.1.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/scterm-v0.1.0) |
+| scm-top | 零依赖 TUI 监控（PowerShell） | [scm-top-v0.1.0](https://github.com/Server-Core-Mananger/Server-core-manager/releases/tag/scm-top-v0.1.0) | [scm-top-v0.1.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/scm-top-v0.1.0) |
+| Textm | 终端 / 图形双模式编辑器（Rust） | [textm-v2.0.0](https://github.com/Server-Core-Mananger/Server-core-manager/releases/tag/textm-v2.0.0) | [textm-v2.0.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/textm-v2.0.0) |
+| CraftDock | TypeScript 终端服务器管理 | [craftdock-v1.0.0](https://github.com/Server-Core-Mananger/Server-core-manager/releases/tag/craftdock-v1.0.0) | [craftdock-v1.0.0](https://gitee.com/orangearc655743/server-core-manager/releases/tag/craftdock-v1.0.0) |
 
 > 下载包都会校验 zip 魔数；两个仓库的发行版旁都带 `.sha256`。已安装时整体替换，失败保留旧版本。
 
@@ -311,7 +311,7 @@ irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 |
 GitHub 能直连时也可以走 GitHub：
 
 ```powershell
-irm https://raw.githubusercontent.com/OrangeArtc0915/Server-core-manager/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/Server-Core-Mananger/Server-core-manager/main/install.ps1 | iex
 ```
 
 两条线路装的是同一个发布包，脚本内容也一致。脚本里的下载顺序是：
@@ -344,7 +344,7 @@ irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 |
 
 ## 安装方式二：压缩包
 
-1. 到 [Releases](https://github.com/OrangeArtc0915/Server-core-manager/releases) 下载 `ServerCoreManager.zip`
+1. 到 [Releases](https://github.com/Server-Core-Mananger/Server-core-manager/releases) 下载 `ServerCoreManager.zip`
 2. 解压到任意目录，例如 `D:\ServerCoreManager`
 3. 右键 **以管理员身份运行** `一键运行.bat`
 
@@ -827,7 +827,7 @@ Remove-WindowsCapability -Online -Name ServerCore.AppCompatibility~~~~0.0.1.0
 
 赞助完全自愿，不影响任何功能，也不影响提 issue 的处理顺序。
 
-还有更省事的支持方式：把使用体验、踩到的坑写进 [Issues](https://github.com/OrangeArtc0915/Server-core-manager/issues)，或者告诉身边同样在折腾 Server Core 的人。
+还有更省事的支持方式：把使用体验、踩到的坑写进 [Issues](https://github.com/Server-Core-Mananger/Server-core-manager/issues)，或者告诉身边同样在折腾 Server Core 的人。
 
 ---
 

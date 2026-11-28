@@ -1,4 +1,4 @@
-﻿# GuiReady entry point: console menu (two-level)
+# GuiReady entry point: console menu (two-level)
 
 $ErrorActionPreference = 'Continue'
 try { [Console]::Title = 'Server Core GUI 就绪工具' } catch { }
@@ -35,7 +35,7 @@ function Show-Banner {
     Write-Host '   Server Core GUI 就绪工具' -ForegroundColor Cyan
     Write-Host '   目标：在 Windows Server Core 上把带界面的程序跑起来、看得见' -ForegroundColor Cyan
     Write-Host '   作者 mmm   QQ群 1034243331' -ForegroundColor Cyan
-    Write-Host '   https://github.com/OrangeArtc0915/Server-core-manager' -ForegroundColor Cyan
+    Write-Host '   https://github.com/Server-Core-Mananger/Server-core-manager' -ForegroundColor Cyan
     Write-Host '  ================================================================' -ForegroundColor Cyan
     $admin = '否'
     if (Test-IsAdministrator) { $admin = '是' }

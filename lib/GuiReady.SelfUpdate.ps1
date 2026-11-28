@@ -1,4 +1,4 @@
-﻿# GuiReady self-update: check tags on GitHub / Gitee, download the release zip,
+# GuiReady self-update: check tags on GitHub / Gitee, download the release zip,
 # stage it and hand over to a detached apply script.
 #
 # 设计要点：
@@ -9,7 +9,7 @@
 #   - 替换脚本在 state\update\ 下运行，等主进程退出后再动文件，失败会回滚并留下标记。
 
 $Global:GuiReadyUpdateRepos = @{
-    github = 'OrangeArtc0915/Server-core-manager'
+    github = 'Server-Core-Mananger/Server-core-manager'
     gitee  = 'orangearc655743/server-core-manager'
 }
 $Global:GuiReadyUpdateAsset = 'ServerCoreManager.zip'
@@ -42,7 +42,7 @@ function Select-GuiReadyMainTag {
 
 function Invoke-GuiReadyWeb {
     param([string]$Url, [string]$Accept = '')
-    $headers = @{ 'User-Agent' = 'SCM-Updater/2.4 (+https://github.com/OrangeArtc0915/Server-core-manager)' }
+    $headers = @{ 'User-Agent' = 'SCM-Updater/2.4 (+https://github.com/Server-Core-Mananger/Server-core-manager)' }
     if ($Accept) { $headers['Accept'] = $Accept }
     try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch { }
     return Invoke-WebRequest -Uri $Url -Headers $headers -UseBasicParsing -TimeoutSec 30
