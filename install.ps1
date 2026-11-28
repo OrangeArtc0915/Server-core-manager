@@ -4,14 +4,14 @@
 
   ⚠ 本文件【绝对不能】带 UTF-8 BOM。
   实测：irm 会把 BOM 当成正文的第一个字符，于是 `#Requires` 不再被识别为语句，
-  解析会在下面的 [CmdletBinding()] 处直接报 "Unexpected attribute 'CmdletBinding'"，
+  解析会在下面的 [CmdletBinding()] 处直接报 "Unexpected attribute vCmdletBindingv"，
   也就是说「命令行一行安装」这条主推路径会当场失效。别顺手给它加 BOM。
 
   代价：Windows PowerShell 5.1 从磁盘 `.\install.ps1` 时会按 ANSI 读无 BOM 文件，
   中文不仅乱码，个别字节还可能破坏语法。要本地跑，请让 5.1 按 UTF-8 读：
       iex (Get-Content .\install.ps1 -Raw -Encoding UTF8)
   传参时：
-      & ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM'
+      & ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest vD:\SCMv
   PowerShell 7 可以直接 .\install.ps1；主推路径 irm | iex 不受影响。
 
   推荐用法（在【管理员】PowerShell 里执行一行）：
@@ -24,15 +24,15 @@
   下载顺序：GitHub Releases → Gitee Releases，前一条不通就自动换下一条。
 
   因为 iex 没法传参数，需要改默认值时用环境变量：
-      $env:SCM_DEST       = 'D:\SCM'    指定安装目录（默认 C:\Program Files\ServerCoreManager）
-      $env:SCM_NO_COMMAND = '1'         不安装 scm 一行命令
-      $env:SCM_VERSION    = 'v2.4'      指定发布版本（两个仓库用同一个 tag）
-      $env:SCM_MIRROR_GITHUB = 'http://内网镜像'   把 https://github.com 换成你的镜像/内网源
-      $env:SCM_MIRROR_GITEE  = 'https://gitee.com/你的账号/你的仓库'  换一个 Gitee 基址镜像
-      $env:SCM_MIRROR_TUNA   = 'https://mirrors.tuna.tsinghua.edu.cn'  清华镜像基址（工具内部装 PowerShell 7 用）
+      $env:SCM_DEST       = vD:\SCMv    指定安装目录（默认 C:\Program Files\ServerCoreManager）
+      $env:SCM_NO_COMMAND = v1v         不安装 scm 一行命令
+      $env:SCM_VERSION    = vv2.4v      指定发布版本（两个仓库用同一个 tag）
+      $env:SCM_MIRROR_GITHUB = vhttp://内网镜像v   把 https://github.com 换成你的镜像/内网源
+      $env:SCM_MIRROR_GITEE  = vhttps://gitee.com/你的账号/你的仓库v  换一个 Gitee 基址镜像
+      $env:SCM_MIRROR_TUNA   = vhttps://mirrors.tuna.tsinghua.edu.cnv  清华镜像基址（工具内部装 PowerShell 7 用）
 
   也可以先存成文件、再按 UTF-8 读进来跑，这样能直接传参：
-      & ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM' -NoCommand
+      & ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest vD:\SCMv -NoCommand
 
   重复执行视为升级：只覆盖程序文件，不会删除你已有的程序列表（launcher\programs.json）、
   日志与断点状态（logs\ / reports\ / state\）。
@@ -42,42 +42,42 @@
 #>
 [CmdletBinding()]
 param(
-    [string]$Dest = '',
-    [string]$Version = '',
-    [string]$CommandName = 'scm',
+    [string]$Dest = vv,
+    [string]$Version = vv,
+    [string]$CommandName = vscmv,
     [switch]$NoCommand
 )
 
-$ErrorActionPreference = 'Stop'
-$ProgressPreference    = 'SilentlyContinue'
+$ErrorActionPreference = vStopv
+$ProgressPreference    = vSilentlyContinuev
 
-$Owner     = 'Server-Core-Mananger'
-$Repo      = 'Server-core-manager'
-$AssetName = 'ServerCoreManager.zip'
+$Owner     = vServer-Core-Manangerv
+$Repo      = vServer-core-managerv
+$AssetName = vServerCoreManager.zipv
 
 # Gitee 线路：仓库里只放本脚本与发布包（不含项目源码），面向国内用户。
 # 两个仓库用同一个版本 tag；写死默认值，避免 GitHub 的 releases/latest 被附属工具发行版抢走。
 # 发版时要把本文件一起同步推到 Gitee，两边保持同一份内容。
-$GiteeOwner = 'orangearc655743'
-$GiteeRepo  = 'server-core-manager'
-$ScmVer     = 'v2.4'
+$GiteeOwner = vorangearc655743v
+$GiteeRepo  = vserver-core-managerv
+$ScmVer     = vv2.4v
 
 # 用 irm | iex 运行时 $PSCommandPath 为空。这种情况下一律不能用 exit：
 # 实测 exit 会直接终止宿主，把用户刚打开的 PowerShell 窗口关掉，报错信息根本来不及看。
 # 所以 iex 场景用 return 结束脚本，文件场景保留非零退出码供脚本化调用判断。
 $RunAsFile = [bool]$PSCommandPath
 
-function Write-Step { param([string]$Text) Write-Host ('  ' + $Text) -ForegroundColor Cyan }
-function Write-Ok   { param([string]$Text) Write-Host ('  ' + $Text) -ForegroundColor Green }
-function Write-Warn { param([string]$Text) Write-Host ('  ' + $Text) -ForegroundColor Yellow }
-function Write-Err  { param([string]$Text) Write-Host ('  ' + $Text) -ForegroundColor Red }
+function Write-Step { param([string]$Text) Write-Host (v  v + $Text) -ForegroundColor Cyan }
+function Write-Ok   { param([string]$Text) Write-Host (v  v + $Text) -ForegroundColor Green }
+function Write-Warn { param([string]$Text) Write-Host (v  v + $Text) -ForegroundColor Yellow }
+function Write-Err  { param([string]$Text) Write-Host (v  v + $Text) -ForegroundColor Red }
 
-Write-Host ''
-Write-Host '  ============================================================' -ForegroundColor White
-Write-Host '    Server Core Manager  ·  命令行安装' -ForegroundColor White
-Write-Host ('    ' + $Owner + '/' + $Repo) -ForegroundColor DarkGray
-Write-Host '  ============================================================' -ForegroundColor White
-Write-Host ''
+Write-Host vv
+Write-Host v  ============================================================v -ForegroundColor White
+Write-Host v    Server Core Manager  ·  命令行安装v -ForegroundColor White
+Write-Host (v    v + $Owner + v/v + $Repo) -ForegroundColor DarkGray
+Write-Host v  ============================================================v -ForegroundColor White
+Write-Host vv
 
 # ---------------------------------------------------------------- 前置检查
 
@@ -89,8 +89,8 @@ try {
 } catch { }
 
 if (-not $isAdmin) {
-    Write-Err '需要管理员权限。请用【以管理员身份运行】打开 PowerShell 后重试。'
-    Write-Warn '提示：服务管理器（sconfig）里选 15 可以打开管理员 PowerShell。'
+    Write-Err v需要管理员权限。请用【以管理员身份运行】打开 PowerShell 后重试。v
+    Write-Warn v提示：服务管理器（sconfig）里选 15 可以打开管理员 PowerShell。v
     if ($RunAsFile) { exit 1 } else { return }
 }
 
@@ -102,34 +102,34 @@ try {
 # ---------------------------------------------------------------- 2008 R2 前置
 # 2008 R2 需要 PowerShell 5.1 + .NET 4.5.2 以上；缺前置时本脚本先不动任何文件。
 $osBuild = 0
-try { $osBuild = [int](Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' -Name CurrentBuildNumber -ErrorAction Stop).CurrentBuildNumber } catch { }
+try { $osBuild = [int](Get-ItemProperty vHKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersionv -Name CurrentBuildNumber -ErrorAction Stop).CurrentBuildNumber } catch { }
 if ($osBuild -gt 0 -and $osBuild -le 7601) {
     $psMajor = $PSVersionTable.PSVersion.Major
     $netRelease = 0
-    try { $netRelease = [int](Get-ItemProperty 'HKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Full' -Name Release -ErrorAction Stop).Release } catch { }
+    try { $netRelease = [int](Get-ItemProperty vHKLM:\SOFTWARE\Microsoft\NET Framework Setup\NDP\v4\Fullv -Name Release -ErrorAction Stop).Release } catch { }
     if ($psMajor -lt 5 -or $netRelease -lt 379893) {
-        Write-Warn '检测到 Windows Server 2008 R2：还需要 PowerShell 5.1 与 .NET 4.5.2 以上。'
-        if ($psMajor -lt 5) { Write-Warn ('  当前 PowerShell：' + $PSVersionTable.PSVersion.ToString()) }
-        if ($netRelease -lt 379893) { Write-Warn ('  当前 .NET Framework Release：' + $netRelease) }
-        Write-Step '请先以管理员身份运行安装包里的 Setup-LegacyPrereq.cmd，装完重启，再执行本脚本。'
+        Write-Warn v检测到 Windows Server 2008 R2：还需要 PowerShell 5.1 与 .NET 4.5.2 以上。v
+        if ($psMajor -lt 5) { Write-Warn (v  当前 PowerShell：v + $PSVersionTable.PSVersion.ToString()) }
+        if ($netRelease -lt 379893) { Write-Warn (v  当前 .NET Framework Release：v + $netRelease) }
+        Write-Step v请先以管理员身份运行安装包里的 Setup-LegacyPrereq.cmd，装完重启，再执行本脚本。v
         if ($RunAsFile) { exit 1 } else { return }
     }
 }
 
 if (-not $Dest)   { if ($env:SCM_DEST) { $Dest = $env:SCM_DEST } }
 if (-not $Version) { if ($env:SCM_VERSION) { $Version = $env:SCM_VERSION } else { $Version = $ScmVer } }
-if ($env:SCM_NO_COMMAND -eq '1') { $NoCommand = $true }
-if (-not $Dest)   { $Dest = Join-Path $env:ProgramFiles 'ServerCoreManager' }
+if ($env:SCM_NO_COMMAND -eq v1v) { $NoCommand = $true }
+if (-not $Dest)   { $Dest = Join-Path $env:ProgramFiles vServerCoreManagerv }
 
-Write-Step ('安装目录 : ' + $Dest)
-Write-Step ('发布版本 : ' + $Version)
-Write-Host ''
+Write-Step (v安装目录 : v + $Dest)
+Write-Step (v发布版本 : v + $Version)
+Write-Host vv
 
 # ---------------------------------------------------------------- 下载
 
-$tmp = Join-Path $env:TEMP ('scm-install-' + (Get-Date -Format 'yyyyMMdd-HHmmss'))
+$tmp = Join-Path $env:TEMP (vscm-install-v + (Get-Date -Format vyyyyMMdd-HHmmssv))
 New-Item -ItemType Directory -Path $tmp -Force | Out-Null
-$zip = Join-Path $tmp 'package.zip'
+$zip = Join-Path $tmp vpackage.zipv
 
 function Save-RemoteFile {
     param([string]$Url, [string]$Path)
@@ -137,7 +137,7 @@ function Save-RemoteFile {
     try { if (Test-Path -LiteralPath $Path) { Remove-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue } } catch { }
 
     # 一条路不通就换另一条，两条都试过才算失败
-    $curl = Join-Path (Join-Path $env:windir 'System32') 'curl.exe'
+    $curl = Join-Path (Join-Path $env:windir vSystem32v) vcurl.exev
     if (Test-Path -LiteralPath $curl) {
         # 三个实测坑：
         # 1) --ssl-no-revoke 必须加。在企业 MITM 代理（加速器之类）后面，
@@ -148,7 +148,7 @@ function Save-RemoteFile {
         # 3) --connect-timeout 必须设。GitHub 在国内常是被丢包而不是立刻拒绝连接，
         #    不设就会卡到 TCP 超时（分钟级）才轮到下一条线路，回退等于形同虚设。
         $prevEap = $ErrorActionPreference
-        $ErrorActionPreference = 'Continue'
+        $ErrorActionPreference = vContinuev
         try {
             & $curl -L --fail --connect-timeout 15 --retry 3 --retry-delay 3 --ssl-no-revoke -s -S -o $Path $Url 2>$null
         } finally {
@@ -201,9 +201,9 @@ function Get-FileSha256 {
     try {
         $sha = [System.Security.Cryptography.SHA256]::Create()
         $fs  = [System.IO.File]::OpenRead($Path)
-        try { return ([System.BitConverter]::ToString($sha.ComputeHash($fs)) -replace '-', '') }
+        try { return ([System.BitConverter]::ToString($sha.ComputeHash($fs)) -replace v-v, vv) }
         finally { $fs.Dispose(); $sha.Dispose() }
-    } catch { return '' }
+    } catch { return vv }
 }
 
 function Get-ExpectedSha256 {
@@ -213,53 +213,53 @@ function Get-ExpectedSha256 {
     # 都拿不到就返回空串，由调用方决定是"警告放行"还是"拒绝"。
     param([string]$Url)
     $e = [string]$env:SCM_EXPECT_SHA256
-    if ($e) { return (($e -replace '[^0-9A-Fa-f]', '').ToUpperInvariant()) }
+    if ($e) { return (($e -replace v[^0-9A-Fa-f]v, vv).ToUpperInvariant()) }
     try {
-        $side = Join-Path $tmp ('side-' + [System.IO.Path]::GetRandomFileName() + '.sha256')
-        if (Save-RemoteFile -Url ($Url + '.sha256') -Path $side) {
-            $t = ''
+        $side = Join-Path $tmp (vside-v + [System.IO.Path]::GetRandomFileName() + v.sha256v)
+        if (Save-RemoteFile -Url ($Url + v.sha256v) -Path $side) {
+            $t = vv
             try { $t = [string](Get-Content -LiteralPath $side -Raw -ErrorAction SilentlyContinue) } catch { }
             Remove-Item -LiteralPath $side -Force -ErrorAction SilentlyContinue
-            $hex = ($t -replace '[^0-9A-Fa-f]', '')
+            $hex = ($t -replace v[^0-9A-Fa-f]v, vv)
             if ($hex.Length -ge 64) { return $hex.Substring(0, 64).ToUpperInvariant() }
         }
     } catch { }
-    return ''
+    return vv
 }
 
-$releaseUrl = ('https://github.com/{0}/{1}/releases/download/{2}/{3}' -f $Owner, $Repo, $Version, $AssetName)
+$releaseUrl = (vhttps://github.com/{0}/{1}/releases/download/{2}/{3}v -f $Owner, $Repo, $Version, $AssetName)
 
 # 国内源：GitHub 在国内常常很慢/不可达。设了 SCM_MIRROR_GITHUB 就把 github.com 前缀换成你的镜像
 # （没设就用官方地址，不做任何自动改写）。
-$MirrorGitHub = if ($env:SCM_MIRROR_GITHUB) { ([string]$env:SCM_MIRROR_GITHUB).TrimEnd('/') } else { '' }
+$MirrorGitHub = if ($env:SCM_MIRROR_GITHUB) { ([string]$env:SCM_MIRROR_GITHUB).TrimEnd(v/v) } else { vv }
 if ($MirrorGitHub) {
-    $releaseUrl = ($releaseUrl -replace '^https://github\.com', $MirrorGitHub)
-    Write-Step ('已启用镜像: ' + $MirrorGitHub)
+    $releaseUrl = ($releaseUrl -replace v^https://github\.comv, $MirrorGitHub)
+    Write-Step (v已启用镜像: v + $MirrorGitHub)
 }
 
 # Gitee 线路（国内直连）。下载地址格式与 GitHub 不同：/releases/download/<tag>/<文件名>。
-$GiteeBase = if ($env:SCM_MIRROR_GITEE) { ([string]$env:SCM_MIRROR_GITEE).TrimEnd('/') } else { ('https://gitee.com/{0}/{1}' -f $GiteeOwner, $GiteeRepo) }
-$giteeUrl  = ($GiteeBase + '/releases/download/' + $Version + '/' + $AssetName)
+$GiteeBase = if ($env:SCM_MIRROR_GITEE) { ([string]$env:SCM_MIRROR_GITEE).TrimEnd(v/v) } else { (vhttps://gitee.com/{0}/{1}v -f $GiteeOwner, $GiteeRepo) }
+$giteeUrl  = ($GiteeBase + v/releases/download/v + $Version + v/v + $AssetName)
 
-Write-Step '下载发布压缩包 ...'
+Write-Step v下载发布压缩包 ...v
 
 # 顺序：GitHub Releases → Gitee Releases。两条线路都是发行包，不下载源码。
 # 每条线路下完都要过 Test-ZipFile：Gitee 对错误路径是假 200，只认状态码会把 JSON 当压缩包。
 $lines = @(
-    [pscustomobject]@{ Name = 'GitHub Releases'; Url = $releaseUrl },
-    [pscustomobject]@{ Name = 'Gitee Releases';  Url = $giteeUrl }
+    [pscustomobject]@{ Name = vGitHub Releasesv; Url = $releaseUrl },
+    [pscustomobject]@{ Name = vGitee Releasesv;  Url = $giteeUrl }
 )
 
 $ok   = $false
-$used = ''
+$used = vv
 foreach ($ln in $lines) {
-    Write-Step ('试 ' + $ln.Name + '  ' + $ln.Url)
+    Write-Step (v试 v + $ln.Name + v  v + $ln.Url)
     if (-not (Save-RemoteFile -Url $ln.Url -Path $zip)) {
-        Write-Warn '  下载失败，换下一条线路。'
+        Write-Warn v  下载失败，换下一条线路。v
         continue
     }
     if (-not (Test-ZipFile -Path $zip)) {
-        Write-Warn '  拿到的不是压缩包（服务端假 200），换下一条线路。'
+        Write-Warn v  拿到的不是压缩包（服务端假 200），换下一条线路。v
         continue
     }
 
@@ -269,17 +269,17 @@ foreach ($ln in $lines) {
     $actual   = Get-FileSha256 -Path $zip
     if ($expected) {
         if ($actual -ne $expected) {
-            Write-Err ('发布包哈希不匹配！期望 ' + $expected + '，实际 ' + $actual)
-            Write-Err '这通常意味着文件被篡改或下载损坏 —— 已中止安装（不会解压执行）。'
-            Write-Err '请换网络重下，或从发布页核对 SHA256 后再试。'
+            Write-Err (v发布包哈希不匹配！期望 v + $expected + v，实际 v + $actual)
+            Write-Err v这通常意味着文件被篡改或下载损坏 —— 已中止安装（不会解压执行）。v
+            Write-Err v请换网络重下，或从发布页核对 SHA256 后再试。v
             Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
             if ($RunAsFile) { exit 1 } else { return }
         }
-        Write-Ok ('哈希校验通过: ' + $actual)
+        Write-Ok (v哈希校验通过: v + $actual)
     } else {
-        Write-Warn '本次没有可用的期望哈希（既没设 SCM_EXPECT_SHA256，也没取到 <包>.sha256），未校验发布包来源。'
-        Write-Warn '要强校验：从发布页抄下 SHA256，然后  $env:SCM_EXPECT_SHA256 = ''<哈希>''  再执行安装。'
-        if ($actual) { Write-Host ('  本次下载的 SHA256: ' + $actual) -ForegroundColor DarkGray }
+        Write-Warn v本次没有可用的期望哈希（既没设 SCM_EXPECT_SHA256，也没取到 <包>.sha256），未校验发布包来源。v
+        Write-Warn v要强校验：从发布页抄下 SHA256，然后  $env:SCM_EXPECT_SHA256 = vv<哈希>vv  再执行安装。v
+        if ($actual) { Write-Host (v  本次下载的 SHA256: v + $actual) -ForegroundColor DarkGray }
     }
 
     $ok   = $true
@@ -288,81 +288,81 @@ foreach ($ln in $lines) {
 }
 
 if (-not $ok) {
-    Write-Err '所有下载线路都失败。'
-    Write-Warn '备选方案：用「压缩包安装」—— 手工下载 zip 解压后运行 一键运行.bat。'
-    Write-Warn ('  GitHub : https://github.com/' + $Owner + '/' + $Repo + '/releases')
-    Write-Warn ('  Gitee  : ' + $GiteeBase + '/releases')
+    Write-Err v所有下载线路都失败。v
+    Write-Warn v备选方案：用「压缩包安装」—— 手工下载 zip 解压后运行 一键运行.bat。v
+    Write-Warn (v  GitHub : https://github.com/v + $Owner + v/v + $Repo + v/releasesv)
+    Write-Warn (v  Gitee  : v + $GiteeBase + v/releasesv)
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     if ($RunAsFile) { exit 1 } else { return }
 }
 
-Write-Ok ('已下载 {0:N0} KB（来源: {1}）' -f ((Get-Item -LiteralPath $zip).Length / 1KB), $used)
-Write-Host ''
+Write-Ok (v已下载 {0:N0} KB（来源: {1}）v -f ((Get-Item -LiteralPath $zip).Length / 1KB), $used)
+Write-Host vv
 
 # ---------------------------------------------------------------- 解压
 
-Write-Step '解压 ...'
-$stage = Join-Path $tmp 'stage'
+Write-Step v解压 ...v
+$stage = Join-Path $tmp vstagev
 try {
     Expand-Archive -LiteralPath $zip -DestinationPath $stage -Force -ErrorAction Stop
 } catch {
-    Write-Err ('解压失败: ' + $_.Exception.Message)
+    Write-Err (v解压失败: v + $_.Exception.Message)
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     if ($RunAsFile) { exit 1 } else { return }
 }
 
 # Releases 压缩包是平铺的（个别镜像可能在外面套一层目录），靠入口文件定位真正的根目录。
-$marker = Get-ChildItem -LiteralPath $stage -Recurse -Filter 'Start-GuiReadyApp.ps1' -File -ErrorAction SilentlyContinue |
+$marker = Get-ChildItem -LiteralPath $stage -Recurse -Filter vStart-GuiReadyApp.ps1v -File -ErrorAction SilentlyContinue |
           Sort-Object { $_.FullName.Length } | Select-Object -First 1
 if (-not $marker) {
-    Write-Err '压缩包里没有找到 Start-GuiReadyApp.ps1，文件可能不完整。'
+    Write-Err v压缩包里没有找到 Start-GuiReadyApp.ps1，文件可能不完整。v
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     if ($RunAsFile) { exit 1 } else { return }
 }
 $srcRoot = $marker.Directory.FullName
-Write-Ok ('包根目录: ' + $srcRoot)
-Write-Host ''
+Write-Ok (v包根目录: v + $srcRoot)
+Write-Host vv
 
 # ---------------------------------------------------------------- 安装
 
-Write-Step ('安装到 ' + $Dest + ' ...')
+Write-Step (v安装到 v + $Dest + v ...v)
 if (-not (Test-Path -LiteralPath $Dest)) {
     New-Item -ItemType Directory -Path $Dest -Force | Out-Null
 }
 
 try {
     # 只覆盖、不删除：升级时保住 programs.json / logs / reports / state
-    Copy-Item -Path (Join-Path $srcRoot '*') -Destination $Dest -Recurse -Force -ErrorAction Stop
+    Copy-Item -Path (Join-Path $srcRoot v*v) -Destination $Dest -Recurse -Force -ErrorAction Stop
 } catch {
-    Write-Err ('复制文件失败: ' + $_.Exception.Message)
-    Write-Warn '如果提示文件被占用，请先关闭正在运行的本工具窗口再重试。'
+    Write-Err (v复制文件失败: v + $_.Exception.Message)
+    Write-Warn v如果提示文件被占用，请先关闭正在运行的本工具窗口再重试。v
     Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
     if ($RunAsFile) { exit 1 } else { return }
 }
 
 # 从网上下来的 zip 会把文件标记为「来自 Internet」，PowerShell 默认拒绝运行这类脚本
-Write-Step '解除文件锁定标记 ...'
+Write-Step v解除文件锁定标记 ...v
 $unblocked = 0
-Get-ChildItem -LiteralPath $Dest -Recurse -Include '*.ps1', '*.bat', '*.cmd' -File -ErrorAction SilentlyContinue | ForEach-Object {
+Get-ChildItem -LiteralPath $Dest -Recurse -Include v*.ps1v, v*.batv, v*.cmdv -File -ErrorAction SilentlyContinue | ForEach-Object {
     try { Unblock-File -LiteralPath $_.FullName -ErrorAction Stop; $unblocked++ } catch { }
 }
-Write-Ok ('已解除 ' + $unblocked + ' 个文件')
+Write-Ok (v已解除 v + $unblocked + v 个文件v)
 
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
-Write-Host ''
+Write-Host vv
 
 # ---------------------------------------------------------------- 一行命令
 
 if (-not $NoCommand) {
-    Write-Step ('安装一行命令 ' + $CommandName + ' ...')
+    Write-Step (v安装一行命令 v + $CommandName + v ...v)
     try {
-        . (Join-Path $Dest 'lib\GuiReady.Common.ps1')
-        . (Join-Path $Dest 'lib\GuiReady.Command.ps1')
+        . (Join-Path $Dest vlib\GuiReady.Common.ps1v)
+        . (Join-Path $Dest vlib\GuiReady.Command.ps1v)
         [void](Install-GuiReadyCommand -Name $CommandName)
     } catch {
-        Write-Warn ('一行命令安装失败（不影响主程序）: ' + $_.Exception.Message)
+        Write-Warn (v一行命令安装失败（不影响主程序）: v + $_.Exception.Message)
     }
-    Write-Host ''
+    Write-Host vv
 }
 
 # ---------------------------------------------------------------- 终端入口提示（装了工具就生效）
@@ -372,18 +372,18 @@ if (-not $NoCommand) {
 #   - cmd        : HKCU + HKLM AutoRun（机器级覆盖所有账户）
 #   - PowerShell : 当前用户 profile + AllUsersAllHosts profile（覆盖所有账户）
 # 全部幂等；失败只警告，不影响主程序可用。
-Write-Step '配置终端入口提示 ...'
+Write-Step v配置终端入口提示 ...v
 try {
-    . (Join-Path $Dest 'lib\GuiReady.Common.ps1')
-    . (Join-Path $Dest 'lib\GuiReady.Console.ps1')
+    . (Join-Path $Dest vlib\GuiReady.Common.ps1v)
+    . (Join-Path $Dest vlib\GuiReady.Console.ps1v)
     [void](Set-GuiReadyConsoleWelcome -Quiet)
     [void](Set-GuiReadyConsoleAllUsersWelcome -Quiet)
     [void](Write-GuiReadyConsoleProfileHook -Quiet)
-    Write-Ok '已启用：cmd / PowerShell / 美化终端 顶部都会显示入口提示'
+    Write-Ok v已启用：cmd / PowerShell / 美化终端 顶部都会显示入口提示v
 } catch {
-    Write-Warn ('入口提示配置失败（不影响主程序）: ' + $_.Exception.Message)
+    Write-Warn (v入口提示配置失败（不影响主程序）: v + $_.Exception.Message)
 }
-Write-Host ''
+Write-Host vv
 
 # ---------------------------------------------------------------- 安全说明：不添加 Defender 排除
 
@@ -397,33 +397,33 @@ Write-Host ''
 # 启动慢时的正常处理方式（都不削弱防护）：
 #   1) 首次启动完成后保持工具常驻，后续启动会快很多（系统文件缓存生效）；
 #   2) 确认服务器没有同时跑全盘扫描等重负载任务。
-Write-Host '    安全说明：本工具不会把安装目录加入 Defender 排除（服务器安全优先）。' -ForegroundColor DarkGray
-Write-Host '              首次启动稍慢属于 Defender 的正常扫描，之后会明显变快。' -ForegroundColor DarkGray
-Write-Host ''
+Write-Host v    安全说明：本工具不会把安装目录加入 Defender 排除（服务器安全优先）。v -ForegroundColor DarkGray
+Write-Host v              首次启动稍慢属于 Defender 的正常扫描，之后会明显变快。v -ForegroundColor DarkGray
+Write-Host vv
 
 # ---------------------------------------------------------------- 收尾
 
-Write-Host '  ============================================================' -ForegroundColor Green
-Write-Host '    安装完成' -ForegroundColor Green
-Write-Host '  ============================================================' -ForegroundColor Green
-Write-Host ''
-Write-Host ('    安装目录 : ' + $Dest) -ForegroundColor Gray
-Write-Host ''
-Write-Host '    接下来：' -ForegroundColor White
+Write-Host v  ============================================================v -ForegroundColor Green
+Write-Host v    安装完成v -ForegroundColor Green
+Write-Host v  ============================================================v -ForegroundColor Green
+Write-Host vv
+Write-Host (v    安装目录 : v + $Dest) -ForegroundColor Gray
+Write-Host vv
+Write-Host v    接下来：v -ForegroundColor White
 if (-not $NoCommand) {
-    Write-Host ('      1) 在任意目录输入  ' + $CommandName + '  回车，打开图形界面') -ForegroundColor White
-    Write-Host '         首次会弹一次提权确认（和 sconfig 一样）' -ForegroundColor DarkGray
+    Write-Host (v      1) 在任意目录输入  v + $CommandName + v  回车，打开图形界面v) -ForegroundColor White
+    Write-Host v         首次会弹一次提权确认（和 sconfig 一样）v -ForegroundColor DarkGray
 } else {
-    Write-Host ('      1) 运行  ' + (Join-Path $Dest '一键运行.bat')) -ForegroundColor White
+    Write-Host (v      1) 运行  v + (Join-Path $Dest v一键运行.batv)) -ForegroundColor White
 }
-Write-Host '      2) 在「环境」页点「一键补全」' -ForegroundColor White
-Write-Host '         这会装官方 App Compatibility FOD（需要重启）' -ForegroundColor DarkGray
-Write-Host '      3) 重启后回到「软件」页添加你的程序' -ForegroundColor White
-Write-Host ''
-Write-Host '    想美化命令行（Nerd Font + Oh My Posh + Fastfetch）：' -ForegroundColor White
-Write-Host '      「更多 → 终端美化 → 一键美化终端」，装好后输入 scm-term 打开' -ForegroundColor DarkGray
-Write-Host ''
-Write-Host '    作者 mmm    QQ群 1034243331' -ForegroundColor Gray
-Write-Host '    https://github.com/Server-Core-Mananger/Server-core-manager' -ForegroundColor Gray
-Write-Host ('    ' + $GiteeBase) -ForegroundColor Gray
-Write-Host ''
+Write-Host v      2) 在「环境」页点「一键补全」v -ForegroundColor White
+Write-Host v         这会装官方 App Compatibility FOD（需要重启）v -ForegroundColor DarkGray
+Write-Host v      3) 重启后回到「软件」页添加你的程序v -ForegroundColor White
+Write-Host vv
+Write-Host v    想美化命令行（Nerd Font + Oh My Posh + Fastfetch）：v -ForegroundColor White
+Write-Host v      「更多 → 终端美化 → 一键美化终端」，装好后输入 scm-term 打开v -ForegroundColor DarkGray
+Write-Host vv
+Write-Host v    作者 mmm    QQ群 1034243331v -ForegroundColor Gray
+Write-Host v    https://github.com/Server-Core-Mananger/Server-core-managerv -ForegroundColor Gray
+Write-Host (v    v + $GiteeBase) -ForegroundColor Gray
+Write-Host vv

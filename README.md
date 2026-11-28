@@ -319,7 +319,7 @@ irm https://raw.githubusercontent.com/Server-Core-Mananger/Server-core-manager/m
 
 （Gitee 对不存在的下载路径会返回 `200` + 一段 JSON，所以脚本会按 zip 魔数 `PK` 校验内容，不是只看状态码。）
 
-它会：下载指定版本的发布包（默认 `v2.4`）→ 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → 安装 `scm` 一行命令。
+它会：下载指定版本的发布包（默认 `v2.5`）→ 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → 安装 `scm` 一行命令。
 
 装完之后，**在任意目录输入 `scm` 回车**就能打开图形界面（首次会像 `sconfig` 一样弹一次提权确认）。
 
@@ -328,7 +328,7 @@ irm https://raw.githubusercontent.com/Server-Core-Mananger/Server-core-manager/m
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # 改安装目录
 $env:SCM_NO_COMMAND = '1'     # 不装 scm 命令
-$env:SCM_VERSION = 'v2.4'     # 指定发布版本（两个仓库用同一个 tag）
+$env:SCM_VERSION = 'v2.5'     # 指定发布版本（两个仓库用同一个 tag）
 irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
 ```
 

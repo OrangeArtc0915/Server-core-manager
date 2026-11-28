@@ -807,7 +807,7 @@ $lblTitle.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]:
 $lblTitle.Add_DoubleClick({ Toggle-ShellMax })
 $pnlTitle.Controls.Add($lblTitle)
 
-$lblTitleVer          = New-Label -Text 'v2.4' -Size 8.6 -Color Hint
+$lblTitleVer          = New-Label -Text 'v2.5' -Size 8.6 -Color Hint
 $lblTitleVer.Location = New-Object System.Drawing.Point(220, 16)
 $lblTitleVer.Add_MouseDown({ if ($_.Button -eq [System.Windows.Forms.MouseButtons]::Left) { Start-ShellDrag } })
 $pnlTitle.Controls.Add($lblTitleVer)
@@ -1107,7 +1107,7 @@ foreach ($__mod in $script:GuiModules) {
 }
 $pnlNavTop.Height = $__y
 
-$lblVer = New-Label -Text ('v2.4  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.25 -Color Hint
+$lblVer = New-Label -Text ('v2.5  ·  ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 8.25 -Color Hint
 $lblVer.Dock = 'Bottom'
 $lblVer.Height = 30
 $lblVer.TextAlign = 'MiddleLeft'

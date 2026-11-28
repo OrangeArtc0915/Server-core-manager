@@ -1,7 +1,7 @@
 # 单仓库模拟多仓库：落地方案
 
-> 目标仓库：`https://github.com/OrangeArtc0915/Server-core-manager`
-> 验证原型：`https://github.com/OrangeArtc0915/test`（已跑通 CI、标签发布、目录级归属与过滤链接）
+> 目标仓库：`https://github.com/Server-Core-Mananger/Server-core-manager`
+> 验证原型：`https://github.com/Server-Core-Mananger/test`（已跑通 CI、标签发布、目录级归属与过滤链接）
 > 本文只描述方案与步骤，不包含实际代码改动。
 
 ## 0. 结论
@@ -19,7 +19,7 @@
 
 | 项 | 现状 |
 |---|---|
-| 主仓库 | `OrangeArtc0915/Server-core-manager`，默认分支 `main` |
+| 主仓库 | `Server-Core-Mananger/Server-core-manager`，默认分支 `main` |
 | `TUI_TOOL/` | 被 `.gitignore` 第 35 行整体忽略，注释写明「不属于本仓库」 |
 | 子项目 | `Terminal`（Rust，约 94 MB，含 `target/`；源码约 0.9 MB）、`craftdock`（约 1.5 GB，含 `node_modules`/产物）、`TuiMonitor`（空） |
 | `.github/` | 基本为空，没有 Actions 工作流 |
@@ -142,7 +142,7 @@ TUI_TOOL/**/*.zip
 
 | 用途 | 链接 |
 |---|---|
-| 源码首页 | `https://github.com/OrangeArtc0915/Server-core-manager/tree/main/TUI_TOOL/Terminal` |
+| 源码首页 | `https://github.com/Server-Core-Mananger/Server-core-manager/tree/main/TUI_TOOL/Terminal` |
 | 提交历史 | `.../commits/main/TUI_TOOL/Terminal` |
 | 标签 | `.../tags?q=scterm-` |
 | 发布页 | `.../releases/tag/scterm-v0.1.0` |
@@ -249,11 +249,11 @@ jobs:
 `.github/CODEOWNERS`：
 
 ```gitignore
-*                       @OrangeArtc0915
-/TUI_TOOL/Terminal/     @OrangeArtc0915
-/TUI_TOOL/craftdock/    @OrangeArtc0915
-/TUI_TOOL/TuiMonitor/   @OrangeArtc0915
-/gui/                   @OrangeArtc0915
+*                       @Server-Core-Mananger
+/TUI_TOOL/Terminal/     @Server-Core-Mananger
+/TUI_TOOL/craftdock/    @Server-Core-Mananger
+/TUI_TOOL/TuiMonitor/   @Server-Core-Mananger
+/gui/                   @Server-Core-Mananger
 ```
 
 `.github/ISSUE_TEMPLATE/bug.yml`（提交后人工补 `tool/*` 标签）：
@@ -301,9 +301,9 @@ body:
       "name": "scterm",
       "version": "0.1.0",
       "path": "TUI_TOOL/Terminal",
-      "source": "https://github.com/OrangeArtc0915/Server-core-manager/tree/main/TUI_TOOL/Terminal",
-      "release": "https://github.com/OrangeArtc0915/Server-core-manager/releases/tag/scterm-v0.1.0",
-      "download": "https://github.com/OrangeArtc0915/Server-core-manager/releases/download/scterm-v0.1.0/scterm-v0.1.0-win-x64.zip",
+      "source": "https://github.com/Server-Core-Mananger/Server-core-manager/tree/main/TUI_TOOL/Terminal",
+      "release": "https://github.com/Server-Core-Mananger/Server-core-manager/releases/tag/scterm-v0.1.0",
+      "download": "https://github.com/Server-Core-Mananger/Server-core-manager/releases/download/scterm-v0.1.0/scterm-v0.1.0-win-x64.zip",
       "sha256": "<发布时填入>"
     }
   }
@@ -323,9 +323,9 @@ body:
 
 ```ts
 sourceCode:
-  "https://github.com/OrangeArtc0915/Server-core-manager/tree/main/TUI_TOOL/Terminal",
+  "https://github.com/Server-Core-Mananger/Server-core-manager/tree/main/TUI_TOOL/Terminal",
 downloadUrl:
-  "https://github.com/OrangeArtc0915/Server-core-manager/releases?q=scterm-",
+  "https://github.com/Server-Core-Mananger/Server-core-manager/releases?q=scterm-",
 ```
 
 > `site/` 是 WEB 分支的 worktree，改动要在该分支提交，不要混进 `main`。

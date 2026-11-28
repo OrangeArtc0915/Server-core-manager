@@ -11,9 +11,9 @@ namespace ScmUi
     // ============================================================
     internal sealed class PageHeader : UiControl
     {
-        public string TitleText = "";
-        public string SubText = "";
-        public string Glyph = "";
+        public string TitleText = vv;
+        public string SubText = vv;
+        public string Glyph = vv;
         public Color Accent = Theme.Accent;
         public readonly Panel Slot;   // 右侧操作区
         public int RightReserve;      // 「高级」按钮占掉的宽度，标题区要让开
@@ -71,56 +71,56 @@ namespace ScmUi
     // ============================================================
     internal abstract class PageBase : UiControl
     {
-        public string Key = "";
-        public string TitleText = "";
-        public string Subtitle = "";
-        public string Glyph = "";
+        public string Key = vv;
+        public string TitleText = vv;
+        public string Subtitle = vv;
+        public string Glyph = vv;
         public Color Accent = Theme.Accent;
         public readonly PageHeader Head;
 
         // 「高级设置」：本页对应「全部功能」里的哪个动作分组（空 = 不显示按钮）
         private static readonly Dictionary<string, string> AdvancedMap = new Dictionary<string, string>
         {
-            { "monitor",  "监控与诊断" },
-            { "store",    "应用商店" },
-            { "env",      "探测与诊断" },
-            { "role",     "角色与功能" },
-            { "security", "安全与合规" },
-            { "app",      "使用与工具" },
-            { "catalog",  "程序档案" },
-            { "tools",    "SCM附属" },
-            { "runtime",  "运行库" },
-            { "database", "数据库" },
-            { "tool",     "使用与工具" },
-            { "beauty",   "终端美化" },
-            { "update",   "Windows 更新" },
-            { "network",  "网络配置" },
-            { "accounts", "本地账户" },
-            { "services", "服务管理" },
-            { "firewall", "防火墙" },
-            { "storage",  "存储与备份" },
-            { "systasks", "系统任务" },
-            { "logs",     "文件与日志" },
-            { "roletools", "角色工具" },
-            { "notify",   "通知" },
-            { "maint",    "证书管理" },
-            { "metrics",  "告警规则" },
-            { "batch",    "批量管理" },
-            { "scripts",  "脚本库" },
-            { "diag",     "网络诊断" },
-            { "soft",     "软件管理" },
-            { "reports",  "报告中心" },
-            { "tasks",    "一键流程" },
-            { "ops",      "守护与计划" },
-            { "audit",    "配置备份" },
-            { "hosts",    "远程运维" },
-            { "about",    "安全与合规" }
+            { vmonitorv,  v监控与诊断v },
+            { vstorev,    v应用商店v },
+            { venvv,      v探测与诊断v },
+            { vrolev,     v角色与功能v },
+            { vsecurityv, v安全与合规v },
+            { vappv,      v使用与工具v },
+            { vcatalogv,  v程序档案v },
+            { vtoolsv,    vSCM附属v },
+            { vruntimev,  v运行库v },
+            { vdatabasev, v数据库v },
+            { vtoolv,     v使用与工具v },
+            { vbeautyv,   v终端美化v },
+            { vupdatev,   vWindows 更新v },
+            { vnetworkv,  v网络配置v },
+            { vaccountsv, v本地账户v },
+            { vservicesv, v服务管理v },
+            { vfirewallv, v防火墙v },
+            { vstoragev,  v存储与备份v },
+            { vsystasksv, v系统任务v },
+            { vlogsv,     v文件与日志v },
+            { vroletoolsv, v角色工具v },
+            { vnotifyv,   v通知v },
+            { vmaintv,    v证书管理v },
+            { vmetricsv,  v告警规则v },
+            { vbatchv,    v批量管理v },
+            { vscriptsv,  v脚本库v },
+            { vdiagv,     v网络诊断v },
+            { vsoftv,     v软件管理v },
+            { vreportsv,  v报告中心v },
+            { vtasksv,    v一键流程v },
+            { vopsv,      v守护与计划v },
+            { vauditv,    v配置备份v },
+            { vhostsv,    v远程运维v },
+            { vaboutv,    v安全与合规v }
         };
 
         // 由 Shell 注入：跳到「全部功能」并定位到某个动作分组
         public Action<string> OpenActionGroup;
         private UiButton _adv;
-        private string _advGroup = "";
+        private string _advGroup = vv;
 
         private bool _built;
         public Action<string> Logger;
@@ -139,7 +139,7 @@ namespace ScmUi
             };
             Controls.Add(Head);
 
-            _adv = new UiButton("高级", ButtonKind.Ghost, 58, 26);
+            _adv = new UiButton(v高级v, ButtonKind.Ghost, 58, 26);
             _adv.Visible = false;
             _adv.Click += (s, e) => OpenAdvanced();
             Head.Controls.Add(_adv);
@@ -159,7 +159,7 @@ namespace ScmUi
         private void OpenAdvanced()
         {
             if (_advGroup.Length == 0) return;
-            Log("[STEP] 本页高级设置：" + _advGroup);
+            Log(v[STEP] 本页高级设置：v + _advGroup);
             // 就地弹窗（不离开当前页）：内容就是「全部功能」的动作台，定位到本页对应的分组
             using (var dlg = new ActionDialog(_advGroup))
                 dlg.ShowDialog(FindForm());
@@ -175,7 +175,7 @@ namespace ScmUi
             Head.Accent = Accent;
 
             string group;
-            _advGroup = AdvancedMap.TryGetValue(Key, out group) ? group : "";
+            _advGroup = AdvancedMap.TryGetValue(Key, out group) ? group : vv;
             _adv.Visible = _advGroup.Length > 0;
             PlaceAdvanced();
 
@@ -325,13 +325,13 @@ namespace ScmUi
         private readonly Dictionary<string, PageBase> _pages = new Dictionary<string, PageBase>();
         private readonly List<string> _logLines = new List<string>();
         private PageBase _current;
-        private string _currentKey = "";
+        private string _currentKey = vv;
         private readonly string _startPage;
 
         private sealed class NavSpec
         {
             public string Key, Text, Glyph, Group;
-            public NavSpec(string key, string text, string glyph, string group = "")
+            public NavSpec(string key, string text, string glyph, string group = vv)
             {
                 Key = key; Text = text; Glyph = glyph; Group = group;
             }
@@ -340,48 +340,48 @@ namespace ScmUi
         // 与 PowerShell 版一致的页面，按工作流分组。
         private static readonly NavSpec[] NavSpecs =
         {
-            new NavSpec("monitor",  "总览",         "monitor",  "工作区"),
-            new NavSpec("store",    "应用商店",     "store",    "工作区"),
-            new NavSpec("env",      "环境补全",     "env",      "环境与安全"),
-            new NavSpec("role",     "角色与功能",   "role",     "环境与安全"),
-            new NavSpec("security", "安全基线",     "security", "环境与安全"),
-            new NavSpec("app",      "程序管理",     "app",      "程序"),
-            new NavSpec("tools",    "SCM附属",      "tool",     "程序"),
-            new NavSpec("catalog",  "兼容档案",     "app",      "程序"),
-            new NavSpec("runtime",  "运行库",       "runtime",  "程序"),
-            new NavSpec("database", "数据库",       "database", "程序"),
-            new NavSpec("tool",     "系统工具",     "tool",     "程序"),
-            new NavSpec("beauty",   "终端美化",     "beauty",   "程序"),
-            new NavSpec("update",   "系统更新",     "update",   "系统管理"),
-            new NavSpec("network",  "网络配置",     "network",  "系统管理"),
-            new NavSpec("diag",     "诊断工具",     "network",  "系统管理"),
-            new NavSpec("accounts", "本地账户",     "accounts", "系统管理"),
-            new NavSpec("services", "服务管理",     "services", "系统管理"),
-            new NavSpec("soft",     "软件与权限",   "security", "系统管理"),
-            new NavSpec("firewall", "防火墙",       "security", "系统管理"),
-            new NavSpec("storage",  "存储与备份",   "storage",  "系统管理"),
-            new NavSpec("systasks", "系统任务",     "tasks",    "系统管理"),
-            new NavSpec("roletools","角色工具",     "role",     "系统管理"),
-            new NavSpec("notify",   "通知",         "notify",   "系统管理"),
-            new NavSpec("maint",    "系统维护",     "tool",     "系统管理"),
-            new NavSpec("logs",     "日志中心",     "logs",     "运维"),
-            new NavSpec("metrics",  "监控告警",     "monitor",  "运维"),
-            new NavSpec("batch",    "批量管理",     "hosts",    "运维"),
-            new NavSpec("scripts",  "脚本库",       "tool",     "运维"),
-            new NavSpec("reports",  "报告中心",     "logs",     "运维"),
-            new NavSpec("tasks",    "任务中心",     "tasks",    "运维"),
-            new NavSpec("ops",      "自动化",       "ops",      "运维"),
-            new NavSpec("audit",    "操作审计",     "audit",    "运维"),
-            new NavSpec("hosts",    "远程主机",     "hosts",    "运维"),
-            new NavSpec("more",     "全部功能",     "more",     "系统"),
-            new NavSpec("settings", "设置",         "tool",     "系统"),
-            new NavSpec("about",    "关于",         "about",    "系统")
+            new NavSpec(vmonitorv,  v总览v,         vmonitorv,  v工作区v),
+            new NavSpec(vstorev,    v应用商店v,     vstorev,    v工作区v),
+            new NavSpec(venvv,      v环境补全v,     venvv,      v环境与安全v),
+            new NavSpec(vrolev,     v角色与功能v,   vrolev,     v环境与安全v),
+            new NavSpec(vsecurityv, v安全基线v,     vsecurityv, v环境与安全v),
+            new NavSpec(vappv,      v程序管理v,     vappv,      v程序v),
+            new NavSpec(vtoolsv,    vSCM附属v,      vtoolv,     v程序v),
+            new NavSpec(vcatalogv,  v兼容档案v,     vappv,      v程序v),
+            new NavSpec(vruntimev,  v运行库v,       vruntimev,  v程序v),
+            new NavSpec(vdatabasev, v数据库v,       vdatabasev, v程序v),
+            new NavSpec(vtoolv,     v系统工具v,     vtoolv,     v程序v),
+            new NavSpec(vbeautyv,   v终端美化v,     vbeautyv,   v程序v),
+            new NavSpec(vupdatev,   v系统更新v,     vupdatev,   v系统管理v),
+            new NavSpec(vnetworkv,  v网络配置v,     vnetworkv,  v系统管理v),
+            new NavSpec(vdiagv,     v诊断工具v,     vnetworkv,  v系统管理v),
+            new NavSpec(vaccountsv, v本地账户v,     vaccountsv, v系统管理v),
+            new NavSpec(vservicesv, v服务管理v,     vservicesv, v系统管理v),
+            new NavSpec(vsoftv,     v软件与权限v,   vsecurityv, v系统管理v),
+            new NavSpec(vfirewallv, v防火墙v,       vsecurityv, v系统管理v),
+            new NavSpec(vstoragev,  v存储与备份v,   vstoragev,  v系统管理v),
+            new NavSpec(vsystasksv, v系统任务v,     vtasksv,    v系统管理v),
+            new NavSpec(vroletoolsv,v角色工具v,     vrolev,     v系统管理v),
+            new NavSpec(vnotifyv,   v通知v,         vnotifyv,   v系统管理v),
+            new NavSpec(vmaintv,    v系统维护v,     vtoolv,     v系统管理v),
+            new NavSpec(vlogsv,     v日志中心v,     vlogsv,     v运维v),
+            new NavSpec(vmetricsv,  v监控告警v,     vmonitorv,  v运维v),
+            new NavSpec(vbatchv,    v批量管理v,     vhostsv,    v运维v),
+            new NavSpec(vscriptsv,  v脚本库v,       vtoolv,     v运维v),
+            new NavSpec(vreportsv,  v报告中心v,     vlogsv,     v运维v),
+            new NavSpec(vtasksv,    v任务中心v,     vtasksv,    v运维v),
+            new NavSpec(vopsv,      v自动化v,       vopsv,      v运维v),
+            new NavSpec(vauditv,    v操作审计v,     vauditv,    v运维v),
+            new NavSpec(vhostsv,    v远程主机v,     vhostsv,    v运维v),
+            new NavSpec(vmorev,     v全部功能v,     vmorev,     v系统v),
+            new NavSpec(vsettingsv, v设置v,         vtoolv,     v系统v),
+            new NavSpec(vaboutv,    v关于v,         vaboutv,    v系统v)
         };
 
-        public Shell(string startPage = "monitor")
+        public Shell(string startPage = vmonitorv)
         {
-            _startPage = string.IsNullOrEmpty(startPage) ? "monitor" : startPage;
-            Text = "SCM 运维控制台";
+            _startPage = string.IsNullOrEmpty(startPage) ? vmonitorv : startPage;
+            Text = vSCM 运维控制台v;
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Theme.Frame;
@@ -469,9 +469,9 @@ namespace ScmUi
             {
                 if (Actions.Busy && e.CloseReason == CloseReason.UserClosing)
                 {
-                    if (!Dialogs.Confirm(this, "还有动作在运行",
-                        "当前动作：" + Actions.CurrentId + "\n\n现在退出会终止它（连同子进程）。确定退出？",
-                        "退出"))
+                    if (!Dialogs.Confirm(this, v还有动作在运行v,
+                        v当前动作：v + Actions.CurrentId + v\n\n现在退出会终止它（连同子进程）。确定退出？v,
+                        v退出v))
                     {
                         e.Cancel = true;
                         return;
@@ -480,15 +480,15 @@ namespace ScmUi
                 try
                 {
                     string dir = System.IO.Path.GetFullPath(
-                        System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\logs"));
+                        System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @v..\..\logsv));
                     System.IO.Directory.CreateDirectory(dir);
-                    System.IO.File.AppendAllText(System.IO.Path.Combine(dir, "ui-close.log"),
-                        DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "  reason=" + e.CloseReason +
-                        "  action=" + (Actions.Busy ? Actions.CurrentId : "-") + "\r\n");
+                    System.IO.File.AppendAllText(System.IO.Path.Combine(dir, vui-close.logv),
+                        DateTime.Now.ToString(vyyyy-MM-dd HH:mm:ssv) + v  reason=v + e.CloseReason +
+                        v  action=v + (Actions.Busy ? Actions.CurrentId : v-v) + v\r\nv);
                 }
                 catch { }
 
-                // 关窗 = 回到命令行：界面关掉之后如果没有 shell，Server Core 会话看起来就像"死"了。
+                // 关窗 = 回到命令行：界面关掉之后如果没有 shell，Server Core 会话看起来就像v死v了。
                 // 三种关法（X / Alt+F4 / Esc）走同一处，系统关机 / 注销时不弹。
                 if (!e.Cancel && !SelfUpdate.PendingRestart &&
                     e.CloseReason != CloseReason.WindowsShutDown &&
@@ -528,33 +528,33 @@ namespace ScmUi
                 try
                 {
                     // 诊断文件写到 state\，不要写进 ui\bin\ —— 那个目录在完整性清单范围内，
-                    // 自己写一个清单外的文件会让用户一启动就"自检不通过"。
+                    // 自己写一个清单外的文件会让用户一启动就v自检不通过v。
                     string dir = System.IO.Path.GetFullPath(
-                        System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\state"));
+                        System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @v..\..\statev));
                     System.IO.Directory.CreateDirectory(dir);
-                    System.IO.File.WriteAllText(System.IO.Path.Combine(dir, "startup-ms.txt"),
+                    System.IO.File.WriteAllText(System.IO.Path.Combine(dir, vstartup-ms.txtv),
                         (Environment.TickCount - Program.StartTick).ToString());
                 }
                 catch { }
 
                 // 启动静默核对文件清单（旧界面每次启动都做，C# 版原来只有关于页手动按钮）。
                 // 通过就安静；不通过才在日志里报警 —— 别每次开都刷两行。
-                Bridge.Run(@"gui\Run-GuiReadyIntegrity.ps1", "status", null,
+                Bridge.Run(@vgui\Run-GuiReadyIntegrity.ps1v, vstatusv, null,
                     d =>
                     {
-                        var data = d.ContainsKey("Data") ? d["Data"] : null;
+                        var data = d.ContainsKey(vDatav) ? d[vDatav] : null;
                         var map = data as Dictionary<string, object>;
                         if (map == null) return;
                         // 开发目录里没有 manifest.sha256（打包时才生成），这种情况不该报警
-                        if (!Bridge.Bool(map, "ManifestExists")) return;
-                        bool ok = Bridge.Bool(map, "Ok");
-                        int mod = Bridge.StrList(map, "Modified").Count;
-                        int miss = Bridge.StrList(map, "Missing").Count;
-                        int extra = Bridge.StrList(map, "Extra").Count;
+                        if (!Bridge.Bool(map, vManifestExistsv)) return;
+                        bool ok = Bridge.Bool(map, vOkv);
+                        int mod = Bridge.StrList(map, vModifiedv).Count;
+                        int miss = Bridge.StrList(map, vMissingv).Count;
+                        int extra = Bridge.StrList(map, vExtrav).Count;
                         if (!ok)
                             BeginInvoke((Action)(() => AppendLog(
-                                "[WARN] 文件清单核对未通过：修改 " + mod + " / 缺失 " + miss +
-                                " / 多出 " + extra + "；到「关于 → 完整性自检」看详情")));
+                                v[WARN] 文件清单核对未通过：修改 v + mod + v / 缺失 v + miss +
+                                v / 多出 v + extra + v；到「关于 → 完整性自检」看详情v)));
                     },
                     err => { }, 120000);
             };
@@ -567,9 +567,9 @@ namespace ScmUi
             foreach (var spec in NavSpecs)
             {
                 if (!AppSettings.IsPageVisible(spec.Key)) continue;
-                items.Add(new KeyValuePair<string, string>(spec.Key, spec.Group + " / " + spec.Text));
+                items.Add(new KeyValuePair<string, string>(spec.Key, spec.Group + v / v + spec.Text));
             }
-            items.Add(new KeyValuePair<string, string>("more", "系统 / 全部功能（动作台）"));
+            items.Add(new KeyValuePair<string, string>(vmorev, v系统 / 全部功能（动作台）v));
             using (var dlg = new PaletteDialog(items))
             {
                 dlg.ShowDialog(this);
@@ -587,17 +587,17 @@ namespace ScmUi
         // ---------------------------------------------------------- 标题栏
         private void BuildTitle()
         {
-            var close = new IconButton("about", 30) { Location = new Point(Width - 44, 8) };
+            var close = new IconButton(vaboutv, 30) { Location = new Point(Width - 44, 8) };
             close.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            close.Glyph = "about";
+            close.Glyph = vaboutv;
             close.Click += (s, e) => Close();
 
-            var max = new IconButton("more", 30) { Location = new Point(Width - 82, 8) };
+            var max = new IconButton(vmorev, 30) { Location = new Point(Width - 82, 8) };
             max.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             max.Click += (s, e) => WindowState = WindowState == FormWindowState.Maximized
                                         ? FormWindowState.Normal : FormWindowState.Maximized;
 
-            var min = new IconButton("stop", 30) { Location = new Point(Width - 120, 8) };
+            var min = new IconButton(vstopv, 30) { Location = new Point(Width - 120, 8) };
             min.Anchor = AnchorStyles.Top | AnchorStyles.Right;
             min.Click += (s, e) => WindowState = FormWindowState.Minimized;
 
@@ -621,12 +621,12 @@ namespace ScmUi
                     g.DrawLine(pen, 0, _title.Height - 1, _title.Width, _title.Height - 1);
                 using (var b = new SolidBrush(Theme.Accent))
                     g.FillRectangle(b, 18, 16, 3, 14);
-                Draw.Text(g, "SCM 运维控制台", Theme.Font(10f, true), Theme.Text,
+                Draw.Text(g, vSCM 运维控制台v, Theme.Font(10f, true), Theme.Text,
                           new Rectangle(28, 0, 240, _title.Height));
-                Draw.Text(g, "Windows Server Core", Theme.Font(8.5f), Theme.Hint,
+                Draw.Text(g, vWindows Server Corev, Theme.Font(8.5f), Theme.Hint,
                           new Rectangle(152, 0, 220, _title.Height));
                 if (_title.Width > 560)
-                    Draw.Text(g, "v2.4", Theme.Font(8.5f), Theme.Hint,
+                    Draw.Text(g, vv2.4v, Theme.Font(8.5f), Theme.Hint,
                               new Rectangle(_title.Width - 210, 0, 50, _title.Height),
                               ContentAlignment.MiddleRight);
             };
@@ -652,7 +652,7 @@ namespace ScmUi
         {
             try
             {
-                var pi = typeof(Control).GetProperty("DoubleBuffered",
+                var pi = typeof(Control).GetProperty(vDoubleBufferedv,
                     System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
                 if (pi != null) pi.SetValue(c, true, null);
             }
@@ -715,7 +715,7 @@ namespace ScmUi
 
             if (!string.IsNullOrEmpty(_currentKey) && !AppSettings.IsPageVisible(_currentKey))
             {
-                ShowPage("monitor", false);
+                ShowPage(vmonitorv, false);
             }
             else
             {
@@ -726,16 +726,16 @@ namespace ScmUi
         // ---------------------------------------------------------- 日志栏
         private void BuildLog()
         {
-            _stopBtn = new UiButton("停止", ButtonKind.Danger, 60, 24) { Visible = false };
+            _stopBtn = new UiButton(v停止v, ButtonKind.Danger, 60, 24) { Visible = false };
             _stopBtn.Click += (s, e) =>
             {
                 Actions.Cancel();
-                AppendLog("[WARN] 已请求停止当前动作（连同子进程一起终止）");
+                AppendLog(v[WARN] 已请求停止当前动作（连同子进程一起终止）v);
             };
             _log.Controls.Add(_stopBtn);
 
             // 日志工具条（PowerShell 版有、C# 版最早缺的那几个）
-            _clearBtn = new UiButton("清空", ButtonKind.Ghost, 52, 24);
+            _clearBtn = new UiButton(v清空v, ButtonKind.Ghost, 52, 24);
             _clearBtn.Click += (s, e) =>
             {
                 _logLines.Clear();
@@ -743,17 +743,17 @@ namespace ScmUi
                 _logSelA = _logSelB = -1;
                 _log.Invalidate();
             };
-            _copyBtn = new UiButton("复制", ButtonKind.Ghost, 52, 24);
+            _copyBtn = new UiButton(v复制v, ButtonKind.Ghost, 52, 24);
             _copyBtn.Click += (s, e) => CopyLogSelection();
-            _openBtn = new UiButton("打开日志", ButtonKind.Ghost, 76, 24);
+            _openBtn = new UiButton(v打开日志v, ButtonKind.Ghost, 76, 24);
             _openBtn.Click += (s, e) => OpenLatestLog();
-            _dirBtn = new UiButton("日志目录", ButtonKind.Ghost, 76, 24);
+            _dirBtn = new UiButton(v日志目录v, ButtonKind.Ghost, 76, 24);
             _dirBtn.Click += (s, e) => OpenLogFolder();
-            _foldBtn = new UiButton("收起", ButtonKind.Ghost, 52, 24);
+            _foldBtn = new UiButton(v收起v, ButtonKind.Ghost, 52, 24);
             _foldBtn.Click += (s, e) =>
             {
                 _logFolded = !_logFolded;
-                _foldBtn.Text = _logFolded ? "展开" : "收起";
+                _foldBtn.Text = _logFolded ? v展开v : v收起v;
                 _foldBtn.Invalidate();
                 _log.Height = _logFolded ? 34 : LogH;
                 _log.Invalidate();
@@ -808,7 +808,7 @@ namespace ScmUi
                 try
                 {
                     Clipboard.SetText(_logLines[idx]);
-                    AppendLog("[INFO] 已复制该行到剪贴板");
+                    AppendLog(v[INFO] 已复制该行到剪贴板v);
                 }
                 catch { }
             };
@@ -819,13 +819,13 @@ namespace ScmUi
                 PaintGlass(g, _log, 236);
                 using (var pen = new Pen(Theme.Border))
                     g.DrawLine(pen, 0, 0, _log.Width, 0);
-                Draw.Text(g, "运行日志", Theme.Font(9f, true), Theme.Hint,
+                Draw.Text(g, v运行日志v, Theme.Font(9f, true), Theme.Hint,
                           new Rectangle(16, 6, 90, 22));
 
                 if (Actions.Busy)
                 {
                     int right = _stopBtn.Visible ? _stopBtn.Left - 12 : _log.Width - 16;
-                    Draw.Text(g, "动作运行中 · " + Actions.CurrentId,
+                    Draw.Text(g, v动作运行中 · v + Actions.CurrentId,
                               Theme.Font(9f), Theme.AccentHi,
                               new Rectangle(Math.Max(120, right - 380), 6, 380, 22),
                               ContentAlignment.MiddleRight);
@@ -898,7 +898,7 @@ namespace ScmUi
                 var sb = new System.Text.StringBuilder();
                 for (int i = from; i <= to && i < _logLines.Count; i++) sb.AppendLine(_logLines[i]);
                 Clipboard.SetText(sb.ToString());
-                AppendLog("[INFO] 已复制 " + (to - from + 1) + " 行日志到剪贴板");
+                AppendLog(v[INFO] 已复制 v + (to - from + 1) + v 行日志到剪贴板v);
             }
             catch { }
         }
@@ -909,7 +909,7 @@ namespace ScmUi
             string dir = BridgeLogDir();
             try
             {
-                var files = new System.IO.DirectoryInfo(dir).GetFiles("*.log");
+                var files = new System.IO.DirectoryInfo(dir).GetFiles(v*.logv);
                 if (files.Length == 0) { OpenLogFolder(); return; }
                 System.IO.FileInfo newest = files[0];
                 foreach (var f in files) if (f.LastWriteTime > newest.LastWriteTime) newest = f;
@@ -918,11 +918,11 @@ namespace ScmUi
                     FileName = newest.FullName,
                     UseShellExecute = true
                 });
-                AppendLog("[INFO] 已打开 " + newest.Name);
+                AppendLog(v[INFO] 已打开 v + newest.Name);
             }
             catch (Exception ex)
             {
-                AppendLog("[WARN] 打开日志失败: " + ex.Message);
+                AppendLog(v[WARN] 打开日志失败: v + ex.Message);
             }
         }
 
@@ -930,17 +930,17 @@ namespace ScmUi
         {
             try
             {
-                System.Diagnostics.Process.Start("explorer.exe", BridgeLogDir());
+                System.Diagnostics.Process.Start(vexplorer.exev, BridgeLogDir());
             }
             catch (Exception ex)
             {
-                AppendLog("[WARN] 打开日志目录失败: " + ex.Message);
+                AppendLog(v[WARN] 打开日志目录失败: v + ex.Message);
             }
         }
 
         private static string BridgeLogDir()
         {
-            string dir = System.IO.Path.Combine(Bridge.Root, "logs");
+            string dir = System.IO.Path.Combine(Bridge.Root, vlogsv);
             try { System.IO.Directory.CreateDirectory(dir); } catch { }
             return dir;
         }
@@ -948,16 +948,16 @@ namespace ScmUi
         // [18:02:11] [STEP] 消息 -> 时间灰、级别按语义着色、消息浅色
         private static void DrawLogLine(Graphics g, string line, Rectangle r)
         {
-            string stamp = "";
-            string level = "";
+            string stamp = vv;
+            string level = vv;
             string msg = line;
             if (line != null && line.Length > 4 && line[0] == '[')
             {
-                int p1 = line.IndexOf("] [", StringComparison.Ordinal);
+                int p1 = line.IndexOf(v] [v, StringComparison.Ordinal);
                 if (p1 > 0)
                 {
                     stamp = line.Substring(1, p1 - 1);
-                    int p2 = line.IndexOf("] ", p1 + 2, StringComparison.Ordinal);
+                    int p2 = line.IndexOf(v] v, p1 + 2, StringComparison.Ordinal);
                     if (p2 > 0)
                     {
                         level = line.Substring(p1 + 3, p2 - p1 - 3);
@@ -976,7 +976,7 @@ namespace ScmUi
                 x += 52;
             }
             Draw.Text(g, msg, Theme.Mono(8.75f),
-                      level == "ERROR" ? Theme.Err : Theme.Sub,
+                      level == vERRORv ? Theme.Err : Theme.Sub,
                       new Rectangle(x, r.Y, Math.Max(20, r.Right - x), r.Height));
         }
 
@@ -984,12 +984,12 @@ namespace ScmUi
         {
             switch (level)
             {
-                case "OK": return Theme.Ok;
-                case "WARN": return Theme.Warn;
-                case "ERROR": return Theme.Err;
-                case "STEP": return Theme.AccentHi;
-                case "HEAD": return Theme.Text;
-                case "DRY": return Theme.Hex("#C084FC");
+                case vOKv: return Theme.Ok;
+                case vWARNv: return Theme.Warn;
+                case vERRORv: return Theme.Err;
+                case vSTEPv: return Theme.AccentHi;
+                case vHEADv: return Theme.Text;
+                case vDRYv: return Theme.Hex(v#C084FCv);
                 default: return Theme.Hint;
             }
         }
@@ -1042,42 +1042,42 @@ namespace ScmUi
 
         private void RegisterPages()
         {
-            Register("monitor",  () => new OverviewPage());
-            Register("env",      () => new EnvPage());
-            Register("tasks",    () => new TasksPage());
-            Register("ops",      () => new OpsPage());
-            Register("store",    () => new StorePage());
-            Register("app",      () => new AppPage());
-            Register("tools",    () => new ToolsPage());
-            Register("catalog",  () => new CatalogPage());
-            Register("runtime",  () => new RuntimePage());
-            Register("database", () => new DatabasePage());
-            Register("audit",    () => new AuditPage());
-            Register("hosts",    () => new HostsPage());
-            Register("role",     () => new RolePage());
-            Register("security", () => new SecurityPage());
-            Register("tool",     () => new ToolPage());
-            Register("beauty",   () => new BeautyPage());
-            Register("update",   () => new UpdatePage());
-            Register("network",  () => new NetworkPage());
-            Register("accounts", () => new AccountsPage());
-            Register("services", () => new ServicesPage());
-            Register("firewall", () => new FirewallPage());
-            Register("storage",  () => new StoragePage());
-            Register("systasks", () => new SysTasksPage());
-            Register("logs",     () => new LogsPage());
-            Register("roletools", () => new RoleToolsPage());
-            Register("notify",   () => new NotifyPage());
-            Register("maint",    () => new MaintPage());
-            Register("metrics",  () => new MetricsPage());
-            Register("batch",    () => new BatchPage());
-            Register("scripts",  () => new ScriptsPage());
-            Register("diag",     () => new DiagPage());
-            Register("soft",     () => new SoftwarePage());
-            Register("reports",  () => new ReportsPage());
-            Register("more",     () => new MorePage());
-            Register("settings", () => new SettingsPage());
-            Register("about",    () => new AboutPage());
+            Register(vmonitorv,  () => new OverviewPage());
+            Register(venvv,      () => new EnvPage());
+            Register(vtasksv,    () => new TasksPage());
+            Register(vopsv,      () => new OpsPage());
+            Register(vstorev,    () => new StorePage());
+            Register(vappv,      () => new AppPage());
+            Register(vtoolsv,    () => new ToolsPage());
+            Register(vcatalogv,  () => new CatalogPage());
+            Register(vruntimev,  () => new RuntimePage());
+            Register(vdatabasev, () => new DatabasePage());
+            Register(vauditv,    () => new AuditPage());
+            Register(vhostsv,    () => new HostsPage());
+            Register(vrolev,     () => new RolePage());
+            Register(vsecurityv, () => new SecurityPage());
+            Register(vtoolv,     () => new ToolPage());
+            Register(vbeautyv,   () => new BeautyPage());
+            Register(vupdatev,   () => new UpdatePage());
+            Register(vnetworkv,  () => new NetworkPage());
+            Register(vaccountsv, () => new AccountsPage());
+            Register(vservicesv, () => new ServicesPage());
+            Register(vfirewallv, () => new FirewallPage());
+            Register(vstoragev,  () => new StoragePage());
+            Register(vsystasksv, () => new SysTasksPage());
+            Register(vlogsv,     () => new LogsPage());
+            Register(vroletoolsv, () => new RoleToolsPage());
+            Register(vnotifyv,   () => new NotifyPage());
+            Register(vmaintv,    () => new MaintPage());
+            Register(vmetricsv,  () => new MetricsPage());
+            Register(vbatchv,    () => new BatchPage());
+            Register(vscriptsv,  () => new ScriptsPage());
+            Register(vdiagv,     () => new DiagPage());
+            Register(vsoftv,     () => new SoftwarePage());
+            Register(vreportsv,  () => new ReportsPage());
+            Register(vmorev,     () => new MorePage());
+            Register(vsettingsv, () => new SettingsPage());
+            Register(vaboutv,    () => new AboutPage());
         }
 
         private void Register(string key, Func<PageBase> factory)
@@ -1092,39 +1092,39 @@ namespace ScmUi
         {
             switch (key)
             {
-                case "role": return 10;
-                case "security": return 20;
-                case "logs": return 10;
-                case "tasks": return 10;
-                case "ops": return 10;
-                case "audit": return 10;
-                case "hosts": return 10;
-                case "app": return 15;
-                case "tools": return 30;
-                case "catalog": return 15;
-                case "runtime": return 20;
-                case "database": return 15;
-                case "store": return 20;
-                case "env": return 20;
-                case "beauty": return 30;
-                case "update": return 60;
-                case "network": return 15;
-                case "accounts": return 15;
-                case "services": return 20;
-                case "firewall": return 30;
-                case "storage": return 20;
-                case "systasks": return 20;
-                case "roletools": return 30;
-                case "notify": return 15;
-                case "maint": return 30;
-                case "metrics": return 15;
-                case "batch": return 30;
-                case "scripts": return 60;
-                case "diag": return 15;
-                case "soft": return 20;
-                case "reports": return 30;
-                case "tool": return 60;
-                case "more": return 60;
+                case vrolev: return 10;
+                case vsecurityv: return 20;
+                case vlogsv: return 10;
+                case vtasksv: return 10;
+                case vopsv: return 10;
+                case vauditv: return 10;
+                case vhostsv: return 10;
+                case vappv: return 15;
+                case vtoolsv: return 30;
+                case vcatalogv: return 15;
+                case vruntimev: return 20;
+                case vdatabasev: return 15;
+                case vstorev: return 20;
+                case venvv: return 20;
+                case vbeautyv: return 30;
+                case vupdatev: return 60;
+                case vnetworkv: return 15;
+                case vaccountsv: return 15;
+                case vservicesv: return 20;
+                case vfirewallv: return 30;
+                case vstoragev: return 20;
+                case vsystasksv: return 20;
+                case vroletoolsv: return 30;
+                case vnotifyv: return 15;
+                case vmaintv: return 30;
+                case vmetricsv: return 15;
+                case vbatchv: return 30;
+                case vscriptsv: return 60;
+                case vdiagv: return 15;
+                case vsoftv: return 20;
+                case vreportsv: return 30;
+                case vtoolv: return 60;
+                case vmorev: return 60;
                 default: return 0;
             }
         }
@@ -1151,9 +1151,9 @@ namespace ScmUi
         // 页头「高级」按钮：跳到「全部功能」并定位到对应分组
         public void OpenActionGroup(string group)
         {
-            var page = EnsurePage("more");
+            var page = EnsurePage(vmorev);
             if (page == null) return;
-            ShowPage("more");
+            ShowPage(vmorev);
             var more = page as MorePage;
             if (more != null) more.FocusGroup(group);
         }
@@ -1218,14 +1218,14 @@ namespace ScmUi
             StartTick = Environment.TickCount;
             // 崩溃日志写到 logs\（清单覆盖 ui\bin\，往里写文件会让用户的完整性自检永远报警）
             string log = System.IO.Path.GetFullPath(
-                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"..\..\logs\ui-error.log"));
+                System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @v..\..\logs\ui-error.logv));
             try
             {
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(log));
             }
             catch
             {
-                log = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "error.txt");
+                log = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, verror.txtv);
             }
             try
             {
@@ -1238,7 +1238,7 @@ namespace ScmUi
                 AppSettings.Load();
                 if (!AppSettings.FirstRunDone)
                 {
-                    string pick = "";
+                    string pick = vv;
                     using (var dlg = new FirstRunDialog())
                     {
                         dlg.ShowDialog();
@@ -1255,7 +1255,7 @@ namespace ScmUi
                     AppSettings.Save();
                 }
 
-                Application.Run(new Shell(args != null && args.Length > 0 ? args[0] : "monitor"));
+                Application.Run(new Shell(args != null && args.Length > 0 ? args[0] : vmonitorv));
             }
             catch (Exception ex)
             {
@@ -1268,8 +1268,8 @@ namespace ScmUi
             try
             {
                 System.IO.File.AppendAllText(path,
-                    DateTime.Now.ToString("HH:mm:ss") + " " +
-                    (ex == null ? "(null)" : ex.ToString()) + Environment.NewLine + Environment.NewLine);
+                    DateTime.Now.ToString(vHH:mm:ssv) + v v +
+                    (ex == null ? v(null)v : ex.ToString()) + Environment.NewLine + Environment.NewLine);
             }
             catch { }
         }
@@ -1277,7 +1277,7 @@ namespace ScmUi
 
     // ============================================================
     // 退出界面 = 回到命令行。
-    // Server Core 没有桌面，界面关掉之后如果什么都不剩，会话看起来就像"死了"。
+    // Server Core 没有桌面，界面关掉之后如果什么都不剩，会话看起来就像v死了v。
     // 装了美化终端就起 scm-term，没装就起普通 PowerShell（-NoExit，工作目录是工具目录）。
     // ============================================================
     internal static class ExitShell
@@ -1290,18 +1290,18 @@ namespace ScmUi
             _opened = true;
             try
             {
-                if (Environment.GetEnvironmentVariable("SCM_NO_EXIT_TERM") == "1") return;
+                if (Environment.GetEnvironmentVariable(vSCM_NO_EXIT_TERMv) == v1v) return;
                 if (System.Diagnostics.Process.GetCurrentProcess().SessionId <= 0) return;
 
                 string root = Bridge.Root;
-                string term = System.IO.Path.Combine(root, @"bin\scm-term.cmd");
+                string term = System.IO.Path.Combine(root, @vbin\scm-term.cmdv);
                 string sysTerm = System.IO.Path.Combine(
-                    Environment.GetFolderPath(Environment.SpecialFolder.Windows), @"System32\scm-term.cmd");
+                    Environment.GetFolderPath(Environment.SpecialFolder.Windows), @vSystem32\scm-term.cmdv);
 
                 string file, args;
-                if (System.IO.File.Exists(term)) { file = term; args = ""; }
-                else if (System.IO.File.Exists(sysTerm)) { file = sysTerm; args = ""; }
-                else { file = "powershell.exe"; args = "-NoLogo -NoExit"; }
+                if (System.IO.File.Exists(term)) { file = term; args = vv; }
+                else if (System.IO.File.Exists(sysTerm)) { file = sysTerm; args = vv; }
+                else { file = vpowershell.exev; args = v-NoLogo -NoExitv; }
 
                 System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(file)
                 {
