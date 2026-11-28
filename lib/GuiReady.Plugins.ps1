@@ -1,4 +1,4 @@
-# GuiReady 附属工具（TUI_TOOL）：清单、本地状态、GitHub / Gitee 双线路下载。
+﻿# GuiReady 附属工具（TUI_TOOL）：清单、本地状态、GitHub / Gitee 双线路下载。
 #
 # 约定：
 #   - 每个工具的源码放在主仓库的独立分支 tool/<id>，main 分支不带这些源码；

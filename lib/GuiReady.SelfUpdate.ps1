@@ -1,4 +1,4 @@
-# GuiReady self-update: check tags on GitHub / Gitee, download the release zip,
+﻿# GuiReady self-update: check tags on GitHub / Gitee, download the release zip,
 # stage it and hand over to a detached apply script.
 #
 # 设计要点：

@@ -1,4 +1,4 @@
-# GuiReady entry point: console menu (two-level)
+﻿# GuiReady entry point: console menu (two-level)
 
 $ErrorActionPreference = 'Continue'
 try { [Console]::Title = 'Server Core GUI 就绪工具' } catch { }
