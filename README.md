@@ -343,7 +343,7 @@ irm https://raw.githubusercontent.com/Server-Core-Mananger/Server-core-manager/m
 
 （Gitee 对不存在的下载路径会返回 `200` + 一段 JSON，所以脚本会按 zip 魔数 `PK` 校验内容，不是只看状态码。）
 
-它会：下载指定版本的发布包（默认 `v2.5`）→ 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → 安装 `scm` 一行命令。
+它会：下载指定版本的发布包（默认 `v2.6`）→ 解压到 `C:\Program Files\ServerCoreManager` → 解除「来自 Internet」的文件锁定 → **询问服务器版本档位** → 安装 `scm` 一行命令。
 
 装完之后，**在任意目录输入 `scm` 回车**就能打开图形界面（首次会像 `sconfig` 一样弹一次提权确认）。
 
@@ -352,14 +352,26 @@ irm https://raw.githubusercontent.com/Server-Core-Mananger/Server-core-manager/m
 ```powershell
 $env:SCM_DEST = 'D:\SCM'      # 改安装目录
 $env:SCM_NO_COMMAND = '1'     # 不装 scm 命令
-$env:SCM_VERSION = 'v2.5'     # 指定发布版本（两个仓库用同一个 tag）
+$env:SCM_VERSION = 'v2.6'     # 指定发布版本（两个仓库用同一个 tag）
+$env:SCM_TIER = 'auto'        # 服务器版本档位：auto / modern / legacy / old，设置后跳过交互
 irm https://gitee.com/orangearc655743/server-core-manager/raw/main/install.ps1 | iex
 ```
+
+安装过程中会询问服务器版本，对应关系：
+
+| 选项 | 档位 | 行为 |
+|---|---|---|
+| 1 | `modern` | 2019 及以上：保留 FOD / WAC 页面，隐藏 8 个重复系统页 |
+| 2 | `legacy` | 2012 R2 / 2016：隐藏 FOD / WAC 相关页面 |
+| 3 | `old` | 2008 R2：在上一档基础上把存储写操作设为只读 |
+
+脚本会按当前 build 给出建议默认值；升级时沿用上次选择，不会重复询问。非交互场景（管道、计划任务、`-NoPrompt`）自动使用 `auto`。选择结果写入 `state\ui-settings.json`，首次启动向导不会再问一遍。
 
 也可以先把 [install.ps1](install.ps1) 存成文件，再按 UTF-8 读进来跑，这样能直接传参（不要直接 `.\install.ps1`：Windows PowerShell 5.1 会按 ANSI 读无 BOM 文件，中文会破坏语法）：
 
 ```powershell
 & ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM' -NoCommand
+& ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM' -Tier old -NoPrompt
 ```
 
 > **重复执行等于升级**：只覆盖程序文件，不会动你已有的程序列表（`launcher\programs.json`）、日志和断点状态。

@@ -26,13 +26,15 @@
   因为 iex 没法传参数，需要改默认值时用环境变量：
       $env:SCM_DEST       = 'D:\SCM'    指定安装目录（默认 C:\Program Files\ServerCoreManager）
       $env:SCM_NO_COMMAND = '1'         不安装 scm 一行命令
-      $env:SCM_VERSION    = 'v2.4'      指定发布版本（两个仓库用同一个 tag）
+      $env:SCM_VERSION    = 'v2.6'      指定发布版本（两个仓库用同一个 tag）
+      $env:SCM_TIER       = 'auto'      服务器版本档位：auto / modern / legacy / old（跳过交互选择）
       $env:SCM_MIRROR_GITHUB = 'http://内网镜像'   把 https://github.com 换成你的镜像/内网源
       $env:SCM_MIRROR_GITEE  = 'https://gitee.com/你的账号/你的仓库'  换一个 Gitee 基址镜像
       $env:SCM_MIRROR_TUNA   = 'https://mirrors.tuna.tsinghua.edu.cn'  清华镜像基址（工具内部装 PowerShell 7 用）
 
   也可以先存成文件、再按 UTF-8 读进来跑，这样能直接传参：
       & ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM' -NoCommand
+      & ([scriptblock]::Create((Get-Content .\install.ps1 -Raw -Encoding UTF8))) -Dest 'D:\SCM' -Tier old -NoPrompt
 
   重复执行视为升级：只覆盖程序文件，不会删除你已有的程序列表（launcher\programs.json）、
   日志与断点状态（logs\ / reports\ / state\）。
@@ -45,6 +47,8 @@ param(
     [string]$Dest = '',
     [string]$Version = '',
     [string]$CommandName = 'scm',
+    [string]$Tier = '',
+    [switch]$NoPrompt,
     [switch]$NoCommand
 )
 
@@ -60,7 +64,7 @@ $AssetName = 'ServerCoreManager.zip'
 # 发版时要把本文件一起同步推到 Gitee，两边保持同一份内容。
 $GiteeOwner = 'orangearc655743'
 $GiteeRepo  = 'server-core-manager'
-$ScmVer     = 'v2.5'
+$ScmVer     = 'v2.6'
 
 # 用 irm | iex 运行时 $PSCommandPath 为空。这种情况下一律不能用 exit：
 # 实测 exit 会直接终止宿主，把用户刚打开的 PowerShell 窗口关掉，报错信息根本来不及看。
@@ -349,6 +353,103 @@ Get-ChildItem -LiteralPath $Dest -Recurse -Include '*.ps1', '*.bat', '*.cmd' -Fi
 Write-Ok ('已解除 ' + $unblocked + ' 个文件')
 
 Remove-Item -LiteralPath $tmp -Recurse -Force -ErrorAction SilentlyContinue
+Write-Host ''
+
+# ---------------------------------------------------------------- 服务器版本档位
+
+Write-Step '选择当前服务器版本 ...'
+
+$tierMap = @{
+    '1' = 'modern'
+    '2' = 'legacy'
+    '3' = 'old'
+}
+$tierText = @{
+    'modern' = '2019 及以上'
+    'legacy' = '2012 R2 – 2016'
+    'old'    = '2008 R2'
+    'auto'   = '自动判断'
+}
+
+$settingsPath = Join-Path $Dest 'state\ui-settings.json'
+$existingSettings = $null
+if (Test-Path -LiteralPath $settingsPath) {
+    try { $existingSettings = Get-Content -LiteralPath $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json } catch { }
+}
+
+# 优先级：-Tier 参数 > SCM_TIER 环境变量 > 升级时沿用上次选择
+$tierChoice = ''
+if ($Tier) { $tierChoice = $Tier.ToLowerInvariant() }
+elseif ($env:SCM_TIER) { $tierChoice = $env:SCM_TIER.ToLowerInvariant() }
+elseif ($existingSettings -and $existingSettings.FirstRunDone -and $existingSettings.VersionTier) {
+    $tierChoice = ([string]$existingSettings.VersionTier).ToLowerInvariant()
+}
+
+if ($tierChoice -and ($tierMap.Values -notcontains $tierChoice)) {
+    Write-Warn ('无效的版本档位 "' + $tierChoice + '"，改为自动判断')
+    $tierChoice = ''
+}
+
+$osBuild = [Environment]::OSVersion.Version.Build
+$osName = ''
+try { $osName = (Get-CimInstance -ClassName Win32_OperatingSystem -ErrorAction Stop).Caption } catch { }
+
+if (-not $tierChoice) {
+    # 非交互场景（管道、计划任务、-NoPrompt）不阻塞，直接自动判断
+    if ($NoPrompt -or -not [Environment]::UserInteractive -or [Console]::IsInputRedirected) {
+        $tierChoice = 'auto'
+    } else {
+        $defaultPick = '2'
+        if ($osBuild -ge 17763) { $defaultPick = '1' }
+        elseif ($osBuild -le 7601) { $defaultPick = '3' }
+
+        Write-Host ('    当前系统 : ' + $(if ($osName) { $osName } else { 'Windows' }) + '（build ' + $osBuild + '）') -ForegroundColor Gray
+        Write-Host ''
+        Write-Host '    1) Windows Server 2019 及以上' -ForegroundColor White
+        Write-Host '       保留 FOD / Windows Admin Center 页面，隐藏与之重复的 8 个系统页' -ForegroundColor DarkGray
+        Write-Host '    2) Windows Server 2012 R2 / 2016' -ForegroundColor White
+        Write-Host '       隐藏 FOD / WAC 相关页面，保留其余系统页' -ForegroundColor DarkGray
+        Write-Host '    3) Windows Server 2008 R2' -ForegroundColor White
+        Write-Host '       在上一档基础上把存储写操作设为只读' -ForegroundColor DarkGray
+        Write-Host ''
+        $pick = Read-Host ('    请选择 [1-3]，直接回车使用 ' + $defaultPick)
+        if (-not $pick) { $pick = $defaultPick }
+        if ($tierMap.ContainsKey($pick)) {
+            $tierChoice = $tierMap[$pick]
+        } else {
+            Write-Warn '输入无效，已按自动判断处理'
+            $tierChoice = 'auto'
+        }
+    }
+}
+
+if (-not $tierChoice) { $tierChoice = 'auto' }
+
+# 写入主程序读取的 state\ui-settings.json，首次启动向导不再重复询问
+$stateDir = Join-Path $Dest 'state'
+if (-not (Test-Path -LiteralPath $stateDir)) {
+    New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
+}
+$settings = [ordered]@{
+    VersionTier          = $tierChoice
+    HideWacDuplicates    = $true
+    HideUnsupported      = $true
+    FirstRunDone         = $true
+    UpdateCheckOnStartup = $true
+    UpdateSource         = 'auto'
+    LastUpdateCheck      = ''
+    DetectedBuild        = [string]$osBuild
+    DetectedName         = $osName
+    SavedAt              = (Get-Date -Format 'yyyy-MM-dd HH:mm:ss')
+}
+# 升级时保留用户原有的更新设置
+if ($existingSettings) {
+    if ($null -ne $existingSettings.UpdateCheckOnStartup) { $settings.UpdateCheckOnStartup = [bool]$existingSettings.UpdateCheckOnStartup }
+    if ($existingSettings.UpdateSource) { $settings.UpdateSource = [string]$existingSettings.UpdateSource }
+    if ($existingSettings.LastUpdateCheck) { $settings.LastUpdateCheck = [string]$existingSettings.LastUpdateCheck }
+}
+[IO.File]::WriteAllText($settingsPath, ($settings | ConvertTo-Json), (New-Object Text.UTF8Encoding($false)))
+Write-Ok ('已记录版本档位：' + $tierText[$tierChoice] + '（' + $tierChoice + '）')
 Write-Host ''
 
 # ---------------------------------------------------------------- 一行命令
