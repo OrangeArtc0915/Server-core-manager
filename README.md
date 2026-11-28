@@ -25,10 +25,19 @@ Windows Server Core 没有桌面、没有 `explorer.exe`、没有 `dwm.exe`，�
 安装方式一：命令行一行安装      安装方式二：下载 ServerCoreManager.zip 解压即用
 ```
 
+## 预览
+
+| 补全图形环境 | 程序管理 |
+|---|---|
+| ![补全图形环境](assets/screenshots/env.jpg) | ![程序管理](assets/screenshots/software.jpg) |
+| **实测数据** | **一条命令开始** |
+| ![实测数据](assets/screenshots/numbers.jpg) | ![一条命令开始](assets/screenshots/cta.jpg) |
+
 ---
 
 ## 目录
 
+- [预览](#预览)
 - [它解决什么问题](#它解决什么问题)
 - [核心原理](#核心原理)
 - [功能一览](#功能一览)
