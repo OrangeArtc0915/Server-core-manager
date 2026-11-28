@@ -8798,7 +8798,7 @@ $lblAuQQ               = New-Label -Text 'QQ 群：1034243331' -Size 10
 $lblAuQQ.Location      = New-Object System.Drawing.Point(20, 46)
 $cardAbout.Controls.Add($lblAuQQ)
 
-$lblAuVer              = New-Label -Text ('版本：v2.4    构建 ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 10
+$lblAuVer              = New-Label -Text ('版本：v2.5    构建 ' + (Get-Date -Format 'yyyy-MM-dd')) -Size 10
 $lblAuVer.Location     = New-Object System.Drawing.Point(20, 76)
 $cardAbout.Controls.Add($lblAuVer)
 
